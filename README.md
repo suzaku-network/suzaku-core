@@ -30,10 +30,9 @@ Create `.env` file using a template:
 
 ```
 ETH_RPC_URL=
-ETHERSCAN_API_KEY=
 ```
 
-\* ETHERSCAN_API_KEY is optional.
+To get the `ETH_RPC_URL`, you can use [Alchemy](https://www.alchemy.com/), [Infura](https://infura.io/), or any other Ethereum node provider.
 
 ### Build
 
