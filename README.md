@@ -16,11 +16,11 @@ The implementation can be found [here](./src/contracts/defaultCollateral).
 
 ## Technical Documentation
 
-Technical documentation can be found [in the symbioticfi/collateral repository](https://github.com/symbioticfi/collateral/tree/main/specs).
+Technical documentation can be found in the [symbioticfi/collateral](https://github.com/symbioticfi/collateral/tree/main/specs) repository.
 
 ## Security
 
-Security audits can be found [in the symbioticfi/collateral repository](https://github.com/symbioticfi/collateral/tree/main/audits).
+Security audits can be found in the [symbioticfi/collateral](https://github.com/symbioticfi/collateral/tree/main/audits) repository.
 
 ## Usage
 
