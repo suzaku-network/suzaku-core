@@ -9,7 +9,10 @@ libs = ["lib"]
 fs_permissions = [{ access = "read-write", path = "./" }]
 
 [rpc_endpoints]
-mainnet = "${ETH_RPC_URL}"
+sepolia = "${SEPOLIA_RPC_URL}"
+
+[etherscan]
+sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.etherscan.io/api" }
 
 [fmt]
 bracket_spacing = false
