@@ -10,26 +10,6 @@ interface IBaseDelegator {
     error BaseDelegator__NotInitialized();
 
     /**
-     * @notice Get the factory's address.
-     * @return address of the factory
-     */
-    function FACTORY() external view returns (address);
-
-    /**
-     * @notice Get the entity's type.
-     * @return type of the entity
-     */
-    function TYPE() external view returns (uint64);
-
-    /**
-     * @notice Initialize this entity contract by using a given data.
-     * @param data some data to use
-     */
-    function initialize(
-        bytes calldata data
-    ) external;
-
-    /**
      * @notice Base parameters needed for delegators' deployment.
      * @param defaultAdminRoleHolder address of the initial DEFAULT_ADMIN_ROLE holder
      * @param hook address of the hook contract
@@ -78,6 +58,27 @@ interface IBaseDelegator {
      * @return version of the delegator
      * @dev Must return 1 for this one.
      */
+
+    /**
+     * @notice Get the factory's address.
+     * @return address of the factory
+     */
+    function FACTORY() external view returns (address);
+
+    /**
+     * @notice Get the entity's type.
+     * @return type of the entity
+     */
+    function TYPE() external view returns (uint64);
+
+    /**
+     * @notice Initialize this entity contract by using a given data.
+     * @param data some data to use
+     */
+    function initialize(
+        bytes calldata data
+    ) external;
+
     function VERSION() external view returns (uint64);
 
     /**
