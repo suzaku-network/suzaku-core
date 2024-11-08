@@ -7,6 +7,7 @@ interface IBaseDelegator {
     error BaseDelegator__NotNetwork();
     error BaseDelegator__NotSlasher();
     error BaseDelegator__NotVault();
+    error BaseDelegator__NotInitialized();
 
     /**
      * @notice Base parameters needed for delegators' deployment.
@@ -38,12 +39,13 @@ interface IBaseDelegator {
     event SetMaxNetworkLimit(bytes32 indexed subnetwork, uint256 amount);
 
     /**
-     * @notice Emitted when a slash happened.
+     * @notice Emitted when a slash happens.
      * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
      * @param operator address of the operator
-     * @param slashedAmount amount of the collateral slashed
+     * @param amount amount of the collateral to be slashed
+     * @param captureTimestamp time point when the stake was captured
      */
-    event OnSlash(bytes32 indexed subnetwork, address indexed operator, uint256 slashedAmount);
+    event OnSlash(bytes32 indexed subnetwork, address indexed operator, uint256 amount, uint48 captureTimestamp);
 
     /**
      * @notice Emitted when a hook is set.
@@ -56,6 +58,27 @@ interface IBaseDelegator {
      * @return version of the delegator
      * @dev Must return 1 for this one.
      */
+
+    /**
+     * @notice Get the factory's address.
+     * @return address of the factory
+     */
+    function FACTORY() external view returns (address);
+
+    /**
+     * @notice Get the entity's type.
+     * @return type of the entity
+     */
+    function TYPE() external view returns (uint64);
+
+    /**
+     * @notice Initialize this entity contract by using a given data.
+     * @param data some data to use
+     */
+    function initialize(
+        bytes calldata data
+    ) external;
+
     function VERSION() external view returns (uint64);
 
     /**
@@ -166,7 +189,7 @@ interface IBaseDelegator {
      * @notice Called when a slash happens.
      * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
      * @param operator address of the operator
-     * @param slashedAmount amount of the collateral slashed
+     * @param amount amount of the collateral slashed
      * @param captureTimestamp time point when the stake was captured
      * @param data some additional data
      * @dev Only the vault's slasher can call this function.
@@ -174,7 +197,7 @@ interface IBaseDelegator {
     function onSlash(
         bytes32 subnetwork,
         address operator,
-        uint256 slashedAmount,
+        uint256 amount,
         uint48 captureTimestamp,
         bytes calldata data
     ) external;

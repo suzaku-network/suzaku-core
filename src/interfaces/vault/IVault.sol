@@ -2,6 +2,36 @@
 pragma solidity 0.8.25;
 
 interface IVault {
+    error Vault__InvalidTimestamp();
+    error Vault__NoPreviousEpoch();
+    error Vault__AlreadyClaimed();
+    error Vault__AlreadySet();
+    error Vault__DelegatorAlreadyInitialized();
+    error Vault__DepositLimitReached();
+    error Vault__InsufficientClaim();
+    error Vault__InsufficientDeposit();
+    error Vault__InsufficientRedemption();
+    error Vault__InsufficientWithdrawal();
+    error Vault__InvalidAccount();
+    error Vault__InvalidCaptureEpoch();
+    error Vault__InvalidClaimer();
+    error Vault__InvalidCollateral();
+    error Vault__InvalidDelegator();
+    error Vault__InvalidEpoch();
+    error Vault__InvalidEpochDuration();
+    error Vault__InvalidLengthEpochs();
+    error Vault__InvalidOnBehalfOf();
+    error Vault__InvalidRecipient();
+    error Vault__InvalidSlasher();
+    error Vault__MissingRoles();
+    error Vault__NoDepositLimit();
+    error Vault__NoDepositWhitelist();
+    error Vault__NotDelegator();
+    error Vault__NotSlasher();
+    error Vault__NotWhitelistedDepositor();
+    error Vault__SlasherAlreadyInitialized();
+    error Vault__TooMuchRedeem();
+    error Vault__TooMuchWithdraw();
     /**
      * @notice Initial parameters needed for a vault deployment.
      * @param collateral vault's underlying collateral
@@ -94,11 +124,12 @@ interface IVault {
     event ClaimBatch(address indexed claimer, address indexed recipient, uint256[] epochs, uint256 amount);
 
     /**
-     * @notice Emitted when a slash happened.
-     * @param slasher address of the slasher
-     * @param slashedAmount amount of the collateral slashed
+     * @notice Emitted when a slash happens.
+     * @param amount amount of the collateral to slash
+     * @param captureTimestamp time point when the stake was captured
+     * @param slashedAmount real amount of the collateral slashed
      */
-    event OnSlash(address indexed slasher, uint256 slashedAmount);
+    event OnSlash(uint256 amount, uint48 captureTimestamp, uint256 slashedAmount);
 
     /**
      * @notice Emitted when a deposit whitelist status is enabled/disabled.
@@ -138,37 +169,6 @@ interface IVault {
      * @dev Can be set only once.
      */
     event SetSlasher(address indexed slasher);
-
-    error Vault__InvalidTimestamp();
-    error Vault__NoPreviousEpoch();
-    error Vault__AlreadyClaimed();
-    error Vault__AlreadySet();
-    error Vault__DelegatorAlreadyInitialized();
-    error Vault__DepositLimitReached();
-    error Vault__InsufficientClaim();
-    error Vault__InsufficientDeposit();
-    error Vault__InsufficientRedemption();
-    error Vault__InsufficientWithdrawal();
-    error Vault__InvalidAccount();
-    error Vault__InvalidCaptureEpoch();
-    error Vault__InvalidClaimer();
-    error Vault__InvalidCollateral();
-    error Vault__InvalidDelegator();
-    error Vault__InvalidEpoch();
-    error Vault__InvalidEpochDuration();
-    error Vault__InvalidLengthEpochs();
-    error Vault__InvalidOnBehalfOf();
-    error Vault__InvalidRecipient();
-    error Vault__InvalidSlasher();
-    error Vault__MissingRoles();
-    error Vault__NoDepositLimit();
-    error Vault__NoDepositWhitelist();
-    error Vault__NotDelegator();
-    error Vault__NotSlasher();
-    error Vault__NotWhitelistedDepositor();
-    error Vault__SlasherAlreadyInitialized();
-    error Vault__TooMuchRedeem();
-    error Vault__TooMuchWithdraw();
 
     /**
      * @notice Get a deposit whitelist enabler/disabler's role.
@@ -213,7 +213,7 @@ interface IVault {
     function collateral() external view returns (address);
 
     /**
-     * @dev Get a burner to issue debt to (e.g., 0xdEaD or some unwrapper contract).
+     * @notice Get a burner to issue debt to (e.g., 0xdEaD or some unwrapper contract).
      * @return address of the burner
      */
     function burner() external view returns (address);
@@ -307,7 +307,7 @@ interface IVault {
     function isDepositLimit() external view returns (bool);
 
     /**
-     * @notice Get a deposit limit (maximum amount of the collateral that can be in the vault simultaneously).
+     * @notice Get a deposit limit (maximum amount of the active stake that can be in the vault simultaneously).
      * @return deposit limit
      */
     function depositLimit() external view returns (uint256);
@@ -427,7 +427,8 @@ interface IVault {
 
     /**
      * @notice Get a total amount of the collateral that can be slashed for a given account.
-     * @return total amount of the slashable collateral
+     * @param account account to get the slashable collateral for
+     * @return total amount of the account's slashable collateral
      */
     function slashableBalanceOf(address account) external view returns (uint256);
 
@@ -435,7 +436,7 @@ interface IVault {
      * @notice Deposit collateral into the vault.
      * @param onBehalfOf account the deposit is made on behalf of
      * @param amount amount of the collateral to deposit
-     * @return depositedAmount amount of the collateral deposited
+     * @return depositedAmount real amount of the collateral deposited
      * @return mintedShares amount of the active shares minted
      */
     function deposit(address onBehalfOf, uint256 amount)
@@ -478,11 +479,12 @@ interface IVault {
 
     /**
      * @notice Slash callback for burning collateral.
-     * @param slashedAmount amount to slash
+     * @param amount amount to slash
      * @param captureTimestamp time point when the stake was captured
+     * @return slashedAmount real amount of the collateral slashed
      * @dev Only the slasher can call this function.
      */
-    function onSlash(uint256 slashedAmount, uint48 captureTimestamp) external;
+    function onSlash(uint256 amount, uint48 captureTimestamp) external returns (uint256 slashedAmount);
 
     /**
      * @notice Enable/disable deposit whitelist.
