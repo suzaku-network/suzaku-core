@@ -18,18 +18,16 @@ contract OperatorRegistryTest is Test {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
+
+        registry = new OperatorRegistry();
     }
 
-    function test_Create() public {
-        registry = new OperatorRegistry();
-        
+    function test_Create() public view {        
         // No operators should be registered initially
         assertEq(registry.totalOperators(), 0);
     }
 
     function test_Register() public {
-        registry = new OperatorRegistry();
-
         // Register Alice
         vm.startPrank(alice);
         registry.registerOperator();
@@ -40,8 +38,6 @@ contract OperatorRegistryTest is Test {
     }
 
     function test_RegisterRevertAlreadyRegistered() public {
-        registry = new OperatorRegistry();
-
         // Register Alice
         vm.startPrank(alice);
         registry.registerOperator();
@@ -54,17 +50,13 @@ contract OperatorRegistryTest is Test {
         vm.stopPrank();
     }
 
-    function test_GetAllOperatorsWhenNoneRegistered() public {
-        registry = new OperatorRegistry();
-
+    function test_GetAllOperatorsWhenNoneRegistered() public view {
         // No operators should be registered initially
         address[] memory allOperators = registry.getAllOperators();
         assertEq(allOperators.length, 0);
     }
 
     function test_RegisterMultipleOperators() public {
-        registry = new OperatorRegistry();
-
         // Alice registers
         vm.startPrank(alice);
         registry.registerOperator();
@@ -82,8 +74,6 @@ contract OperatorRegistryTest is Test {
     }
 
     function test_GetOperatorAt() public {
-        registry = new OperatorRegistry();
-
         // Register Alice and Bob
         vm.startPrank(alice);
         registry.registerOperator();
@@ -99,8 +89,6 @@ contract OperatorRegistryTest is Test {
     }
 
     function test_EventEmissionOnRegister() public {
-        registry = new OperatorRegistry();
-
         // Expect the RegisterOperator event to be emitted
         vm.expectEmit(true, true, true, true);
         emit IOperatorRegistry.RegisterOperator(alice);
@@ -112,8 +100,6 @@ contract OperatorRegistryTest is Test {
     }
 
     function test_LargeNumberOfRegistrations() public {
-        registry = new OperatorRegistry();
-
         // Register 1000 operators
         for (uint256 i = 0; i < 1000; i++) {
             vm.startPrank(address(uint160(i)));
