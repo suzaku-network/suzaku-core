@@ -22,50 +22,45 @@ contract OperatorRegistryTest is Test {
         registry = new OperatorRegistry();
     }
 
-    function test_Create() public view {        
+    function testCreate() public view {        
         // No operators should be registered initially
         assertEq(registry.totalOperators(), 0);
     }
 
-    function test_Register() public {
+    function testRegister() public {
         // Register Alice
         vm.startPrank(alice);
         registry.registerOperator();
-        vm.stopPrank();
 
         // Alice should be registered as an operator
         assertEq(registry.isRegistered(alice), true);
     }
 
-    function test_RegisterRevertAlreadyRegistered() public {
+    function testRegisterRevertAlreadyRegistered() public {
         // Register Alice
         vm.startPrank(alice);
         registry.registerOperator();
-        vm.stopPrank();
 
         // Alice tries to register again and it should revert
         vm.expectRevert(IOperatorRegistry.OperatorRegistry__OperatorAlreadyRegistered.selector);
         vm.startPrank(alice);
         registry.registerOperator();
-        vm.stopPrank();
     }
 
-    function test_GetAllOperatorsWhenNoneRegistered() public view {
+    function testGetAllOperatorsWhenNoneRegistered() public view {
         // No operators should be registered initially
         address[] memory allOperators = registry.getAllOperators();
         assertEq(allOperators.length, 0);
     }
 
-    function test_RegisterMultipleOperators() public {
+    function testRegisterMultipleOperators() public {
         // Alice registers
         vm.startPrank(alice);
         registry.registerOperator();
-        vm.stopPrank();
 
         // Bob registers
         vm.startPrank(bob);
         registry.registerOperator();
-        vm.stopPrank();
 
         // Check that both Alice and Bob are registered
         assertEq(registry.totalOperators(), 2);
@@ -73,22 +68,20 @@ contract OperatorRegistryTest is Test {
         assertEq(registry.isRegistered(bob), true);
     }
 
-    function test_GetOperatorAt() public {
+    function testGetOperatorAt() public {
         // Register Alice and Bob
         vm.startPrank(alice);
         registry.registerOperator();
-        vm.stopPrank();
 
         vm.startPrank(bob);
         registry.registerOperator();
-        vm.stopPrank();
 
         // Check the operators at specific indexes
         assertEq(registry.getOperatorAt(0), alice);
         assertEq(registry.getOperatorAt(1), bob);
     }
 
-    function test_EventEmissionOnRegister() public {
+    function testEventEmissionOnRegister() public {
         // Expect the RegisterOperator event to be emitted
         vm.expectEmit(true, true, true, true);
         emit IOperatorRegistry.RegisterOperator(alice);
@@ -96,16 +89,14 @@ contract OperatorRegistryTest is Test {
         // Register Alice
         vm.startPrank(alice);
         registry.registerOperator();
-        vm.stopPrank();
     }
 
-    function test_LargeNumberOfRegistrations() public {
+    function testLargeNumberOfRegistrations() public {
         // Register 1000 operators
         for (uint256 i = 0; i < 1000; i++) {
             vm.startPrank(address(uint160(i)));
             registry.registerOperator();
-            vm.stopPrank();
-        }
+            }
 
         // Check that all 1000 operators are registered
         assertEq(registry.totalOperators(), 1000);

@@ -23,7 +23,7 @@ contract L1RegistryTest is Test {
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
 
         mockACP99Manager = new MockACP99Manager();
-        registry = new L1Registry(); // Moved here to ensure fresh contract before each test
+        registry = new L1Registry();
     }
 
     function testCreate() public view {
@@ -41,7 +41,6 @@ contract L1RegistryTest is Test {
         // Alice registers herself as an L1
         vm.startPrank(alice);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         assertEq(registry.isRegistered(alice), true);
     }
@@ -55,20 +54,17 @@ contract L1RegistryTest is Test {
         vm.startPrank(alice);
         vm.expectRevert(IL1Registry.L1Registry__InvalidACP99Manager.selector);
         registry.registerL1(invalidACP99Manager);
-        vm.stopPrank();
     }   
 
     function testRegisterRevertAlreadyRegistered() public {
         // Register Alice
         vm.startPrank(alice);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         // Alice tries to register again and it should revert
         vm.startPrank(alice);
         vm.expectRevert(IL1Registry.L1Registry__L1AlreadyRegistered.selector);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
     }
 
     function testRegisterWithZeroAddress() public {
@@ -77,19 +73,16 @@ contract L1RegistryTest is Test {
         vm.startPrank(alice);
         vm.expectRevert(IL1Registry.L1Registry__InvalidACP99Manager.selector);
         registry.registerL1(address(0));
-        vm.stopPrank();
     }
 
     function testRegisterMultipleL1s() public {
         // Alice registers
         vm.startPrank(alice);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         // Bob registers
         vm.startPrank(bob);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         // Check that both Alice and Bob are registered
         assertEq(registry.totalL1s(), 2);
@@ -101,11 +94,9 @@ contract L1RegistryTest is Test {
         // Register Alice and Bob
         vm.startPrank(alice);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         vm.startPrank(bob);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         // Check that both Alice and Bob are registered
         address[] memory allL1s = registry.getAllL1s();
@@ -118,11 +109,9 @@ contract L1RegistryTest is Test {
         // Register Alice and Bob
         vm.startPrank(alice);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         vm.startPrank(bob);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
 
         // Check the addresses at specific indexes
         assertEq(registry.getL1At(0), alice);
@@ -142,7 +131,6 @@ contract L1RegistryTest is Test {
         // Register Alice
         vm.startPrank(alice);
         registry.registerL1(address(mockACP99Manager));
-        vm.stopPrank();
     }
 
     function testLargeNumberOfRegistrations() public {
@@ -150,8 +138,7 @@ contract L1RegistryTest is Test {
         for (uint256 i = 0; i < 1000; i++) {
             vm.startPrank(address(uint160(i)));
             registry.registerL1(address(mockACP99Manager));
-            vm.stopPrank();
-        }
+            }
 
         // Check that all 1000 L1s are registered
         assertEq(registry.totalL1s(), 1000);
