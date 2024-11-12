@@ -29,7 +29,7 @@ contract OperatorRegistryTest is Test {
 
     function testRegister() public {
         // Register Alice
-        vm.startPrank(alice);
+        vm.prank(alice);
         registry.registerOperator();
 
         // Alice should be registered as an operator
@@ -38,12 +38,12 @@ contract OperatorRegistryTest is Test {
 
     function testRegisterRevertAlreadyRegistered() public {
         // Register Alice
-        vm.startPrank(alice);
+        vm.prank(alice);
         registry.registerOperator();
 
         // Alice tries to register again and it should revert
         vm.expectRevert(IOperatorRegistry.OperatorRegistry__OperatorAlreadyRegistered.selector);
-        vm.startPrank(alice);
+        vm.prank(alice);
         registry.registerOperator();
     }
 
@@ -55,11 +55,11 @@ contract OperatorRegistryTest is Test {
 
     function testRegisterMultipleOperators() public {
         // Alice registers
-        vm.startPrank(alice);
+        vm.prank(alice);
         registry.registerOperator();
 
         // Bob registers
-        vm.startPrank(bob);
+        vm.prank(bob);
         registry.registerOperator();
 
         // Check that both Alice and Bob are registered
@@ -70,10 +70,10 @@ contract OperatorRegistryTest is Test {
 
     function testGetOperatorAt() public {
         // Register Alice and Bob
-        vm.startPrank(alice);
+        vm.prank(alice);
         registry.registerOperator();
 
-        vm.startPrank(bob);
+        vm.prank(bob);
         registry.registerOperator();
 
         // Check the operators at specific indexes
@@ -87,14 +87,14 @@ contract OperatorRegistryTest is Test {
         emit IOperatorRegistry.RegisterOperator(alice);
 
         // Register Alice
-        vm.startPrank(alice);
+        vm.prank(alice);
         registry.registerOperator();
     }
 
     function testLargeNumberOfRegistrations() public {
         // Register 1000 operators
         for (uint256 i = 0; i < 1000; i++) {
-            vm.startPrank(address(uint160(i)));
+            vm.prank(address(uint160(i)));
             registry.registerOperator();
             }
 
