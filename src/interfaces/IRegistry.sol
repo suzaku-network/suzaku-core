@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IRegistry {
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+
+interface IRegistry is IERC165 {
     error EntityNotExist();
 
     /**
