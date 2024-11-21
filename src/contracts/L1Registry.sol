@@ -14,17 +14,24 @@ contract L1Registry is IL1Registry {
 
     EnumerableSet.AddressSet private l1s;
 
+    /// @notice The metadata URL for each L1
+    mapping(address => string) public l1MetadataURL;
+
     /// @inheritdoc IL1Registry
-    function registerL1(address ACP99Manager) external {
+    function registerL1(
+        address ACP99Manager,
+        string memory metadataURL
+    ) external {
         if (isRegistered(msg.sender)) {
             revert L1Registry__L1AlreadyRegistered();
         }
 
         // TODO: check if ACP99Manager is a valid ACP99Manager
 
-        _addL1(msg.sender);
+        l1s.add(msg.sender);
+        l1MetadataURL[msg.sender] = metadataURL;
 
-        emit RegisterL1(msg.sender);
+        emit RegisterL1(msg.sender, metadataURL);
     }
 
     /// @inheritdoc IL1Registry
@@ -33,8 +40,11 @@ contract L1Registry is IL1Registry {
     }
 
     /// @inheritdoc IL1Registry
-    function getL1At(uint256 index) public view returns (address) {
-        return l1s.at(index);
+    function getL1At(
+        uint256 index
+    ) public view returns (address, string memory) {
+        address l1 = l1s.at(index);
+        return (l1, l1MetadataURL[l1]);
     }
 
     /// @inheritdoc IL1Registry
@@ -43,15 +53,16 @@ contract L1Registry is IL1Registry {
     }
 
     /// @inheritdoc IL1Registry
-    function getAllL1s() public view returns (address[] memory) {
-        return l1s.values();
-    }
-
-    /**
-     * @dev Add an address as an L1.
-     * @param l1 The address to add.
-     */
-    function _addL1(address l1) internal {
-        l1s.add(l1);
+    function getAllL1s()
+        public
+        view
+        returns (address[] memory, string[] memory)
+    {
+        address[] memory l1sList = l1s.values();
+        string[] memory metadataURLs = new string[](l1sList.length);
+        for (uint256 i = 0; i < l1sList.length; i++) {
+            metadataURLs[i] = l1MetadataURL[l1sList[i]];
+        }
+        return (l1sList, metadataURLs);
     }
 }
