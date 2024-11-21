@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Test, console2} from "forge-std/Test.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import { IVaultTokenized } from "../../src/interfaces/vault/IVaultTokenized.sol";
+import { MigratableEntityProxy } from "../../src/contracts/common/MigratableEntityProxy.sol";
+
 import {Token} from "../mocks/MockToken.sol";
 import {MockDelegatorFactory} from "../mocks/MockDelegatorFactory.sol";
 import {MockSlasherFactory} from "../mocks/MockSlasherFactory.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-import { MigratableEntityProxy } from "../../src/contracts/common/MigratableEntityProxy.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import {Test, console2} from "forge-std/Test.sol";
 
 contract VaultTokenizedTest is Test {
     using Math for uint256;
@@ -49,7 +52,7 @@ contract VaultTokenizedTest is Test {
         // vault = new VaultTokenized(address(this)); // Passing address(this) as the vaultFactory
 
         // Deploy the VaultTokenized implementation contract
-        vaultImplementation = new VaultTokenized(address(this)); // Adjust if necessary
+        vaultImplementation = new VaultTokenized(address(this));
 
 
         // Prepare initialization data
@@ -70,7 +73,7 @@ contract VaultTokenizedTest is Test {
         });
 
         // Encode the initialization data
-        uint64 initialVersion = 1; // Set to 1 for initial deployment
+        uint64 initialVersion = 1;
         // Prepare initialization data with function selector
         bytes memory initData = abi.encodeCall(
             IVaultTokenized.initialize,
@@ -82,11 +85,6 @@ contract VaultTokenizedTest is Test {
                 address(slasherFactory)
             )
         );
-        // bytes memory initData = abi.encode(
-        //     initialVersion,
-        //     owner,
-        //     abi.encode(params)
-        // );
 
         // Deploy the proxy using MigratableEntityProxy
         proxy = new MigratableEntityProxy(address(vaultImplementation), initData);
@@ -95,19 +93,8 @@ contract VaultTokenizedTest is Test {
         vault = VaultTokenized(address(proxy));
     }
 
-        // bytes memory data = abi.encode(params);
-
-        // Initialize the vault with dummy addresses for unimplemented dependencies
-        // vault.initialize(
-        //     owner,
-        //     data,
-        //     address(delegatorFactory), // delegatorFactory (not implemented)
-        //     address(slasherFactory)  // slasherFactory (not implemented)
-        // );
-    // }
-
     // Test initialization
-    function testInitialization() public {
+    function testInitialization() public view {
         // Check ERC20 properties
         assertEq(vault.name(), "TestToken");
         assertEq(vault.symbol(), "TEST");
@@ -148,36 +135,37 @@ contract VaultTokenizedTest is Test {
 
         // Mint tokens to Alice
         collateral.transfer(alice, transferAmount);
-        assertEq(collateral.balanceOf(alice), transferAmount);
+        assertEq(collateral.balanceOf(alice), transferAmount, "Alice should have received the transfer amount");
 
         // Alice approves vault to spend tokens
-        vm.startPrank(alice);
+        vm.prank(alice);
         collateral.approve(address(vault), transferAmount);
-        
+
         // Assert that the allowance is correctly set
-        assertEq(collateral.allowance(alice, address(vault)), transferAmount);
+        assertEq(collateral.allowance(alice, address(vault)), transferAmount, "Alice's allowance mismatch");
 
-        // Expect Deposit and Transfer events
+        // Expect Deposit event
         vm.expectEmit(true, true, false, true);
-        emit IVaultTokenized.Deposit(alice, alice, transferAmount, transferAmount); // Ensure the event signature matches
-        vm.expectEmit(true, true, false, true);
-        emit IERC20.Transfer(address(0), alice, transferAmount);
+        emit IVaultTokenized.Deposit(alice, alice, transferAmount, transferAmount);
 
-        // Perform deposit
+        // Expect Transfer event: address(0) -> alice (minted shares)
+        vm.expectEmit(true, true, false, true);
+        emit IERC20.Transfer(address(0), alice, transferAmount); // Vault's ERC20 Transfer event for shares
+
+        // Perform deposit as Alice
+        vm.prank(alice);
         (uint256 depositedAmount, uint256 mintedShares) = vault.deposit(alice, transferAmount);
-        vm.stopPrank();
 
         // Assert deposited amount matches
-        assertEq(depositedAmount, transferAmount);
+        assertEq(depositedAmount, transferAmount, "Deposited amount mismatch");
 
         // Assert shares minted
-        assertEq(mintedShares, transferAmount); // Assuming 1:1 share rate initially
+        assertEq(mintedShares, transferAmount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
 
         // Check balances
-        assertEq(vault.balanceOf(alice), mintedShares);
-        assertEq(collateral.balanceOf(address(vault)), depositedAmount);
+        assertEq(vault.balanceOf(alice), mintedShares, "Alice's share balance mismatch");
+        assertEq(collateral.balanceOf(address(vault)), depositedAmount, "Vault's collateral balance mismatch");
     }
-
 
 
     function testDepositWithWhitelisting() public {
@@ -217,33 +205,83 @@ contract VaultTokenizedTest is Test {
         assertEq(collateral.balanceOf(address(vault)), depositedAmount);
     }
 
-
     function testDepositExceedingLimit() public {
         uint256 depositLimit = 1000 * 10**collateral.decimals();
         uint256 transferAmount = 2000 * 10**collateral.decimals();
 
-        // Set deposit limit as Alice (DEPOSIT_LIMIT_SET_ROLE)
-        vm.prank(alice);
+        // Doesn't work if I use prank instead of startPrank
+        vm.startPrank(alice);
+        
+        // Set deposit limit
         vault.setIsDepositLimit(true);
         vault.setDepositLimit(depositLimit);
+        
+        vm.stopPrank();
 
         // Verify that deposit limit is set
-        assertTrue(vault.isDepositLimit());
-        assertEq(vault.depositLimit(), depositLimit);
+        assertTrue(vault.isDepositLimit(), "Deposit limit should be enabled");
+        assertEq(vault.depositLimit(), depositLimit, "Deposit limit mismatch");
 
         // Mint tokens to Alice
         collateral.transfer(alice, transferAmount);
-        assertEq(collateral.balanceOf(alice), transferAmount);
+        assertEq(collateral.balanceOf(alice), transferAmount, "Alice should have received the transfer amount");
 
         // Alice approves vault to spend tokens
         vm.prank(alice);
         collateral.approve(address(vault), transferAmount);
-        assertEq(collateral.allowance(alice, address(vault)), transferAmount);
+        assertEq(collateral.allowance(alice, address(vault)), transferAmount, "Alice's allowance mismatch");
 
         // Attempt to deposit exceeding the limit
+        vm.prank(alice);
         vm.expectRevert(IVaultTokenized.Vault__DepositLimitReached.selector);
         vault.deposit(alice, transferAmount);
     }
+
+    // Won't work, need to build logic around operators first.
+    function testClaim() public {
+        uint256 depositAmount = 1000 * 10**collateral.decimals();
+        uint256 withdrawAmount = 500 * 10**collateral.decimals();
+
+        // Mint tokens to Alice
+        collateral.transfer(alice, depositAmount);
+        assertEq(collateral.balanceOf(alice), depositAmount, "Alice should have received the transfer amount");
+
+        // Start impersonating Alice for multiple actions
+        vm.startPrank(alice);
+
+        // Alice approves the vault to spend tokens
+        collateral.approve(address(vault), depositAmount);
+        assertEq(collateral.allowance(alice, address(vault)), depositAmount, "Alice's allowance mismatch");
+
+        // Alice deposits tokens into the vault
+        (uint256 depositedAmount, uint256 mintedShares) = vault.deposit(alice, depositAmount);
+        assertEq(depositedAmount, depositAmount, "Deposited amount mismatch");
+        assertEq(mintedShares, depositAmount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
+
+        // Alice withdraws half of her deposit
+        vault.withdraw(alice, withdrawAmount);
+        vm.stopPrank();
+
+        // Warp to the **next epoch's start time** to make withdrawal claimable
+        vm.warp(vault.nextEpochStart());
+
+        // Alice claims her withdrawal
+        vm.startPrank(alice);
+        // Expect Claim event
+        uint256 currentEpoch = vault.currentEpoch() - 1;
+        // vm.expectEmit(true, true, false, true);
+        emit IVaultTokenized.Claim(alice, alice, currentEpoch, withdrawAmount);
+        uint256 claimedAmount = vault.claim(alice, currentEpoch);
+        assertEq(claimedAmount, withdrawAmount, "Claimed amount mismatch");
+
+        // Stop impersonating Alice
+        vm.stopPrank();
+
+        // Check balances
+        assertEq(collateral.balanceOf(alice), withdrawAmount, "Alice's collateral balance mismatch");
+        assertEq(collateral.balanceOf(address(vault)), depositAmount - withdrawAmount, "Vault's collateral balance mismatch");
+    }
+
 
 
 }
