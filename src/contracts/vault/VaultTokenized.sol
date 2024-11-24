@@ -4,7 +4,7 @@ pragma solidity 0.8.25;
 import { IVaultTokenized } from "../../interfaces/vault/IVaultTokenized.sol";
 import { IBaseDelegator } from "../../interfaces/delegator/IBaseDelegator.sol";
 import { IBaseSlasher } from "../../interfaces/slasher/IBaseSlasher.sol";
-import { IRegistry } from "../../interfaces/IRegistry.sol";
+import { IRegistry } from "../../interfaces/common/IRegistry.sol";
 
 import { Checkpoints } from "../libraries/Checkpoints.sol";
 import { ERC4626Math } from "../libraries/ERC4626Math.sol";

@@ -8,14 +8,15 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 
-import {IVaultFactory} from "../interfaces/IVaultFactory.sol";
+import {IMigratablesFactory} from "../interfaces/common/IMigratablesFactory.sol";
+import {IRegistry} from "../interfaces/common/IRegistry.sol";
 import {IVaultTokenized} from "../interfaces/vault/IVaultTokenized.sol";
 import {IMigratableEntityProxy} from "../interfaces/common/IMigratableEntityProxy.sol";
 
 import {ISlasherFactory} from "../interfaces/ISlasherFactory.sol";
 import {IDelegatorFactory} from "../interfaces/IDelegatorFactory.sol";
 
-contract VaultFactory is Ownable, IVaultFactory {
+contract VaultFactory is Ownable, IMigratablesFactory {
     using EnumerableSet for EnumerableSet.AddressSet;
     using Address for address;
     using ERC165Checker for address;
@@ -26,9 +27,8 @@ contract VaultFactory is Ownable, IVaultFactory {
     bytes4 private constant INTERFACE_ID_ISLASHER_FACTORY = type(ISlasherFactory).interfaceId;
     bytes4 private constant INTERFACE_ID_IDELEGATOR_FACTORY = type(IDelegatorFactory).interfaceId;
 
-
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     mapping(uint64 version => bool value) public blacklisted;
 
@@ -43,7 +43,7 @@ contract VaultFactory is Ownable, IVaultFactory {
         uint64 version
     ) {
         if (version == 0 || version > lastVersion()) {
-            revert InvalidVersion();
+            revert MigratableFactory__InvalidVersion();
         }
         _;
     }
@@ -54,14 +54,14 @@ contract VaultFactory is Ownable, IVaultFactory {
 
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     function lastVersion() public view returns (uint64) {
         return uint64(_whitelistedImplementations.length());
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     function implementation(
         uint64 version
@@ -70,29 +70,29 @@ contract VaultFactory is Ownable, IVaultFactory {
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     function whitelist(
         address implementation_
     ) external onlyOwner {
         if (IVaultTokenized(implementation_).FACTORY() != address(this)) {
-            revert InvalidImplementation();
+            revert MigratableFactory__InvalidImplementation();
         }
         if (!_whitelistedImplementations.add(implementation_)) {
-            revert AlreadyWhitelisted();
+            revert MigratableFactory__AlreadyWhitelisted();
         }
 
         emit Whitelist(implementation_);
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     function blacklist(
         uint64 version
     ) external onlyOwner checkVersion(version) {
         if (blacklisted[version]) {
-            revert AlreadyBlacklisted();
+            revert MigratableFactory__AlreadyBlacklisted();
         }
 
         blacklisted[version] = true;
@@ -101,7 +101,7 @@ contract VaultFactory is Ownable, IVaultFactory {
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     function create(
         uint64 version,
@@ -109,22 +109,22 @@ contract VaultFactory is Ownable, IVaultFactory {
         bytes calldata data,
         address delegatorFactory,
         address slasherFactory
-    ) external override returns (address entity_) {
+    ) external returns (address entity_) {
         // Ensure the version is not blacklisted
         if (blacklisted[version]) {
-            revert VersionBlacklisted();
+            revert MigratableFactory__VersionBlacklisted();
         }
 
-        // Validate factory addresses using ERC165
+        // Validate factory addresses using ERC165.
         if (
             !delegatorFactory.supportsInterface(INTERFACE_ID_IDELEGATOR_FACTORY)
         ) {
-            revert InvalidImplementation();
+            revert MigratableFactory__InvalidImplementation();
         }
         if (
             !slasherFactory.supportsInterface(INTERFACE_ID_ISLASHER_FACTORY)
         ) {
-            revert InvalidImplementation();
+            revert MigratableFactory__InvalidImplementation();
         }
 
         // Deploy a new MigratableEntityProxy using CREATE2 for deterministic address
@@ -153,15 +153,15 @@ contract VaultFactory is Ownable, IVaultFactory {
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IMigratablesFactory
      */
     function migrate(address entity_, uint64 newVersion, bytes calldata data) external checkEntity(entity_) {
         if (msg.sender != Ownable(entity_).owner()) {
-            revert NotOwner();
+            revert MigratableFactory__NotOwner();
         }
 
         if (newVersion <= IVaultTokenized(entity_).version()) {
-            revert OldVersion();
+            revert MigratableFactory__OldVersion();
         }
 
         IMigratableEntityProxy(entity_).upgradeToAndCall(
@@ -172,7 +172,7 @@ contract VaultFactory is Ownable, IVaultFactory {
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IRegistry
      */
     function isEntity(
         address entity_
@@ -181,14 +181,14 @@ contract VaultFactory is Ownable, IVaultFactory {
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IRegistry
      */
     function totalEntities() public view returns (uint256) {
         return _entities.length();
     }
 
     /**
-     * @inheritdoc IVaultFactory
+     * @inheritdoc IRegistry
      */
     function entity(
         uint256 index
@@ -211,4 +211,5 @@ contract VaultFactory is Ownable, IVaultFactory {
             revert EntityNotExist();
         }
     }
+
 }
