@@ -4,12 +4,14 @@
 pragma solidity ^0.8.0;
 
 interface IOperatorRegistry {
-    event RegisterOperator(address indexed operator, string metadataURL);
+    event RegisterOperator(address indexed operator);
+    event SetMetadataURL(address indexed operator, string metadataURL);
 
     error OperatorRegistry__OperatorAlreadyRegistered();
+    error OperatorRegistry__OperatorNotRegistered();
 
     /// @notice Register an operator with its metadata URL
-    function registerOperator(string memory metadataURL) external;
+    function registerOperator(string calldata metadataURL) external;
 
     /**
      * @notice Check if an address is registered as an operator
@@ -24,9 +26,7 @@ interface IOperatorRegistry {
      * @return The address of the operator at the specified index
      * @return The metadata URL of the operator at the specified index
      */
-    function getOperatorAt(
-        uint256 index
-    ) external view returns (address, string memory);
+    function getOperatorAt(uint256 index) external view returns (address, string memory);
 
     /**
      * @notice Get the total number of operators
@@ -39,8 +39,11 @@ interface IOperatorRegistry {
      * @return Array of all operators
      * @return Array of all operators' metadata URLs
      */
-    function getAllOperators()
-        external
-        view
-        returns (address[] memory, string[] memory);
+    function getAllOperators() external view returns (address[] memory, string[] memory);
+
+    /**
+     * @notice Set the metadata URL of an operator
+     * @param metadataURL The new metadata URL
+     */
+    function setMetadataURL(string calldata metadataURL) external;
 }

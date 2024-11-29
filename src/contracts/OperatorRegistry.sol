@@ -19,7 +19,7 @@ contract OperatorRegistry is IOperatorRegistry {
     mapping(address => string) public operatorMetadataURL;
 
     /// @inheritdoc IOperatorRegistry
-    function registerOperator(string memory metadataURL) external {
+    function registerOperator(string calldata metadataURL) external {
         if (isRegistered(msg.sender)) {
             revert OperatorRegistry__OperatorAlreadyRegistered();
         }
@@ -27,7 +27,8 @@ contract OperatorRegistry is IOperatorRegistry {
         operators.add(msg.sender);
         operatorMetadataURL[msg.sender] = metadataURL;
 
-        emit RegisterOperator(msg.sender, metadataURL);
+        emit RegisterOperator(msg.sender);
+        emit SetMetadataURL(msg.sender, metadataURL);
     }
 
     /// @inheritdoc IOperatorRegistry
@@ -36,9 +37,7 @@ contract OperatorRegistry is IOperatorRegistry {
     }
 
     /// @inheritdoc IOperatorRegistry
-    function getOperatorAt(
-        uint256 index
-    ) public view returns (address, string memory) {
+    function getOperatorAt(uint256 index) public view returns (address, string memory) {
         address operator = operators.at(index);
         return (operator, operatorMetadataURL[operator]);
     }
@@ -49,16 +48,23 @@ contract OperatorRegistry is IOperatorRegistry {
     }
 
     /// @inheritdoc IOperatorRegistry
-    function getAllOperators()
-        public
-        view
-        returns (address[] memory, string[] memory)
-    {
+    function getAllOperators() public view returns (address[] memory, string[] memory) {
         address[] memory operatorsList = operators.values();
         string[] memory metadataURLs = new string[](operatorsList.length);
         for (uint256 i = 0; i < operatorsList.length; i++) {
             metadataURLs[i] = operatorMetadataURL[operatorsList[i]];
         }
         return (operatorsList, metadataURLs);
+    }
+
+    /// @inheritdoc IOperatorRegistry
+    function setMetadataURL(string calldata metadataURL) external {
+        if (!isRegistered(msg.sender)) {
+            revert OperatorRegistry__OperatorNotRegistered();
+        }
+
+        operatorMetadataURL[msg.sender] = metadataURL;
+
+        emit SetMetadataURL(msg.sender, metadataURL);
     }
 }
