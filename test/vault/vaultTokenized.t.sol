@@ -12,6 +12,7 @@ import {MockSlasherFactory} from "../mocks/MockSlasherFactory.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC4626Math} from "../../src/contracts/libraries/ERC4626Math.sol";
 
 import {Test, console2} from "forge-std/Test.sol";
 
@@ -91,6 +92,69 @@ contract VaultTokenizedTest is Test {
 
         // Cast the proxy address to VaultTokenized
         vault = VaultTokenized(address(proxy));
+    }
+
+    // Helper functions to simulate deposit and withdrawal
+    /**
+     * @dev Helper function to simulate a deposit by a user.
+     */
+    function _deposit(address user, uint256 amount) internal {
+        // Mint tokens to the user
+        collateral.transfer(user, amount);
+        assertEq(collateral.balanceOf(user), amount, "User should have received the transfer amount");
+
+        // User approves vault to spend tokens
+        vm.prank(user);
+        collateral.approve(address(vault), amount);
+        assertEq(collateral.allowance(user, address(vault)), amount, "User's allowance mismatch");
+
+        // Perform deposit
+        vm.prank(user);
+        (uint256 depositedAmount, uint256 mintedShares) = vault.deposit(user, amount);
+
+        // Assertions
+        assertEq(depositedAmount, amount, "Deposited amount mismatch");
+        assertEq(mintedShares, amount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
+        assertEq(vault.balanceOf(user), mintedShares, "User's share balance mismatch");
+    }
+
+    /**
+     * @dev Helper function to simulate a withdrawal by a user.
+     */
+    function _withdraw(address user, uint256 amount) internal {
+        // Calculate shares to burn
+        uint256 burnedShares = ERC4626Math.previewWithdraw(amount, vault.activeShares(), vault.activeStake());
+        require(burnedShares <= vault.balanceOf(user), "User does not have enough shares to withdraw");
+
+        // Capture user's balance before withdrawal
+        uint256 userBalanceBefore = vault.balanceOf(user);
+
+        // Perform withdrawal
+        vm.prank(user);
+        (uint256 actualBurnedShares, uint256 mintedWithdrawalShares) = vault.withdraw(user, amount);
+
+        // Assertions
+        assertEq(actualBurnedShares, burnedShares, "Burned shares mismatch");
+        assertEq(mintedWithdrawalShares, amount, "Minted withdrawal shares mismatch"); // Assuming 1:1 share rate initially
+
+        // Correctly compare the user's balance after withdrawal
+        assertEq(vault.balanceOf(user), userBalanceBefore - actualBurnedShares, "User's share balance after withdrawal mismatch");
+    }
+
+    /**
+     * @dev Enhanced helper function to simulate a deposit by a user and record the timestamp.
+     */
+    function _depositWithTimestamp(address user, uint256 amount) internal returns (uint256 timestamp) {
+        _deposit(user, amount);
+        timestamp = block.timestamp;
+    }
+
+    /**
+     * @dev Enhanced helper function to simulate a withdrawal by a user and record the timestamp.
+     */
+    function _withdrawWithTimestamp(address user, uint256 amount) internal returns (uint256 timestamp) {
+        _withdraw(user, amount);
+        timestamp = block.timestamp;
     }
 
     // Test initialization
@@ -259,27 +323,346 @@ contract VaultTokenizedTest is Test {
         assertEq(mintedShares, depositAmount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
 
         // Alice withdraws half of her deposit
-        vault.withdraw(alice, withdrawAmount);
+        (uint256 burnedShares, uint256 mintedWithdrawalShares) = vault.withdraw(alice, withdrawAmount);
+        assertEq(burnedShares, withdrawAmount, "Burned shares mismatch");
+        assertEq(mintedWithdrawalShares, withdrawAmount, "Minted withdrawal shares mismatch"); // Assuming 1:1 share rate initially
+
+        // Need to stop impersonating Alice for epoch advancement
         vm.stopPrank();
 
-        // Warp to the **next epoch's start time** to make withdrawal claimable
-        vm.warp(vault.nextEpochStart());
+        // Warp to two epoch durations to make withdrawal claimable
+        uint256 epochDuration = vault.epochDuration();
+        vm.warp(vault.nextEpochStart() + epochDuration); // Warp to currentEpoch() = 2
 
-        // Alice claims her withdrawal
+        // Alice claims her withdrawal from epoch=1 in epoch=2 or more
         vm.startPrank(alice);
+
+        uint256 withdrawalEpoch = 1; // The withdrawal was recorded for epoch=1
+
         // Expect Claim event
-        uint256 currentEpoch = vault.currentEpoch() - 1;
-        // vm.expectEmit(true, true, false, true);
-        emit IVaultTokenized.Claim(alice, alice, currentEpoch, withdrawAmount);
-        uint256 claimedAmount = vault.claim(alice, currentEpoch);
+        vm.expectEmit(true, true, false, true);
+        emit IVaultTokenized.Claim(alice, alice, withdrawalEpoch, withdrawAmount);
+
+        // Perform the claim
+        uint256 claimedAmount = vault.claim(alice, withdrawalEpoch);
         assertEq(claimedAmount, withdrawAmount, "Claimed amount mismatch");
 
-        // Stop impersonating Alice
         vm.stopPrank();
 
         // Check balances
         assertEq(collateral.balanceOf(alice), withdrawAmount, "Alice's collateral balance mismatch");
         assertEq(collateral.balanceOf(address(vault)), depositAmount - withdrawAmount, "Vault's collateral balance mismatch");
+    }
+
+
+    /**
+     * @notice Test claiming with a zero recipient address.
+     * @dev Expects the transaction to revert with Vault__InvalidRecipient().
+     */
+    function testClaimWithZeroRecipient() public {
+        uint256 depositAmount = 1000 * 10**collateral.decimals();
+        uint256 withdrawAmount = 500 * 10**collateral.decimals();
+
+        // Mint tokens to Alice
+        collateral.transfer(alice, depositAmount);
+        assertEq(collateral.balanceOf(alice), depositAmount, "Alice should have received the transfer amount");
+
+        // Start impersonating Alice for multiple actions
+        vm.startPrank(alice);
+
+        // Alice approves the vault to spend tokens
+        collateral.approve(address(vault), depositAmount);
+        assertEq(collateral.allowance(alice, address(vault)), depositAmount, "Alice's allowance mismatch");
+
+        // Alice deposits tokens into the vault
+        (uint256 depositedAmount, uint256 mintedShares) = vault.deposit(alice, depositAmount);
+        assertEq(depositedAmount, depositAmount, "Deposited amount mismatch");
+        assertEq(mintedShares, depositAmount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
+
+        // Alice withdraws half of her deposit
+        (uint256 burnedShares, uint256 mintedWithdrawalShares) = vault.withdraw(alice, withdrawAmount);
+        assertEq(burnedShares, withdrawAmount, "Burned shares mismatch");
+        assertEq(mintedWithdrawalShares, withdrawAmount, "Minted withdrawal shares mismatch"); // Assuming 1:1 share rate initially
+
+        vm.stopPrank();
+
+        // Warp to two epoch durations to make withdrawal claimable
+        uint256 epochDuration = vault.epochDuration();
+        vm.warp(vault.nextEpochStart() + epochDuration); // Warp to currentEpoch() = 2
+
+        // Attempt to claim with zero recipient
+        vm.startPrank(alice);
+
+        uint256 withdrawalEpoch = 1; // The withdrawal was recorded for epoch=1
+
+        // Expect the transaction to revert with Vault__InvalidRecipient()
+        vm.expectRevert(IVaultTokenized.Vault__InvalidRecipient.selector);
+        vault.claim(address(0), withdrawalEpoch);
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @notice Test claiming the same epoch twice.
+     * @dev The first claim should succeed, and the second should revert with Vault__AlreadyClaimed().
+     */
+    function testDoubleClaimSameEpoch() public {
+        uint256 depositAmount = 1000 * 10**collateral.decimals();
+        uint256 withdrawAmount = 500 * 10**collateral.decimals();
+
+        // Mint tokens to Alice
+        collateral.transfer(alice, depositAmount);
+        assertEq(collateral.balanceOf(alice), depositAmount, "Alice should have received the transfer amount");
+
+        // Start impersonating Alice for multiple actions
+        vm.startPrank(alice);
+
+        // Alice approves the vault to spend tokens
+        collateral.approve(address(vault), depositAmount);
+        assertEq(collateral.allowance(alice, address(vault)), depositAmount, "Alice's allowance mismatch");
+
+        // Alice deposits tokens into the vault
+        (uint256 depositedAmount, uint256 mintedShares) = vault.deposit(alice, depositAmount);
+        assertEq(depositedAmount, depositAmount, "Deposited amount mismatch");
+        assertEq(mintedShares, depositAmount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
+
+        // Alice withdraws half of her deposit
+        (uint256 burnedShares, uint256 mintedWithdrawalShares) = vault.withdraw(alice, withdrawAmount);
+        assertEq(burnedShares, withdrawAmount, "Burned shares mismatch");
+        assertEq(mintedWithdrawalShares, withdrawAmount, "Minted withdrawal shares mismatch"); // Assuming 1:1 share rate initially
+
+        vm.stopPrank();
+
+        // Warp to two epoch durations to make withdrawal claimable
+        uint256 epochDuration = vault.epochDuration();
+        vm.warp(vault.nextEpochStart() + epochDuration); // Warp to currentEpoch() = 2
+
+        // First claim attempt (should succeed)
+        vm.startPrank(alice);
+
+        uint256 withdrawalEpoch = 1; // The withdrawal was recorded for epoch=1
+
+        // Expect Claim event
+        vm.expectEmit(true, true, false, true);
+        emit IVaultTokenized.Claim(alice, alice, withdrawalEpoch, withdrawAmount);
+
+        // Perform the first claim
+        uint256 claimedAmount = vault.claim(alice, withdrawalEpoch);
+        assertEq(claimedAmount, withdrawAmount, "Claimed amount mismatch");
+
+        // Second claim attempt (should fail with Vault__AlreadyClaimed())
+        vm.expectRevert(IVaultTokenized.Vault__AlreadyClaimed.selector);
+        vault.claim(alice, withdrawalEpoch);
+
+        vm.stopPrank();
+    }
+
+    /**
+     * @dev Test the redeem functionality along with the claim process.
+     */
+    function testRedeem() public {
+        uint256 depositAmount = 1000 * 10**collateral.decimals();
+        uint256 redeemAmount = 500 * 10**collateral.decimals();
+
+        // Alice deposits tokens into the vault
+        _deposit(alice, depositAmount);
+
+        // Expect Transfer event: alice -> address(0) (burned shares)
+        vm.expectEmit(true, true, false, true);
+        emit IERC20.Transfer(alice, address(0), redeemAmount); // Burning shares
+
+        // Perform redeem as Alice
+        vm.prank(alice);
+        (uint256 withdrawnAssets, uint256 mintedShares) = vault.redeem(alice, redeemAmount);
+
+        // Assertions post redeem
+        assertEq(withdrawnAssets, redeemAmount, "Withdrawn assets mismatch");
+        assertEq(mintedShares, redeemAmount, "Minted shares mismatch"); // Assuming 1:1 share rate initially
+        assertEq(vault.balanceOf(alice), depositAmount - redeemAmount, "Alice's share balance after redemption mismatch");
+        
+        // After redeem, the vault's collateral should still be depositAmount
+        assertEq(collateral.balanceOf(address(vault)), depositAmount, "Vault's collateral balance mismatch after redemption");
+
+        // Warp to the next epoch to make the withdrawal claimable
+        uint256 epochDuration = vault.epochDuration();
+        uint256 nextEpochStart = vault.nextEpochStart();
+        vm.warp(nextEpochStart + epochDuration); // Warp to currentEpoch() =2
+
+        // Define withdrawal epoch (assuming redeem registers for currentEpoch()+1)
+        uint256 withdrawalEpoch = 1; // Withdrawal was registered for epoch=1
+
+        // Expect Claim event
+        vm.expectEmit(true, true, false, true);
+        emit IVaultTokenized.Claim(alice, alice, withdrawalEpoch, redeemAmount);
+
+        // Perform the claim
+        vm.prank(alice);
+        uint256 claimedAmount = vault.claim(alice, withdrawalEpoch);
+
+        // Assertions post claim
+        assertEq(claimedAmount, redeemAmount, "Claimed amount mismatch");
+        assertEq(collateral.balanceOf(address(vault)), depositAmount - redeemAmount, "Vault's collateral balance mismatch after claim");
+        assertEq(collateral.balanceOf(alice), redeemAmount, "Alice's collateral balance after claim mismatch");
+
+        // Attempt to redeem more shares than Alice possesses
+        uint256 excessiveRedeem = depositAmount; // Alice only has (depositAmount - redeemAmount) shares
+        vm.prank(alice);
+        vm.expectRevert(IVaultTokenized.Vault__TooMuchRedeem.selector);
+        vault.redeem(alice, excessiveRedeem);
+
+        // Attempt to redeem zero shares
+        vm.prank(alice);
+        vm.expectRevert(IVaultTokenized.Vault__InsufficientRedemption.selector);
+        vault.redeem(alice, 0);
+    }
+
+    function testClaimBatch() public {
+        uint256 depositAmount = 2000 * 10**collateral.decimals();
+        uint256 withdrawAmount1 = 500 * 10**collateral.decimals();
+        uint256 withdrawAmount2 = 700 * 10**collateral.decimals();
+
+        // Alice deposits tokens into the vault
+        _deposit(alice, depositAmount);
+
+        // Alice withdraws first amount
+        vm.prank(alice);
+        _withdraw(alice, withdrawAmount1);
+
+        // Warp to next epoch to make first withdrawal claimable
+        vm.warp(vault.nextEpochStart());
+
+        // Alice withdraws second amount in the next epoch
+        vm.prank(alice);
+        _withdraw(alice, withdrawAmount2);
+
+        // Warp to the epoch after the second withdrawal to make both withdrawals claimable
+        uint256 epochDuration = vault.epochDuration();
+        vm.warp(vault.nextEpochStart() + epochDuration); // Warp to currentEpoch() = 2
+
+        // Define epochs to claim (epoch 1 and epoch 2)
+        uint256 currentEpoch = vault.currentEpoch(); // Should be 2
+        uint256 claimEpoch1 = 1; // First withdrawal was in epoch 1
+        uint256 claimEpoch2 = 2; // Second withdrawal was in epoch 2
+
+        // Prepare expected total claim amount
+        uint256 expectedTotalClaim = withdrawAmount1 + withdrawAmount2;
+
+        // Define the epochs array with correct declaration and initialization
+        uint256[] memory epochsToClaim = new uint256[](2);
+        epochsToClaim[0] = claimEpoch1;
+        epochsToClaim[1] = claimEpoch2;
+
+        // Expect ClaimBatch event
+        vm.expectEmit(true, true, false, true);
+        emit IVaultTokenized.ClaimBatch(alice, alice, epochsToClaim, expectedTotalClaim);
+
+        // Perform batch claim
+        vm.prank(alice);
+        uint256 claimedAmount = vault.claimBatch(alice, epochsToClaim);
+
+        // Assertions
+        assertEq(claimedAmount, expectedTotalClaim, "Total claimed amount mismatch");
+        assertEq(
+            collateral.balanceOf(address(vault)),
+            depositAmount - expectedTotalClaim,
+            "Vault's collateral balance mismatch after claims"
+        );
+        assertEq(collateral.balanceOf(alice), expectedTotalClaim, "Alice's collateral balance after claims mismatch");
+
+        // Attempt to claim the same epochs again
+        vm.prank(alice);
+        vm.expectRevert(IVaultTokenized.Vault__AlreadyClaimed.selector);
+        vault.claimBatch(alice, epochsToClaim);
+
+
+        // Attempt to claim an invalid epoch (future epoch)
+        vm.prank(alice);
+        uint256 futureEpoch = currentEpoch + 1;
+        uint256[] memory futureEpochs = new uint256[](1);
+        futureEpochs[0] = futureEpoch;
+        vm.expectRevert(IVaultTokenized.Vault__InvalidEpoch.selector);
+        vault.claimBatch(alice, futureEpochs);
+
+    }
+
+    /**
+     * @notice Simplified test covering activeSharesAt, activeShares, activeStakeAt, activeStake, activeSharesOfAt, and activeSharesOf.
+     */
+    function testActiveFunctions() public {
+        // Define deposit and withdrawal amounts
+        uint256 aliceDeposit = 1000 * 10**collateral.decimals();
+        uint256 bobDeposit = 2000 * 10**collateral.decimals();
+        uint256 aliceWithdraw = 500 * 10**collateral.decimals();
+        uint256 bobWithdraw = 800 * 10**collateral.decimals();
+
+        // Alice deposits at T1
+        _deposit(alice, aliceDeposit);
+        uint48 T1 = uint48(block.timestamp);
+
+        // Bob deposits at T2 (after half an epoch)
+        vm.warp(T1 + vault.epochDuration() / 2);
+        _deposit(bob, bobDeposit);
+        uint48 T2 = uint48(block.timestamp);
+
+        // Alice withdraws at T3 (after the epoch ends)
+        vm.warp(T1 + vault.epochDuration());
+        _withdraw(alice, aliceWithdraw);
+        uint48 T3 = uint48(block.timestamp);
+
+        // Bob withdraws at T4 (after another half epoch)
+        vm.warp(T3 + vault.epochDuration() / 2);
+        _withdraw(bob, bobWithdraw);
+        uint48 T4 = uint48(block.timestamp);
+
+        // Move forward to the end of the next epoch
+        vm.warp(T1 + 2 * vault.epochDuration());
+
+        // =======================
+        // Assertions for activeSharesAt and activeStakeAt
+        // =======================
+
+        // activeSharesAt Assertions
+        assertEq(vault.activeSharesAt(T1, ""), aliceDeposit, "activeSharesAt T1 mismatch");
+        assertEq(vault.activeSharesAt(T2, ""), aliceDeposit + bobDeposit, "activeSharesAt T2 mismatch");
+        assertEq(vault.activeSharesAt(T3, ""), aliceDeposit - aliceWithdraw + bobDeposit, "activeSharesAt T3 mismatch");
+        assertEq(vault.activeSharesAt(T4, ""), aliceDeposit - aliceWithdraw + bobDeposit - bobWithdraw, "activeSharesAt T4 mismatch");
+
+        // activeStakeAt Assertions (assuming activeStake mirrors activeShares)
+        assertEq(vault.activeStakeAt(T1, ""), aliceDeposit, "activeStakeAt T1 mismatch");
+        assertEq(vault.activeStakeAt(T2, ""), aliceDeposit + bobDeposit, "activeStakeAt T2 mismatch");
+        assertEq(vault.activeStakeAt(T3, ""), aliceDeposit - aliceWithdraw + bobDeposit, "activeStakeAt T3 mismatch");
+        assertEq(vault.activeStakeAt(T4, ""), aliceDeposit - aliceWithdraw + bobDeposit - bobWithdraw, "activeStakeAt T4 mismatch");
+
+        // =======================
+        // Assertions for activeShares and activeStake
+        // =======================
+
+        // Current activeShares and activeStake
+        uint256 expectedActive = aliceDeposit - aliceWithdraw + bobDeposit - bobWithdraw;
+        assertEq(vault.activeShares(), expectedActive, "activeShares current mismatch");
+        assertEq(vault.activeStake(), expectedActive, "activeStake current mismatch");
+
+        // =======================
+        // Assertions for activeSharesOfAt
+        // =======================
+
+        // Alice's activeSharesOfAt
+        assertEq(vault.activeSharesOfAt(alice, T1, ""), aliceDeposit, "Alice's activeSharesOfAt T1 mismatch");
+        assertEq(vault.activeSharesOfAt(alice, T3, ""), aliceDeposit - aliceWithdraw, "Alice's activeSharesOfAt T3 mismatch");
+
+        // Bob's activeSharesOfAt
+        assertEq(vault.activeSharesOfAt(bob, T2, ""), bobDeposit, "Bob's activeSharesOfAt T2 mismatch");
+        assertEq(vault.activeSharesOfAt(bob, T4, ""), bobDeposit - bobWithdraw, "Bob's activeSharesOfAt T4 mismatch");
+
+        // =======================
+        // Assertions for activeSharesOf
+        // =======================
+
+        // Alice's activeSharesOf
+        assertEq(vault.activeSharesOf(alice), aliceDeposit - aliceWithdraw, "Alice's activeSharesOf current mismatch");
+
+        // Bob's activeSharesOf
+        assertEq(vault.activeSharesOf(bob), bobDeposit - bobWithdraw, "Bob's activeSharesOf current mismatch");
     }
 
 
