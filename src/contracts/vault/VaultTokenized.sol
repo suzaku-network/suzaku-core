@@ -124,7 +124,6 @@ contract VaultTokenized is
         __AccessControl_init();
         __ReentrancyGuard_init();
 
-        // Initialize constants (roles)
         vs.DEPOSIT_WHITELIST_SET_ROLE = keccak256("DEPOSIT_WHITELIST_SET_ROLE");
         vs.DEPOSITOR_WHITELIST_ROLE = keccak256("DEPOSITOR_WHITELIST_ROLE");
         vs.IS_DEPOSIT_LIMIT_SET_ROLE = keccak256("IS_DEPOSIT_LIMIT_SET_ROLE");
@@ -133,11 +132,9 @@ contract VaultTokenized is
         vs.DELEGATOR_FACTORY = delegatorFactory;
         vs.SLASHER_FACTORY = slasherFactory;
 
-        // Initialization flags based on factory addresses
         vs.isDelegatorInitialized = delegatorFactory != address(0);
         vs.isSlasherInitialized = slasherFactory != address(0);
 
-        // Call internal initialization function
         _initialize(initialVersion, owner_, data);
     }
 
@@ -148,13 +145,10 @@ contract VaultTokenized is
     function _initialize(uint64, /* initialVersion */ address, /* owner */ bytes memory data) internal onlyInitializing {
         VaultStorageStruct storage vs = _vaultStorage();
 
-        // Decode initialization parameters
         (InitParams memory params) = abi.decode(data, (InitParams));
 
-        // Initialize the ERC20 token with name and symbol
         __ERC20_init(params.name, params.symbol);
 
-        // Validate parameters
         if (params.collateral == address(0)) {
             revert Vault__InvalidCollateral();
         }
@@ -163,7 +157,6 @@ contract VaultTokenized is
             revert Vault__InvalidEpochDuration();
         }
 
-        // Include Missing Roles Validation Logic
         if (params.defaultAdminRoleHolder == address(0)) {
             if (params.depositWhitelistSetRoleHolder == address(0)) {
                 if (params.depositWhitelist) {
@@ -186,7 +179,6 @@ contract VaultTokenized is
             }
         }
 
-        // Initialize state variables
         vs.collateral = params.collateral;
         vs.burner = params.burner;
         vs.epochDurationInit = Time.timestamp();
@@ -195,7 +187,6 @@ contract VaultTokenized is
         vs.isDepositLimit = params.isDepositLimit;
         vs.depositLimit = params.depositLimit;
 
-        // Assign roles
         if (params.defaultAdminRoleHolder != address(0)) {
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }
@@ -224,7 +215,6 @@ contract VaultTokenized is
      * @inheritdoc IVaultTokenized
      */
     function migrate(uint64 newVersion, bytes calldata data) external nonReentrant {
-        // Only the vault factory can initiate migration
         if (msg.sender != FACTORY) {
             revert NotFactory();
         }
@@ -233,7 +223,6 @@ contract VaultTokenized is
     }
 
     function _migrateInternal(uint64 newVersion, bytes calldata data) private reinitializer(newVersion) {
-        // Call internal migration function
         _migrate(newVersion, data);
     }
 
@@ -826,7 +815,6 @@ contract VaultTokenized is
 
     function _claim(uint256 epoch) internal returns (uint256 amount) {
         VaultStorageStruct storage vs = _vaultStorage();
-
         if (epoch >= currentEpoch()) {
             revert Vault__InvalidEpoch();
         }
