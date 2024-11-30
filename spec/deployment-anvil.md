@@ -36,7 +36,8 @@ forge script ./script/deploy/FactoryAndRegistry.s.sol:FactoryAndRegistryScript -
 Replace factories and registries in `.env.anvil` with the deployed adddresses. They can be found in `deployments` folder. 
 
 
-
+```
 set -a
 source .env.sepolia
 forge script ./script/deploy/Core.s.sol:CoreScript --broadcast --rpc-url http://127.0.0.1:8545 --private-key $DEPLOYER_PRIV_KEY --via-ir
+```
