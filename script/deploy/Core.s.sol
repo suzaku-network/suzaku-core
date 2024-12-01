@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.25;
 
-import {Script, console2} from "forge-std/Script.sol";
-import "forge-std/StdJson.sol";
-
 import {HelperConfig} from "./HelperConfig.s.sol"; // Import HelperConfig for network-specific config
 
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
@@ -22,6 +19,8 @@ import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 
+import {Script, console2} from "forge-std/Script.sol";
+import "forge-std/StdJson.sol";
 
 contract CoreScript is Script {
     bool public includeSlasher;
@@ -230,7 +229,6 @@ contract CoreScript is Script {
         string memory filePath = string.concat("./deployments/", deploymentFileName);
 
         if (vm.exists(filePath)) {
-            // If file exists, delete it
             vm.removeFile(filePath);
         }
 

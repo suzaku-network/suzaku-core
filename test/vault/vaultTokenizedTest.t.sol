@@ -33,6 +33,7 @@ import {IFullRestakeDelegator} from "../../src/interfaces/delegator/IFullRestake
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
 import {ISlasher} from "../../src/interfaces/slasher/ISlasher.sol";
 import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
+import {MockVaultTokenizedV2} from "../mocks/MockVaultTokenizedV2.sol";
 
 // import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -82,76 +83,8 @@ contract VaultTokenizedTest is Test {
         slasherFactory = new SlasherFactory(owner);
         l1Registry = new L1Registry();
         operatorRegistry = new OperatorRegistry();
-        // operatorMetadataService = new MetadataService(address(operatorRegistry));
-        // l1MetadataService = new MetadataService(address(l1Registry));
-        // l1MiddlewareService = new L1MiddlewareService(address(l1Registry));
-        // operatorVaultOptInService =
-        //     new OptInService(address(operatorRegistry), address(vaultFactory), "OperatorVaultOptInService");
-        // operatorL1OptInService =
-        //     new OptInService(address(operatorRegistry), address(l1Registry), "OperatorL1OptInService");
-
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultImpl);
-
-        // address vaultTokenizedImpl = address(new VaultTokenized(address(vaultFactory)));
-        // vaultFactory.whitelist(vaultTokenizedImpl);
-        // address l1RestakeDelegatorImpl = address(
-        //     new L1RestakeDelegator(
-        //         address(l1Registry),
-        //         address(vaultFactory),
-        //         address(operatorVaultOptInService),
-        //         address(operatorL1OptInService),
-        //         address(delegatorFactory),
-        //         delegatorFactory.totalTypes()
-        //     )
-        // );
-        // delegatorFactory.whitelist(l1RestakeDelegatorImpl);
-
-        // address fullRestakeDelegatorImpl = address(
-        //     new FullRestakeDelegator(
-        //         address(l1Registry),
-        //         address(vaultFactory),
-        //         address(operatorVaultOptInService),
-        //         address(operatorL1OptInService),
-        //         address(delegatorFactory),
-        //         delegatorFactory.totalTypes()
-        //     )
-        // );
-        // delegatorFactory.whitelist(fullRestakeDelegatorImpl);
-
-        // address operatorSpecificDelegatorImpl = address(
-        //     new OperatorSpecificDelegator(
-        //         address(operatorRegistry),
-        //         address(l1Registry),
-        //         address(vaultFactory),
-        //         address(operatorVaultOptInService),
-        //         address(operatorL1OptInService),
-        //         address(delegatorFactory),
-        //         delegatorFactory.totalTypes()
-        //     )
-        // );
-        // delegatorFactory.whitelist(operatorSpecificDelegatorImpl);
-
-        // address slasherImpl = address(
-        //     new Slasher(
-        //         address(vaultFactory),
-        //         address(l1MiddlewareService),
-        //         address(slasherFactory),
-        //         slasherFactory.totalTypes()
-        //     )
-        // );
-        // slasherFactory.whitelist(slasherImpl);
-
-        // address vetoSlasherImpl = address(
-        //     new VetoSlasher(
-        //         address(vaultFactory),
-        //         address(l1MiddlewareService),
-        //         address(l1Registry),
-        //         address(slasherFactory),
-        //         slasherFactory.totalTypes()
-        //     )
-        // );
-    //     slasherFactory.whitelist(vetoSlasherImpl);
 
         collateral = new Token("Token");
         feeOnTransferCollateral = new MockFeeOnTransferToken("FeeOnTransferToken");
@@ -160,7 +93,6 @@ contract VaultTokenizedTest is Test {
     //         new VaultConfigurator(address(vaultFactory), address(delegatorFactory), address(slasherFactory));
     }
     
-
     function test_Create2(
         address burner,
         uint48 epochDuration,
@@ -292,7 +224,7 @@ contract VaultTokenizedTest is Test {
         operatorL1SharesSetRoleHolders[0] = alice;
         uint64 lastVersion = vaultFactory.lastVersion();
         vm.expectRevert(IVaultTokenized.Vault__InvalidEpochDuration.selector);
-        address vaultAddress = vaultFactory.create(
+        vaultFactory.create(
             lastVersion,
             alice,
             abi.encode(
@@ -328,7 +260,7 @@ contract VaultTokenizedTest is Test {
         operatorL1SharesSetRoleHolders[0] = alice;
         uint64 lastVersion = vaultFactory.lastVersion();
         vm.expectRevert(IVaultTokenized.Vault__InvalidCollateral.selector);
-        address vaultAddress = vaultFactory.create(
+        vaultFactory.create(
             lastVersion,
             alice,
             abi.encode(
@@ -493,7 +425,7 @@ contract VaultTokenizedTest is Test {
         uint64 lastVersion = vaultFactory.lastVersion();
 
         vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
-        address vaultAddress = vaultFactory.create(
+        vaultFactory.create(
             lastVersion,
             alice,
             abi.encode(
@@ -516,6 +448,51 @@ contract VaultTokenizedTest is Test {
             address(delegatorFactory),
             address(slasherFactory)
         );
+    }
+
+    function test_VaultUpgrade() public {
+        MockVaultTokenizedV2 mockV2 = new MockVaultTokenizedV2(address(vaultFactory));
+
+        vaultFactory.whitelist(address(mockV2));
+
+        uint64 lastVersion = vaultFactory.lastVersion();
+        address vaultToUpgrade = vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 3,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 1000,
+                    defaultAdminRoleHolder: alice,
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+
+        VaultTokenized vaultContract = VaultTokenized(vaultToUpgrade);
+        assertEq(vaultContract.version(), 1);
+
+        vm.startPrank(alice);
+        uint64 b = 2;
+        vaultFactory.migrate(vaultToUpgrade, 2, abi.encode(b));
+        vm.stopPrank();
+
+        assertEq(vaultContract.version(), 2);
+
+        // TODO - test further updates and storage changes available in the new version
+        MockVaultTokenizedV2 vaultV2 = MockVaultTokenizedV2(vaultToUpgrade);
+        assertEq(vaultV2.version2State(), 2);
     }
 
     // function test_SetDelegator() public {
