@@ -34,7 +34,7 @@ contract L1Registry is IL1Registry {
         l1Middleware[validatorManager] = l1Middleware_;
         l1MetadataURL[validatorManager] = metadataURL;
 
-        emit RegisterL1(validatorManager, l1Middleware_);
+        emit RegisterL1(validatorManager);
         emit SetL1Middleware(validatorManager, l1Middleware_);
         emit SetMetadataURL(validatorManager, metadataURL);
     }

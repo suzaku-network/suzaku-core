@@ -4,7 +4,7 @@
 pragma solidity ^0.8.0;
 
 interface IL1Registry {
-    event RegisterL1(address indexed validatorManager, address indexed l1Middleware);
+    event RegisterL1(address indexed validatorManager);
     event SetL1Middleware(address indexed validatorManager, address indexed l1Middleware);
     event SetMetadataURL(address indexed validatorManager, string metadataURL);
 

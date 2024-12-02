@@ -149,7 +149,7 @@ contract L1RegistryTest is Test {
     function testRegisterL1EmitsEvents() public {
         // Expect the RegisterL1 event to be emitted
         vm.expectEmit(true, true, true, true);
-        emit IL1Registry.RegisterL1(address(mockACP99Manager), l1Middleware1SecurityModule);
+        emit IL1Registry.RegisterL1(address(mockACP99Manager));
 
         // Expect the SetL1Middleware event to be emitted
         vm.expectEmit(true, true, true, true);
