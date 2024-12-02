@@ -14,17 +14,29 @@ contract L1Registry is IL1Registry {
 
     EnumerableSet.AddressSet private l1s;
 
+    /// @notice The l1Middleware for each L1
+    mapping(address => address) public l1Middleware;
+
+    /// @notice The metadata URL for each L1
+    mapping(address => string) public l1MetadataURL;
+
     /// @inheritdoc IL1Registry
-    function registerL1(address ACP99Manager) external {
-        if (isRegistered(msg.sender)) {
+    function registerL1(address validatorManager, address l1Middleware_, string calldata metadataURL) external {
+        if (isRegistered(validatorManager)) {
             revert L1Registry__L1AlreadyRegistered();
         }
 
-        // TODO: check if ACP99Manager is a valid ACP99Manager
+        // TODO: check that validatorManager is a valid ValidatorManager
+        // TODO: check that msg.sender is a SecurityModule of the ValidatorManager
+        // TODO: check that l1Middleware_ is a valid SecurityModule of the ValidatorManager
 
-        _addL1(msg.sender);
+        l1s.add(validatorManager);
+        l1Middleware[validatorManager] = l1Middleware_;
+        l1MetadataURL[validatorManager] = metadataURL;
 
-        emit RegisterL1(msg.sender);
+        emit RegisterL1(validatorManager);
+        emit SetL1Middleware(validatorManager, l1Middleware_);
+        emit SetMetadataURL(validatorManager, metadataURL);
     }
 
     /// @inheritdoc IL1Registry
@@ -33,8 +45,9 @@ contract L1Registry is IL1Registry {
     }
 
     /// @inheritdoc IL1Registry
-    function getL1At(uint256 index) public view returns (address) {
-        return l1s.at(index);
+    function getL1At(uint256 index) public view returns (address, address, string memory) {
+        address l1 = l1s.at(index);
+        return (l1, l1Middleware[l1], l1MetadataURL[l1]);
     }
 
     /// @inheritdoc IL1Registry
@@ -43,15 +56,38 @@ contract L1Registry is IL1Registry {
     }
 
     /// @inheritdoc IL1Registry
-    function getAllL1s() public view returns (address[] memory) {
-        return l1s.values();
+    function getAllL1s() public view returns (address[] memory, address[] memory, string[] memory) {
+        address[] memory l1sList = l1s.values();
+        address[] memory l1Middlewares = new address[](l1sList.length);
+        string[] memory metadataURLs = new string[](l1sList.length);
+        for (uint256 i = 0; i < l1sList.length; i++) {
+            l1Middlewares[i] = l1Middleware[l1sList[i]];
+            metadataURLs[i] = l1MetadataURL[l1sList[i]];
+        }
+        return (l1sList, l1Middlewares, metadataURLs);
     }
 
-    /**
-     * @dev Add an address as an L1.
-     * @param l1 The address to add.
-     */
-    function _addL1(address l1) internal {
-        l1s.add(l1);
+    /// @inheritdoc IL1Registry
+    function setL1Middleware(address validatorManager, address l1Middleware_) external {
+        if (!isRegistered(validatorManager)) {
+            revert L1Registry__L1NotRegistered();
+        }
+
+        l1Middleware[validatorManager] = l1Middleware_;
+
+        emit SetL1Middleware(validatorManager, l1Middleware_);
+    }
+
+    /// @inheritdoc IL1Registry
+    function setMetadataURL(address validatorManager, string calldata metadataURL) external {
+        if (!isRegistered(validatorManager)) {
+            revert L1Registry__L1NotRegistered();
+        }
+
+        // TODO: check that msg.sender is a SecurityModule of the ValidatorManager
+
+        l1MetadataURL[validatorManager] = metadataURL;
+
+        emit SetMetadataURL(validatorManager, metadataURL);
     }
 }
