@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.25;
 
-import { Entity } from "./common/Entity.sol";
 import { IEntity } from "../interfaces/common/IEntity.sol";
 import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import { ERC165 } from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 
@@ -28,7 +26,7 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
     
     modifier checkType(uint64 type_) {
         if (type_ >= totalTypes()) {
-            revert InvalidType();
+            revert DelegatorFactory__InvalidType();
         }
         _;
     }
@@ -57,14 +55,14 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
     function whitelist(address implementation_) external onlyOwner {
         // Check if the implementation supports the IEntity interface via ERC165
         if (!implementation_.supportsInterface(type(IEntity).interfaceId)) {
-            revert InvalidImplementation();
+            revert DelegatorFactory__InvalidImplementation();
         }
 
         if (IEntity(implementation_).FACTORY() != address(this) || IEntity(implementation_).TYPE() != totalTypes()) {
-            revert InvalidImplementation();
+            revert DelegatorFactory__InvalidImplementation();
         }
         if (!_whitelistedImplementations.add(implementation_)) {
-            revert AlreadyWhitelisted();
+            revert DelegatorFactory__AlreadyWhitelisted();
         }
 
         emit Whitelist(implementation_);
@@ -75,7 +73,7 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
      */
     function blacklist(uint64 type_) external onlyOwner checkType(type_) {
         if (blacklisted[type_]) {
-            revert AlreadyBlacklisted();
+            revert DelegatorFactory__AlreadyBlacklisted();
         }
 
         blacklisted[type_] = true;
@@ -93,12 +91,6 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
 
         IEntity(entity_).initialize(data);
     }
-
-    // function create(uint64 type_, bytes calldata data) external returns (address _delegator) {
-    //     _delegator = implementation(type_).cloneDeterministic(keccak256(abi.encode(type_, data)));
-
-    //     IEntity(_delegator).initialize(data);
-    // }
 
     function _addDelegatorEntity(
         address entity_
@@ -131,6 +123,14 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
      */
     function totalEntities() public view returns (uint256) {
         return _entities.length();
+    }
+
+    function _checkEntity(
+        address account
+    ) internal view {
+        if (!isEntity(account)) {
+            revert DelegatorFactory__EntityNotExist();
+        }
     }
 
     function supportsInterface(bytes4 interfaceId) public view override(ERC165, IDelegatorFactory) returns (bool) {

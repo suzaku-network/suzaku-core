@@ -8,11 +8,11 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * @dev Combined interface integrating IDelegatorFactory, IFactory, IRegistry, and IERC165.
  */
 interface IDelegatorFactory is IERC165 {
-    error EntityNotExist();
-    error AlreadyBlacklisted();
-    error AlreadyWhitelisted();
-    error InvalidImplementation();
-    error InvalidType();
+    error DelegatorFactory__EntityNotExist();
+    error DelegatorFactory__AlreadyBlacklisted();
+    error DelegatorFactory__AlreadyWhitelisted();
+    error DelegatorFactory__InvalidImplementation();
+    error DelegatorFactory__InvalidType();
 
     /**
      * @notice Emitted when an entity is added.

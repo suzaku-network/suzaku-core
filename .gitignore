@@ -14,4 +14,4 @@ docs/
 .env
 
 # Deployments
-development/*
+deployments/*

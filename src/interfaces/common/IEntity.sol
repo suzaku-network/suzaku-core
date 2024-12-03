@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 interface IEntity is IERC165 {
-    error NotInitialized();
+    error Entity__NotInitialized();
 
     /**
      * @notice Get the factory's address.

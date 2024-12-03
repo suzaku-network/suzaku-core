@@ -8,11 +8,11 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  * @dev Combined interface integrating ISlasherFactory, IFactory, IRegistry, and IERC165.
  */
 interface ISlasherFactory is IERC165 {
-    error EntityNotExist();
-    error AlreadyBlacklisted();
-    error AlreadyWhitelisted();
-    error InvalidImplementation();
-    error InvalidType();
+    error SlasherFactory__EntityNotExist();
+    error SlasherFactory__AlreadyBlacklisted();
+    error SlasherFactory__AlreadyWhitelisted();
+    error SlasherFactory__InvalidImplementation();
+    error SlasherFactory__InvalidType();
 
     /**
      * @notice Emitted when an entity is added.
