@@ -5,7 +5,7 @@ import {Script, console2} from "forge-std/Script.sol";
 
 contract HelperConfig is Script {
     /*//////////////////////////////////////////////////////////////
-                                                     TYPES
+                                TYPES
     //////////////////////////////////////////////////////////////*/
     struct GeneralConfig {
         address owner;
@@ -51,13 +51,13 @@ contract HelperConfig is Script {
     }
 
     /*//////////////////////////////////////////////////////////////
-                                            STATE VARIABLES
+                            STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
     NetworkConfig public activeNetworkConfig;
     mapping(uint256 => NetworkConfig) public networkConfigs;
 
     /*//////////////////////////////////////////////////////////////
-                                                   ERRORS
+                                ERRORS
     //////////////////////////////////////////////////////////////*/
     error HelperConfig__InvalidChainId();
     error HelperConfig__MissingEnvironmentVariable(string variableName);
@@ -71,7 +71,7 @@ contract HelperConfig is Script {
     }
 
     /*//////////////////////////////////////////////////////////////
-                                                   FUNCTIONS
+                                FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
     function getNetworkConfig() internal view returns (NetworkConfig memory config) {
@@ -114,11 +114,11 @@ contract HelperConfig is Script {
     }
 
     function getFactoryConfig() internal view returns (FactoryConfig memory fc) {
-        fc.vaultFactory = vm.envAddress("VAULT_FACTORY");
-        fc.delegatorFactory = vm.envAddress("DELEGATOR_FACTORY");
-        fc.slasherFactory = vm.envAddress("SLASHER_FACTORY");
-        fc.l1Registry = vm.envAddress("L1_REGISTRY");
-        fc.operatorRegistry = vm.envAddress("OPERATOR_REGISTRY");
+        fc.vaultFactory = vm.envOr("VAULT_FACTORY", address(0));
+        fc.delegatorFactory = vm.envOr("DELEGATOR_FACTORY", address(0));
+        fc.slasherFactory = vm.envOr("SLASHER_FACTORY", address(0));
+        fc.l1Registry = vm.envOr("L1_REGISTRY", address(0));
+        fc.operatorRegistry = vm.envOr("OPERATOR_REGISTRY", address(0));
     }
 
     function getConfig() external view returns (NetworkConfig memory) {

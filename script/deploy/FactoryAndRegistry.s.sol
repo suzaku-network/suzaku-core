@@ -2,7 +2,7 @@
 pragma solidity 0.8.25;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {HelperConfig} from "./HelperConfig.s.sol"; // Import HelperConfig for network-specific config
+import {HelperConfig} from "./HelperConfig.s.sol";
 
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
@@ -20,7 +20,6 @@ contract FactoryAndRegistryScript is Script {
         console2.log("Owner Address:", config.generalConfig.owner);
         
         vm.startBroadcast();
-
 
         // Deploy main factories
         VaultFactory vaultFactory = new VaultFactory(config.generalConfig.owner);
