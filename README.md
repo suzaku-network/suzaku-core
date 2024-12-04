@@ -1,66 +1,22 @@
-## Foundry
+# Suzaku Core
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Core contracts of the Suzaku protocol.
 
-Foundry consists of:
+## Architecture
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Suzaku Core contracts are inspired by [Symbiotic Core contracts](https://github.com/symbioticfi/core).
 
-## Documentation
+### Major divergences between Suzaku and Symbiotic
 
-https://book.getfoundry.sh/
+- Suzaku doesn't use the Symbiotics [`common` contracts](https://github.com/symbioticfi/core/tree/main/src/contracts/common) standardization.
+- Suzaku secures `L1`s instead of `Network`s. Each `L1` has to correspond to an existing Avalanche L1 that has been converted using `ConvertSubnetTx`.
+- Suzaku `Vault`s are not migratable.
 
-## Usage
+**Note:** The compatibility with Symbiotic interfaces could be increased in the future if needed for some integrations.
 
-### Build
+### Contracts and Symbiotics counterparts
 
-```shell
-$ forge build
-```
-
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+| Suzaku                                                     | Symbiotic                                                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [L1Registry](./src/contracts/L1Registry.sol)               | [NetworkRegistry](https://github.com/symbioticfi/core/blob/main/src/contracts/NetworkRegistry.sol)   |
+| [OperatorRegistry](./src/interfaces/IOperatorRegistry.sol) | [OperatorRegistry](https://github.com/symbioticfi/core/blob/main/src/contracts/OperatorRegistry.sol) |
