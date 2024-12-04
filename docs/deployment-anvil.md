@@ -4,7 +4,7 @@ Follow the steps below to deploy the SuzVault along with the required collateral
 
 ## 1. Create the `Collateral` Token
 
-After deploying anvil and before deploying SuzVault, you need to create the `collateral` token. 
+After deploying anvil and before deploying SuzVault, you need to create the `collateral` token.
 
 - **Repository:** Use the [suzaku-deployments repository](https://github.com/suzaku-network/suzaku-deployments).
 - **Path:** Navigate to the `/suzaku-restaking/docs/local-anvil/collateral.md` section for detailed instructions on creating the collateral token.
@@ -18,7 +18,7 @@ CHAIN_ID=31337
 OWNER=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
 INITIAL_VAULT_VERSION=1
 DEFAULT_INCLUDE_SLASHER=false
-COLLATERAL_TOKEN_ADDRESS= # Replace with your collateral token address 
+COLLATERAL_TOKEN_ADDRESS= # Replace with your collateral token address
 EPOCH_DURATION=3600
 DEPOSIT_WHITELIST=true
 DEPOSIT_LIMIT=1000000
@@ -34,6 +34,7 @@ INCLUDE_SLASHER=false
 ```
 
 **Important:**
+
 - Ensure you replace the placeholder comments (e.g., `# Replace with your collateral token address`) with actual deployed contract addresses.
 - The owner and private key are the first anvil created address.
 
@@ -56,7 +57,7 @@ forge script ./script/deploy/FactoryAndRegistry.s.sol:FactoryAndRegistryScript \
 
 ## 4. Update Environment Variables with Deployed Addresses
 
-```env
+```bash
 export DELEGATOR_FACTORY=$(jq -r '.DelegatorFactory' deployments/deploymentDetails.json)
 export VAULT_FACTORY=$(jq -r '.VaultFactory' deployments/deploymentDetails.json)
 export SLASHER_FACTORY=$(jq -r '.SlasherFactory' deployments/deploymentDetails.json)
@@ -78,4 +79,3 @@ forge script ./script/deploy/Core.s.sol:CoreScript \
 ## 6. Verification and Final Steps
 
 - **Verify Deployments:** Check the `deployments` folder to ensure all contracts have been deployed successfully.
-
