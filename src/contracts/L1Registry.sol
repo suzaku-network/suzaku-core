@@ -11,6 +11,7 @@ import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet
 
 contract L1Registry is IL1Registry {
     using EnumerableSet for EnumerableSet.AddressSet;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
 
     EnumerableSet.AddressSet private l1s;
 
@@ -19,6 +20,17 @@ contract L1Registry is IL1Registry {
 
     /// @notice The metadata URL for each L1
     mapping(address => string) public l1MetadataURL;
+
+    struct Subnetwork {
+        address validatorManager;
+        uint256 identifier;
+    }
+
+    /// @notice Set of all registered subnetwork IDs
+    EnumerableSet.Bytes32Set private subnetworkIdentifiers;
+
+    /// @notice Mapping of subnetwork ID to its details
+    mapping(bytes32 => Subnetwork) public subnetworks;
 
     /// @inheritdoc IL1Registry
     function registerL1(address validatorManager, address l1Middleware_, string calldata metadataURL) external {
@@ -90,4 +102,75 @@ contract L1Registry is IL1Registry {
 
         emit SetMetadataURL(validatorManager, metadataURL);
     }
+
+    /// @inheritdoc IL1Registry
+    function registerSubnetwork(address validatorManager, uint256 identifier) external returns (bytes32 subnetwork) {
+
+        if (!isRegistered(validatorManager)) {
+            revert L1Registry__L1NotRegistered();
+        }
+
+        // Generate the unique identifier for the subnetwork
+        subnetwork = keccak256(abi.encodePacked(validatorManager, identifier));
+
+        if (isRegisteredSubnetwork(subnetwork)) {
+            revert L1Registry__SubnetworkAlreadyRegistered(subnetwork);
+        }
+
+        subnetworks[subnetwork] = Subnetwork({ validatorManager: validatorManager, identifier: identifier });
+
+        subnetworkIdentifiers.add(subnetwork);
+
+        emit RegisterSubnetwork(validatorManager, identifier);
+    }
+
+    /// @inheritdoc IL1Registry
+    function isRegisteredSubnetwork(bytes32 subnetwork) public view returns (bool exists) {
+        return subnetworkIdentifiers.contains(subnetwork);
+    }
+
+    /// @inheritdoc IL1Registry
+    function getSubnetwork(bytes32 subnetwork) external view returns (address validatorManager, uint256 identifier) {
+        if (!isRegisteredSubnetwork(subnetwork)) {
+            revert L1Registry__SubnetworkNotRegistered(subnetwork);
+        }
+
+        return (subnetworks[subnetwork].validatorManager, subnetworks[subnetwork].identifier);
+    }
+
+    /// @inheritdoc IL1Registry
+    function getSubnetworkByParams(address validatorManager, uint256 identifier) public view returns (bytes32 subnetwork) {
+        subnetwork = keccak256(abi.encodePacked(validatorManager, identifier));
+
+        if (!isRegisteredSubnetwork(subnetwork)) {
+            revert L1Registry__SubnetworkNotRegistered(subnetwork);
+        }
+        return (subnetwork);
+    }
+
+    /// @inheritdoc IL1Registry
+    function getAllSubnetworks() external view returns (bytes32[] memory _subnetworks, address[] memory _validatorManagers, uint256[] memory _identifiers) {
+        uint256 count = subnetworkIdentifiers.length();
+        _subnetworks = new bytes32[](count);
+        _validatorManagers = new address[](count);
+        _identifiers = new uint256[](count);
+
+        for (uint256 i = 0; i < count; i++) {
+            bytes32 subnetwork = subnetworkIdentifiers.at(i);
+
+            _subnetworks[i] = subnetwork;
+            _validatorManagers[i] = subnetworks[subnetwork].validatorManager;
+            _identifiers[i] = subnetworks[subnetwork].identifier;
+        }
+    }
+
+    function removeSubnetwork(bytes32 subnetwork) external {
+        if (isRegisteredSubnetwork(subnetwork)) {
+            revert L1Registry__SubnetworkAlreadyRegistered(subnetwork);
+        }
+
+        subnetworkIdentifiers.remove(subnetwork);
+        delete subnetworks[subnetwork];
+    }
 }
+
