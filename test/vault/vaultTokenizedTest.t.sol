@@ -10,10 +10,11 @@ import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
 // import {MetadataService} from "../../src/contracts/service/MetadataService.sol";
 // import {L1MiddlewareService} from "../../src/contracts/service/L1MiddlewareService.sol";
-// import {OptInService} from "../../src/contracts/service/OptInService.sol";
+import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
+import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
-// import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
+import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 // import {FullRestakeDelegator} from "../../src/contracts/delegator/FullRestakeDelegator.sol";
 // import {OperatorSpecificDelegator} from "../../src/contracts/delegator/OperatorSpecificDelegator.sol";
 // import {Slasher} from "../../src/contracts/slasher/Slasher.sol";
@@ -28,7 +29,7 @@ import {MockFeeOnTransferToken} from "../mocks/MockFeeOnTransferToken.sol";
 // import {FeeOnTransferToken} from "../mocks/FeeOnTransferToken.sol";
 // import {VaultConfigurator} from "../../src/contracts/VaultConfigurator.sol";
 // import {IVaultConfigurator} from "../../src/interfaces/IVaultConfigurator.sol";
-// import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
+import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 import {IFullRestakeDelegator} from "../../src/interfaces/delegator/IFullRestakeDelegator.sol";
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
 import {ISlasher} from "../../src/interfaces/slasher/ISlasher.sol";
@@ -58,8 +59,8 @@ contract VaultTokenizedTest is Test {
     // MetadataService operatorMetadataService;
     // MetadataService l1MetadataService;
     // L1MiddlewareService l1MiddlewareService;
-    // OptInService operatorVaultOptInService;
-    // OptInService operatorL1OptInService;
+    OperatorVaultOptInService operatorVaultOptInService; // TODO add tests for this
+    OperatorL1OptInService operatorL1OptInService; // TODO add tests for this
     L1Registry l1Registry;
     OperatorRegistry operatorRegistry;
 
@@ -89,8 +90,16 @@ contract VaultTokenizedTest is Test {
         collateral = new Token("Token");
         feeOnTransferCollateral = new MockFeeOnTransferToken("FeeOnTransferToken");
 
-    //     vaultConfigurator =
-    //         new VaultConfigurator(address(vaultFactory), address(delegatorFactory), address(slasherFactory));
+        // Whitelist L1RestakeDelegator implementation for type = 0
+        address l1RestakeDelegatorImpl = address(new L1RestakeDelegator(
+            address(l1Registry),
+            address(vaultFactory),
+            address(0), // operatorVaultOptInService
+            address(0), // operatorL1OptInService
+            address(delegatorFactory),
+            delegatorFactory.totalTypes() // ensures correct TYPE indexing
+        ));
+        delegatorFactory.whitelist(l1RestakeDelegatorImpl);
     }
     
     function test_Create2(
@@ -172,9 +181,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.depositWhitelist(), depositWhitelist);
         assertEq(vault.isDepositorWhitelisted(alice), false);
         assertEq(vault.slashableBalanceOf(alice), 0);
-        // assertEq(vault.isDelegatorInitialized(), true);
+        assertEq(vault.isDelegatorInitialized(), false);
         // assertEq(vault.isSlasherInitialized(), true);
-        // assertEq(vault.isInitialized(), true);
+        assertEq(vault.isInitialized(), false);
 
         blockTimestamp = blockTimestamp + vault.epochDuration() - 1;
         vm.warp(blockTimestamp);
@@ -494,6 +503,251 @@ contract VaultTokenizedTest is Test {
         MockVaultTokenizedV2 vaultV2 = MockVaultTokenizedV2(vaultToUpgrade);
         assertEq(vaultV2.version2State(), 2);
     }
+
+    function test_SetDelegator() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+
+        vault = VaultTokenized(
+            vaultFactory.create(
+                lastVersion,
+                alice,
+                abi.encode(
+                    IVaultTokenized.InitParams({
+                        collateral: address(collateral),
+                        burner: address(0xdEaD),
+                        epochDuration: 7 days,
+                        depositWhitelist: false,
+                        isDepositLimit: false,
+                        depositLimit: 0,
+                        defaultAdminRoleHolder: alice,
+                        depositWhitelistSetRoleHolder: alice,
+                        depositorWhitelistRoleHolder: alice,
+                        isDepositLimitSetRoleHolder: alice,
+                        depositLimitSetRoleHolder: alice,
+                        name: "Test",
+                        symbol: "TEST"
+                    })
+                ),
+                address(delegatorFactory),
+                address(slasherFactory)
+            )
+        );
+
+        assertEq(vault.isDelegatorInitialized(), false);
+
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = alice;
+        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+        operatorL1SharesSetRoleHolders[0] = alice;
+
+        // Create L1RestakeDelegator (delegatorIndex = 0)
+        L1RestakeDelegator delegator = L1RestakeDelegator(
+            delegatorFactory.create(
+                0,
+                abi.encode(
+                    address(vault),
+                    abi.encode(
+                        IL1RestakeDelegator.InitParams({
+                            baseParams: IBaseDelegator.BaseParams({
+                                defaultAdminRoleHolder: alice,
+                                hook: address(0),
+                                hookSetRoleHolder: alice
+                            }),
+                            l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                            operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        })
+                    )
+                )
+            )
+        );
+
+        vault.setDelegator(address(delegator));
+
+        assertEq(vault.delegator(), address(delegator));
+        assertEq(vault.isDelegatorInitialized(), true);
+        assertEq(vault.isInitialized(), false);
+    }
+
+
+    function test_SetDelegatorRevertDelegatorAlreadyInitialized() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+
+        vault = VaultTokenized(
+            vaultFactory.create(
+                lastVersion,
+                alice,
+                abi.encode(
+                    IVaultTokenized.InitParams({
+                        collateral: address(collateral),
+                        burner: address(0xdEaD),
+                        epochDuration: 7 days,
+                        depositWhitelist: false,
+                        isDepositLimit: false,
+                        depositLimit: 0,
+                        defaultAdminRoleHolder: alice,
+                        depositWhitelistSetRoleHolder: alice,
+                        depositorWhitelistRoleHolder: alice,
+                        isDepositLimitSetRoleHolder: alice,
+                        depositLimitSetRoleHolder: alice,
+                        name: "Test",
+                        symbol: "TEST"
+                    })
+                ),
+                address(delegatorFactory),
+                address(slasherFactory)
+            )
+        );
+
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = alice;
+        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+        operatorL1SharesSetRoleHolders[0] = alice;
+
+        L1RestakeDelegator delegator = L1RestakeDelegator(
+            delegatorFactory.create(
+                0,
+                abi.encode(
+                    address(vault),
+                    abi.encode(
+                        IL1RestakeDelegator.InitParams({
+                            baseParams: IBaseDelegator.BaseParams({
+                                defaultAdminRoleHolder: alice,
+                                hook: address(0),
+                                hookSetRoleHolder: alice
+                            }),
+                            l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                            operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        })
+                    )
+                )
+            )
+        );
+
+        vault.setDelegator(address(delegator));
+
+        vm.expectRevert(IVaultTokenized.Vault__DelegatorAlreadyInitialized.selector);
+        vault.setDelegator(address(delegator));
+    }
+
+    function test_SetDelegatorRevertNotDelegator() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+
+        vault = VaultTokenized(
+            vaultFactory.create(
+                lastVersion,
+                alice,
+                abi.encode(
+                    IVaultTokenized.InitParams({
+                        collateral: address(collateral),
+                        burner: address(0xdEaD),
+                        epochDuration: 7 days,
+                        depositWhitelist: false,
+                        isDepositLimit: false,
+                        depositLimit: 0,
+                        defaultAdminRoleHolder: alice,
+                        depositWhitelistSetRoleHolder: alice,
+                        depositorWhitelistRoleHolder: alice,
+                        isDepositLimitSetRoleHolder: alice,
+                        depositLimitSetRoleHolder: alice,
+                        name: "Test",
+                        symbol: "TEST"
+                    })
+                ),
+                address(delegatorFactory),
+                address(slasherFactory)
+            )
+        );
+
+        vm.expectRevert(IVaultTokenized.Vault__NotDelegator.selector);
+        vault.setDelegator(address(1));
+    }
+
+    function test_SetDelegatorRevertInvalidDelegator() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+
+        vault = VaultTokenized(
+            vaultFactory.create(
+                lastVersion,
+                alice,
+                abi.encode(
+                    IVaultTokenized.InitParams({
+                        collateral: address(collateral),
+                        burner: address(0xdEaD),
+                        epochDuration: 7 days,
+                        depositWhitelist: false,
+                        isDepositLimit: false,
+                        depositLimit: 0,
+                        defaultAdminRoleHolder: alice,
+                        depositWhitelistSetRoleHolder: alice,
+                        depositorWhitelistRoleHolder: alice,
+                        isDepositLimitSetRoleHolder: alice,
+                        depositLimitSetRoleHolder: alice,
+                        name: "Test",
+                        symbol: "TEST"
+                    })
+                ),
+                address(delegatorFactory),
+                address(slasherFactory)
+            )
+        );
+
+        VaultTokenized vault2 = VaultTokenized(
+            vaultFactory.create(
+                lastVersion,
+                alice,
+                abi.encode(
+                    IVaultTokenized.InitParams({
+                        collateral: address(collateral),
+                        burner: address(0xdEaD),
+                        epochDuration: 7 days,
+                        depositWhitelist: false,
+                        isDepositLimit: false,
+                        depositLimit: 0,
+                        defaultAdminRoleHolder: alice,
+                        depositWhitelistSetRoleHolder: alice,
+                        depositorWhitelistRoleHolder: alice,
+                        isDepositLimitSetRoleHolder: alice,
+                        depositLimitSetRoleHolder: alice,
+                        name: "Test",
+                        symbol: "TEST"
+                    })
+                ),
+                address(delegatorFactory),
+                address(slasherFactory)
+            )
+        );
+
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = alice;
+        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+        operatorL1SharesSetRoleHolders[0] = alice;
+
+        // Create a delegator bound to vault2
+        L1RestakeDelegator delegator = L1RestakeDelegator(
+            delegatorFactory.create(
+                0,
+                abi.encode(
+                    address(vault2),
+                    abi.encode(
+                        IL1RestakeDelegator.InitParams({
+                            baseParams: IBaseDelegator.BaseParams({
+                                defaultAdminRoleHolder: alice,
+                                hook: address(0),
+                                hookSetRoleHolder: alice
+                            }),
+                            l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                            operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        })
+                    )
+                )
+            )
+        );
+
+        // Trying to set a delegator that belongs to another vault
+        vm.expectRevert(IVaultTokenized.Vault__InvalidDelegator.selector);
+        vault.setDelegator(address(delegator));
+    }
+
 
     // function test_SetDelegator() public {
     //     uint64 lastVersion = vaultFactory.lastVersion();
@@ -2753,8 +3007,8 @@ contract VaultTokenizedTest is Test {
     ) internal returns (VaultTokenized) {
         // Start broadcasting transactions
         vm.startBroadcast();
-        address[] memory networkLimitSetRoleHolders = new address[](1);
-        networkLimitSetRoleHolders[0] = alice;
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = alice;
         address[] memory operatorNetworkSharesSetRoleHolders = new address[](1);
         operatorNetworkSharesSetRoleHolders[0] = alice;
         uint64 lastVersion = vaultFactory.lastVersion();
@@ -2788,7 +3042,7 @@ contract VaultTokenizedTest is Test {
         //             hook: address(0),
         //             hookSetRoleHolder: alice
         //         }),
-        //         networkLimitSetRoleHolders: new address,
+        //         l1LimitSetRoleHolders: new address,
         //         operatorNetworkSharesSetRoleHolders: new address
         //     })
         // );
