@@ -7,11 +7,14 @@ interface IL1Registry {
     event RegisterL1(address indexed validatorManager);
     event SetL1Middleware(address indexed validatorManager, address indexed l1Middleware);
     event SetMetadataURL(address indexed validatorManager, string metadataURL);
+    event RegisterSubnetwork(address indexed validatorManager, uint256 identifier);
 
     error L1Registry__L1AlreadyRegistered();
     error L1Registry__L1NotRegistered();
     error L1Registry__InvalidValidatorManager(address ValidatorManager);
-
+    error L1Registry__SubnetworkAlreadyRegistered(bytes32 subnetwork);
+    error L1Registry__SubnetworkNotRegistered(bytes32 subnetwork);
+    error L1Registry__InvalidSubnetworkIndex(bytes32 subnetwork);
     /**
      * @notice Register an Avalanche L1
      * TODO: verify that the ValidatorManager is effectively the manager of an Avalanche L1 by
@@ -70,4 +73,49 @@ interface IL1Registry {
      * @param metadataURL The new metadata URL
      */
     function setMetadataURL(address validatorManager, string calldata metadataURL) external;
+
+    /**
+     * @notice Register a new subnetwork under a specified parent L1
+     * @param l1 The address of the parent L1
+     * @param identifier The identifier of the subnetwork
+     * @return subnetwork The unique identifier of the subnetwork
+     */
+    function registerSubnetwork(address l1, uint256 identifier) external returns (bytes32 subnetwork);
+
+    /**
+     * @notice Check if a subnetwork is registered under a specified L1
+     * @param subnetwork The unique identifier of the subnetwork
+     * @return True if the subnetwork exists, false otherwise
+     */
+    function isRegisteredSubnetwork(bytes32 subnetwork) external view returns (bool);
+
+    /**
+     * @notice Retrieves the details of a subnetwork by its unique identifier
+     * @param subnetwork The unique identifier of the subnetwork
+     * @return l1 The address of the parent L1
+     * @return identifier The identifier of the subnetwork
+     */
+    function getSubnetwork(bytes32 subnetwork) external view returns (address l1, uint256 identifier);
+
+    /**
+     * @notice Get the unique identifier of a subnetwork by its parent L1 and identifier
+     * @param validatorManager The address of the parent L1
+     * @param identifier The identifier of the subnetwork
+     * @return subnetwork The unique identifier of the subnetwork
+     */
+    function getSubnetworkByParams(address validatorManager, uint256 identifier) external view returns (bytes32 subnetwork);
+
+    /**
+     * @notice Get all subnetworks
+     * @return subnetworks Array of unique identifiers for each subnetwork
+     * @return l1s Array of L1 addresses for each subnetwork
+     * @return identifiers Array of identifiers for each subnetwork
+     */
+    function getAllSubnetworks() external view returns (bytes32[] memory subnetworks, address[] memory l1s, uint256[] memory identifiers);
+
+    /**
+     * @notice Remove a subnetwork by its unique identifier
+     * @param subnetwork The unique identifier of the subnetwork to remove
+     */
+    function removeSubnetwork(bytes32 subnetwork) external;
 }
