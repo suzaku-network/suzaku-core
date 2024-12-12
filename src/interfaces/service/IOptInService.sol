@@ -2,13 +2,14 @@
 pragma solidity ^0.8.0;
 
 interface IOptInService {
-    error AlreadyOptedIn();
-    error ExpiredSignature();
-    error InvalidSignature();
-    error NotOptedIn();
-    error NotWhereEntity();
-    error NotWho();
-    error OptOutCooldown();
+    error OptInService__AlreadyOptedIn();
+    error OptInService__ExpiredSignature();
+    error OptInService__InvalidSignature();
+    error OptInService__NotOptedIn();
+    error OptInService__NotWhereRegistered();
+    error OptInService__NotWho();
+    error OptInService__OptOutCooldown();
+    error OptInService__NotWhereEntity();
 
     /**
      * @notice Emitted when a "who" opts into a "where" entity.

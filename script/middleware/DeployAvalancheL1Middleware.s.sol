@@ -11,7 +11,7 @@ import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.s
 import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
-import {OptInService} from "../../src/contracts/service/OptInService.sol";
+import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
 import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {
     AvalancheL1Middleware,
@@ -53,8 +53,8 @@ contract DeployTestAvalancheL1Middleware is Script {
         L1Registry l1Registry = new L1Registry();
         OperatorRegistry operatorRegistry = new OperatorRegistry();
         VaultFactory vaultFactory = new VaultFactory(protocolOwnerAddress);
-        OptInService operatorNetworkOptIn =
-            new OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
+        OperatorL1OptInService operatorNetworkOptIn =
+            new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
         AvalancheL1Middleware avalancheL1Middleware = new AvalancheL1Middleware(
             AvalancheL1MiddlewareSettings({
