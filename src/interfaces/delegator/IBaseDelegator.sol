@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 interface IBaseDelegator {
     error BaseDelegator__AlreadySet();
     error BaseDelegator__InsufficientHookGas();
-    error BaseDelegator__NotNetwork();
+    error BaseDelegator__NotL1();
     error BaseDelegator__NotSlasher();
     error BaseDelegator__NotVault();
     error BaseDelegator__NotInitialized();
@@ -24,23 +24,23 @@ interface IBaseDelegator {
     /**
      * @notice Base hints for a stake.
      * @param operatorVaultOptInHint hint for the operator-vault opt-in
-     * @param operatorNetworkOptInHint hint for the operator-network opt-in
+     * @param operatorL1OptInHint hint for the operator-l1 opt-in
      */
     struct StakeBaseHints {
         bytes operatorVaultOptInHint;
-        bytes operatorNetworkOptInHint;
+        bytes operatorL1OptInHint;
     }
 
     /**
      * @notice Emitted when a subnetwork's maximum limit is set.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param subnetwork full identifier of the subnetwork (address of the l1 concatenated with the uint96 identifier)
      * @param amount new maximum subnetwork's limit (how much stake the subnetwork is ready to get)
      */
-    event SetMaxNetworkLimit(bytes32 indexed subnetwork, uint256 amount);
+    event SetMaxL1Limit(bytes32 indexed subnetwork, uint256 amount);
 
     /**
      * @notice Emitted when a slash happens.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param subnetwork full identifier of the subnetwork (address of the l1 concatenated with the uint96 identifier)
      * @param operator address of the operator
      * @param amount amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -82,10 +82,10 @@ interface IBaseDelegator {
     function VERSION() external view returns (uint64);
 
     /**
-     * @notice Get the network registry's address.
-     * @return address of the network registry
+     * @notice Get the l1 registry's address.
+     * @return address of the l1 registry
      */
-    function NETWORK_REGISTRY() external view returns (address);
+    function L1_REGISTRY() external view returns (address);
 
     /**
      * @notice Get the vault factory's address.
@@ -100,10 +100,10 @@ interface IBaseDelegator {
     function OPERATOR_VAULT_OPT_IN_SERVICE() external view returns (address);
 
     /**
-     * @notice Get the operator-network opt-in service's address.
-     * @return address of the operator-network opt-in service
+     * @notice Get the operator-l1 opt-in service's address.
+     * @return address of the operator-l1 opt-in service
      */
-    function OPERATOR_NETWORK_OPT_IN_SERVICE() external view returns (address);
+    function OPERATOR_L1_OPT_IN_SERVICE() external view returns (address);
 
     /**
      * @notice Get a gas limit for the hook.
@@ -139,15 +139,15 @@ interface IBaseDelegator {
     /**
      * @notice Get a particular subnetwork's maximum limit
      *         (meaning the subnetwork is not ready to get more as a stake).
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param subnetwork full identifier of the subnetwork (address of the l1 concatenated with the uint96 identifier)
      * @return maximum limit of the subnetwork
      */
-    function maxNetworkLimit(bytes32 subnetwork) external view returns (uint256);
+    function maxL1Limit(bytes32 subnetwork) external view returns (uint256);
 
     /**
      * @notice Get a stake that a given subnetwork could be able to slash for a certain operator at a given timestamp
      *         until the end of the consequent epoch using hints (if no cross-slashing and no slashings by the subnetwork).
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param subnetwork full identifier of the subnetwork (address of the l1 concatenated with the uint96 identifier)
      * @param operator address of the operator
      * @param timestamp time point to capture the stake at
      * @param hints hints for the checkpoints' indexes
@@ -162,7 +162,7 @@ interface IBaseDelegator {
     /**
      * @notice Get a stake that a given subnetwork will be able to slash
      *         for a certain operator until the end of the next epoch (if no cross-slashing and no slashings by the subnetwork).
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param subnetwork full identifier of the subnetwork (address of the l1 concatenated with the uint96 identifier)
      * @param operator address of the operator
      * @return slashable stake until the end of the next epoch
      * @dev Warning: this function is not safe to use for stake capturing, as it can change by the end of the block.
@@ -173,9 +173,9 @@ interface IBaseDelegator {
      * @notice Set a maximum limit for a subnetwork (how much stake the subnetwork is ready to get).
      * identifier identifier of the subnetwork
      * @param amount new maximum subnetwork's limit
-     * @dev Only a network can call this function.
+     * @dev Only a l1 can call this function.
      */
-    function setMaxNetworkLimit(uint96 identifier, uint256 amount) external;
+    function setMaxL1Limit(uint256 identifier, uint256 amount) external;
 
     /**
      * @notice Set a new hook.
@@ -187,7 +187,7 @@ interface IBaseDelegator {
 
     /**
      * @notice Called when a slash happens.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param subnetwork full identifier of the subnetwork (address of the l1 concatenated with the uint96 identifier)
      * @param operator address of the operator
      * @param amount amount of the collateral slashed
      * @param captureTimestamp time point when the stake was captured
