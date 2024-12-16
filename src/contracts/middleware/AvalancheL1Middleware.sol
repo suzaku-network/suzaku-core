@@ -15,7 +15,6 @@ import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {IEntity} from "../../interfaces/common/IEntity.sol";
 import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
-import {Subnetwork} from "../libraries/Subnetwork.sol";
 
 import {SimpleKeyRegistry32} from "./SimpleKeyRegistry32.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
@@ -37,7 +36,6 @@ struct ValidatorData {
 contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
-    using Subnetwork for address;
 
     error AvalancheL1Middleware__NotOperator();
     error AvalancheL1Middleware__NotVault();
@@ -73,6 +71,8 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
     uint256 public subnetworksCount;
+    mapping(uint96 stakableAsset => address l1) public subnetworks;
+
     mapping(uint48 => uint256) public totalStakeCache;
     mapping(uint48 => bool) public totalStakeCached;
     mapping(uint48 => mapping(address => uint256)) public operatorStakeCache;
@@ -248,8 +248,9 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
             }
 
             for (uint96 j = 0; j < subnetworksCount; ++j) {
+                address l1 = subnetworks[j];
                 stake += IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                    L1_VALIDATOR_MANAGER.subnetwork(j), operator, epochStartTs, new bytes(0)
+                    l1, j, operator, epochStartTs, new bytes(0)
                 );
             }
         }
@@ -329,11 +330,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
             }
 
             for (uint96 j = 0; j < subnetworksCount; ++j) {
-                bytes32 subnetwork = L1_VALIDATOR_MANAGER.subnetwork(j);
+                address l1 = subnetworks[j];
                 uint256 vaultStake = IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                    subnetwork, operator, epochStartTs, new bytes(0)
+                    l1, j, operator, epochStartTs, new bytes(0)
                 );
 
+                bytes32 subnetwork = bytes32((uint256(uint160(l1)) << 96) | uint256(j));
                 _slashVault(epochStartTs, vault, subnetwork, operator, amount * vaultStake / totalOperatorStake);
             }
         }

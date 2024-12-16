@@ -8,11 +8,12 @@ import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
 import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
+import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
-import {INetworkRestakeDelegator} from "../../src/interfaces/delegator/INetworkRestakeDelegator.sol";
-import {IFullRestakeDelegator} from "../../src/interfaces/delegator/IFullRestakeDelegator.sol";
-import {IOperatorSpecificDelegator} from "../../src/interfaces/delegator/IOperatorSpecificDelegator.sol";
+import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
+// import {IFullRestakeDelegator} from "../../src/interfaces/delegator/IFullRestakeDelegator.sol";
+// import {IOperatorSpecificDelegator} from "../../src/interfaces/delegator/IOperatorSpecificDelegator.sol";
 import {ISlasher} from "../../src/interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../src/interfaces/slasher/IVetoSlasher.sol";
 import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
@@ -62,7 +63,7 @@ contract CoreScript is Script {
         console2.log("VaultFactory deployed at:", address(vaultFactory));
         console2.log("DelegatorFactory deployed at:", address(delegatorFactory));
         console2.log("SlasherFactory deployed at:", address(slasherFactory));
-        console2.log("NetworkRegistry deployed at:", address(l1Registry));
+        console2.log("L1Registry deployed at:", address(l1Registry));
         console2.log("OperatorRegistry deployed at:", address(operatorRegistry));
 
         // Check Slasher inclusion
@@ -73,6 +74,7 @@ contract CoreScript is Script {
         uint256 implementationCountBefore = vaultFactory.totalEntities();
         console2.log("Implementation count before whitelist:", implementationCountBefore);
 
+        // Whitelist VaultTokenized implementation
         address vaultTokenizedImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultTokenizedImpl);
         uint64 latestVersion = vaultFactory.lastVersion();
@@ -83,8 +85,18 @@ contract CoreScript is Script {
 
         console2.log("VaultTokenized implementation whitelisted.");
 
-        // Deploy Delegator Implementations
-
+        // Deploy and whitelist L1RestakeDelegator
+        address l1RestakeDelegatorImpl = address(
+            new L1RestakeDelegator(
+                address(l1Registry),
+                address(vaultFactory),
+                address(0), // operatorVaultOptInService (not needed now)
+                address(0), // operatorL1OptInService (not needed now)
+                address(delegatorFactory),
+                delegatorFactory.totalTypes()
+            )
+        );
+        delegatorFactory.whitelist(l1RestakeDelegatorImpl);
         // Deploy Slasher Implementations
 
         // Prepare vaultParams
@@ -106,52 +118,67 @@ contract CoreScript is Script {
             })
         );
 
-        address[] memory networkLimitSetRoleHolders = new address[](1);
-        networkLimitSetRoleHolders[0] = config.generalConfig.owner;
-        address[] memory operatorNetworkLimitSetRoleHolders = new address[](1);
-        operatorNetworkLimitSetRoleHolders[0] = config.generalConfig.owner;
-        address[] memory operatorNetworkSharesSetRoleHolders = new address[](1);
-        operatorNetworkSharesSetRoleHolders[0] = config.generalConfig.owner;
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = config.generalConfig.owner;
+        address[] memory operatorL1LimitSetRoleHolders = new address[](1);
+        operatorL1LimitSetRoleHolders[0] = config.generalConfig.owner;
+        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+        operatorL1SharesSetRoleHolders[0] = config.generalConfig.owner;
+
+
+        // Use L1RestakeDelegator
+        // bytes memory delegatorParams = abi.encode(
+        //     IL1RestakeDelegator.InitParams({
+        //         baseParams: IBaseDelegator.BaseParams({
+        //             defaultAdminRoleHolder: config.generalConfig.owner,
+        //             hook: address(0),
+        //             hookSetRoleHolder: config.generalConfig.owner
+        //         }),
+        //         l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+        //         operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+        //     })
+        // );
 
         // Prepare delegatorParams based on delegatorIndex
         bytes memory delegatorParams;
         if (config.delegatorConfig.delegatorIndex == 0) {
             delegatorParams = abi.encode(
-                INetworkRestakeDelegator.InitParams({
+                IL1RestakeDelegator.InitParams({
                     baseParams: IBaseDelegator.BaseParams({
                         defaultAdminRoleHolder: config.generalConfig.owner,
                         hook: address(0),
                         hookSetRoleHolder: config.generalConfig.owner
                     }),
-                    networkLimitSetRoleHolders: networkLimitSetRoleHolders,
-                    operatorNetworkSharesSetRoleHolders: operatorNetworkSharesSetRoleHolders
+                    l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                    operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
                 })
             );
-        } else if (config.delegatorConfig.delegatorIndex == 1) {
-            delegatorParams = abi.encode(
-                IFullRestakeDelegator.InitParams({
-                    baseParams: IBaseDelegator.BaseParams({
-                        defaultAdminRoleHolder: config.generalConfig.owner,
-                        hook: address(0),
-                        hookSetRoleHolder: config.generalConfig.owner
-                    }),
-                    networkLimitSetRoleHolders: networkLimitSetRoleHolders,
-                    operatorNetworkLimitSetRoleHolders: operatorNetworkSharesSetRoleHolders
-                })
-            );
-        } else if (config.delegatorConfig.delegatorIndex == 2) {
-            delegatorParams = abi.encode(
-                IOperatorSpecificDelegator.InitParams({
-                    baseParams: IBaseDelegator.BaseParams({
-                        defaultAdminRoleHolder: config.generalConfig.owner,
-                        hook: address(0),
-                        hookSetRoleHolder: config.generalConfig.owner
-                    }),
-                    networkLimitSetRoleHolders: networkLimitSetRoleHolders,
-                    operator: config.delegatorConfig.operator
-                })
-            );
-        }
+        } 
+        // else if (config.delegatorConfig.delegatorIndex == 1) {
+        //     delegatorParams = abi.encode(
+        //         IFullRestakeDelegator.InitParams({
+        //             baseParams: IBaseDelegator.BaseParams({
+        //                 defaultAdminRoleHolder: config.generalConfig.owner,
+        //                 hook: address(0),
+        //                 hookSetRoleHolder: config.generalConfig.owner
+        //             }),
+        //             l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+        //             operatorL1LimitSetRoleHolders: operatorL1SharesSetRoleHolders
+        //         })
+        //     );
+        // } else if (config.delegatorConfig.delegatorIndex == 2) {
+        //     delegatorParams = abi.encode(
+        //         IOperatorSpecificDelegator.InitParams({
+        //             baseParams: IBaseDelegator.BaseParams({
+        //                 defaultAdminRoleHolder: config.generalConfig.owner,
+        //                 hook: address(0),
+        //                 hookSetRoleHolder: config.generalConfig.owner
+        //             }),
+        //             l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+        //             operator: config.delegatorConfig.operator
+        //         })
+        //     );
+        // }
 
         // Prepare slasherParams if needed
         bytes memory slasherParams;
@@ -186,10 +213,23 @@ contract CoreScript is Script {
         });
 
         // Create Vault
-        address vault = vaultFactory.create(params.version, params.owner, params.vaultParams, address(delegatorFactory), address(slasherFactory));
+        address vault = vaultFactory.create(
+            params.version, 
+            params.owner, 
+            params.vaultParams, 
+            address(delegatorFactory), 
+            address(slasherFactory)
+        );
         console2.log("Vault deployed at:", vault);
 
         // Create Delegator
+        address delegator = delegatorFactory.create(
+            params.delegatorIndex,
+            abi.encode(vault, params.delegatorParams)
+        );
+        console2.log("Delegator deployed at:", delegator);
+
+        VaultTokenized(vault).setDelegator(delegator);
         // address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
         // console2.log("Delegator deployed at:", delegator);
 
@@ -215,13 +255,13 @@ contract CoreScript is Script {
         console2.log("VaultFactory: ", address(vaultFactory));
         console2.log("DelegatorFactory: ", address(delegatorFactory));
         console2.log("SlasherFactory: ", address(slasherFactory));
-        // console2.log("NetworkRegistry: ", address(networkRegistry));
+        // console2.log("L1Registry: ", address(l1Registry));
         console2.log("OperatorRegistry: ", address(operatorRegistry));
         // console2.log("OperatorMetadataService: ", address(operatorMetadataService));
-        // console2.log("NetworkMetadataService: ", address(networkMetadataService));
-        // console2.log("NetworkMiddlewareService: ", address(networkMiddlewareService));
+        // console2.log("L1MetadataService: ", address(l1MetadataService));
+        // console2.log("L1MiddlewareService: ", address(l1MiddlewareService));
         // console2.log("OperatorVaultOptInService: ", address(operatorVaultOptInService));
-        // console2.log("OperatorNetworkOptInService: ", address(operatorNetworkOptInService));
+        // console2.log("OperatorL1OptInService: ", address(operatorL1OptInService));
 
         console2.log("Deployment completed.");
 
