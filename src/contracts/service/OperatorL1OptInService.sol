@@ -4,7 +4,8 @@ pragma solidity 0.8.25;
 import {StaticDelegateCallable} from "../common/StaticDelegateCallable.sol";
 
 import {IOptInService} from "../../interfaces/service/IOptInService.sol";
-import {IRegistry} from "../../interfaces/common/IRegistry.sol";
+import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
+import {IL1Registry} from "../../interfaces/IL1Registry.sol";
 
 import {Checkpoints} from "../libraries/Checkpoints.sol";
 
@@ -12,7 +13,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
-contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
+contract OperatorL1OptInService is StaticDelegateCallable, EIP712, IOptInService {
     using Checkpoints for Checkpoints.Trace208;
 
     /**
@@ -34,15 +35,12 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
     /**
      * @inheritdoc IOptInService
      */
-    mapping(address who => mapping(address where => uint256 nonce)) public nonces;
+    mapping(address => mapping(address => uint256)) public nonces;
+    mapping(address => mapping(address => Checkpoints.Trace208)) internal _isOptedIn;
 
-    mapping(address who => mapping(address where => Checkpoints.Trace208 value)) internal _isOptedIn;
-
-    modifier checkDeadline(
-        uint48 deadline
-    ) {
+    modifier checkDeadline(uint48 deadline) {
         if (deadline < Time.timestamp()) {
-            revert ExpiredSignature();
+            revert OptInService__ExpiredSignature();
         }
         _;
     }
@@ -74,9 +72,7 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
     /**
      * @inheritdoc IOptInService
      */
-    function optIn(
-        address where
-    ) external {
+    function optIn(address where) external {
         _optIn(msg.sender, where);
     }
 
@@ -90,7 +86,7 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
         bytes calldata signature
     ) external checkDeadline(deadline) {
         if (!SignatureChecker.isValidSignatureNow(who, _hash(true, who, where, deadline), signature)) {
-            revert InvalidSignature();
+            revert OptInService__InvalidSignature();
         }
 
         _optIn(who, where);
@@ -99,9 +95,7 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
     /**
      * @inheritdoc IOptInService
      */
-    function optOut(
-        address where
-    ) external {
+    function optOut(address where) external {
         _optOut(msg.sender, where);
     }
 
@@ -115,7 +109,7 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
         bytes calldata signature
     ) external checkDeadline(deadline) {
         if (!SignatureChecker.isValidSignatureNow(who, _hash(false, who, where, deadline), signature)) {
-            revert InvalidSignature();
+            revert OptInService__InvalidSignature();
         }
 
         _optOut(who, where);
@@ -124,23 +118,22 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
     /**
      * @inheritdoc IOptInService
      */
-    function increaseNonce(
-        address where
-    ) external {
+    function increaseNonce(address where) external {
         _increaseNonce(msg.sender, where);
     }
 
     function _optIn(address who, address where) internal {
-        if (!IRegistry(WHO_REGISTRY).isEntity(who)) {
-            revert NotWho();
+        // Instead of isEntity, we now rely on isRegistered
+        if (!IOperatorRegistry(WHO_REGISTRY).isRegistered(who)) {
+            revert OptInService__NotWho();
         }
 
-        if (!IRegistry(WHERE_REGISTRY).isEntity(where)) {
-            revert NotWhereEntity();
+        if (!IL1Registry(WHERE_REGISTRY).isRegistered(where)) {
+            revert OptInService__NotWhereRegistered();
         }
 
         if (isOptedIn(who, where)) {
-            revert AlreadyOptedIn();
+            revert OptInService__AlreadyOptedIn();
         }
 
         _isOptedIn[who][where].push(Time.timestamp(), 1);
@@ -154,11 +147,11 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
         (, uint48 latestTimestamp, uint208 latestValue) = _isOptedIn[who][where].latestCheckpoint();
 
         if (latestValue == 0) {
-            revert NotOptedIn();
+            revert OptInService__NotOptedIn();
         }
 
         if (latestTimestamp == Time.timestamp()) {
-            revert OptOutCooldown();
+            revert OptInService__OptOutCooldown();
         }
 
         _isOptedIn[who][where].push(Time.timestamp(), 0);
@@ -171,7 +164,13 @@ contract OptInService is StaticDelegateCallable, EIP712, IOptInService {
     function _hash(bool ifOptIn, address who, address where, uint48 deadline) internal view returns (bytes32) {
         return _hashTypedDataV4(
             keccak256(
-                abi.encode(ifOptIn ? OPT_IN_TYPEHASH : OPT_OUT_TYPEHASH, who, where, nonces[who][where], deadline)
+                abi.encode(
+                    ifOptIn ? OPT_IN_TYPEHASH : OPT_OUT_TYPEHASH,
+                    who,
+                    where,
+                    nonces[who][where],
+                    deadline
+                )
             )
         );
     }
