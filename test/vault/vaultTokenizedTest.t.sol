@@ -2870,13 +2870,13 @@ contract VaultTokenizedTest is Test {
     //     return (VaultTokenized(vault_), FullRestakeDelegator(delegator_), Slasher(slasher_));
     // }
 
-    function _registerOperator(
-        address user
-    ) internal {
-        vm.startPrank(user);
-        operatorRegistry.registerOperator();
-        vm.stopPrank();
-    }
+    // function _registerOperator(
+    //     address user
+    // ) internal {
+    //     vm.startPrank(user);
+    //     operatorRegistry.registerOperator();
+    //     vm.stopPrank();
+    // }
 
     // function _registerL1(address user, address middleware) internal {
     //     vm.startPrank(user);
