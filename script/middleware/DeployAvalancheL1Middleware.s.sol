@@ -53,7 +53,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         L1Registry l1Registry = new L1Registry();
         OperatorRegistry operatorRegistry = new OperatorRegistry();
         VaultFactory vaultFactory = new VaultFactory(protocolOwnerAddress);
-        OperatorL1OptInService operatorNetworkOptIn =
+        OperatorL1OptInService operatorL1OptIn =
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
         AvalancheL1Middleware avalancheL1Middleware = new AvalancheL1Middleware(
@@ -61,7 +61,7 @@ contract DeployTestAvalancheL1Middleware is Script {
                 l1ValidatorManager: validatorManagerAddress,
                 operatorRegistry: address(operatorRegistry),
                 vaultRegistry: address(vaultFactory),
-                operatorNetworkOptin: address(operatorNetworkOptIn),
+                operatorL1Optin: address(operatorL1OptIn),
                 epochDuration: 3 hours,
                 slashingWindow: 4 hours
             }),

@@ -24,7 +24,7 @@ struct AvalancheL1MiddlewareSettings {
     address l1ValidatorManager;
     address operatorRegistry;
     address vaultRegistry;
-    address operatorNetworkOptin;
+    address operatorL1Optin;
     uint48 epochDuration;
     uint48 slashingWindow;
 }
@@ -63,7 +63,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable OPERATOR_REGISTRY;
     address public immutable VAULT_REGISTRY;
-    address public immutable OPERATOR_NETWORK_OPTIN;
+    address public immutable OPERATOR_L1_OPTIN;
     address public immutable OWNER;
     uint48 public immutable EPOCH_DURATION;
     uint48 public immutable SLASHING_WINDOW;
@@ -99,7 +99,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
         OWNER = owner;
         OPERATOR_REGISTRY = settings.operatorRegistry;
         VAULT_REGISTRY = settings.vaultRegistry;
-        OPERATOR_NETWORK_OPTIN = settings.operatorNetworkOptin;
+        OPERATOR_L1_OPTIN = settings.operatorL1Optin;
         SLASHING_WINDOW = settings.slashingWindow;
 
         subnetworksCount = 1;
@@ -130,7 +130,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
             revert AvalancheL1Middleware__NotOperator();
         }
 
-        if (!IOptInService(OPERATOR_NETWORK_OPTIN).isOptedIn(operator, L1_VALIDATOR_MANAGER)) {
+        if (!IOptInService(OPERATOR_L1_OPTIN).isOptedIn(operator, L1_VALIDATOR_MANAGER)) {
             revert AvalancheL1Middleware__OperatorNotOptedIn();
         }
 
