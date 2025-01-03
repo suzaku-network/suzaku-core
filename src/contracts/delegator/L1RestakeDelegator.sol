@@ -53,11 +53,11 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      */
     function l1LimitAt(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         uint48 timestamp,
         bytes memory hint
     ) public view returns (uint256) {
-        return _l1Limit[l1][stakableAsset].upperLookupRecent(timestamp, hint);
+        return _l1Limit[l1][assetClass].upperLookupRecent(timestamp, hint);
     }
 
     /**
@@ -65,9 +65,9 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      */
     function l1Limit(
         address l1, 
-        uint96 stakableAsset
+        uint96 assetClass
         ) public view returns (uint256) {
-        return _l1Limit[l1][stakableAsset].latest();
+        return _l1Limit[l1][assetClass].latest();
     }
 
     /**
@@ -75,18 +75,18 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      */
     function totalOperatorL1SharesAt(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         uint48 timestamp,
         bytes memory hint
     ) public view returns (uint256) {
-        return _totalOperatorL1Shares[l1][stakableAsset].upperLookupRecent(timestamp, hint);
+        return _totalOperatorL1Shares[l1][assetClass].upperLookupRecent(timestamp, hint);
     }
 
     /**
      * @inheritdoc IL1RestakeDelegator
      */
-    function totalOperatorL1Shares(address l1, uint96 stakableAsset) public view returns (uint256) {
-        return _totalOperatorL1Shares[l1][stakableAsset].latest();
+    function totalOperatorL1Shares(address l1, uint96 assetClass) public view returns (uint256) {
+        return _totalOperatorL1Shares[l1][assetClass].latest();
     }
 
     /**
@@ -94,36 +94,36 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      */
     function operatorL1SharesAt(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator,
         uint48 timestamp,
         bytes memory hint
     ) public view returns (uint256) {
-        return _operatorL1Shares[l1][stakableAsset][operator].upperLookupRecent(timestamp, hint);
+        return _operatorL1Shares[l1][assetClass][operator].upperLookupRecent(timestamp, hint);
     }
 
     /**
      * @inheritdoc IL1RestakeDelegator
      */
-    function operatorL1Shares(address l1, uint96 stakableAsset, address operator) public view returns (uint256) {
-        return _operatorL1Shares[l1][stakableAsset][operator].latest();
+    function operatorL1Shares(address l1, uint96 assetClass, address operator) public view returns (uint256) {
+        return _operatorL1Shares[l1][assetClass][operator].latest();
     }
 
     /**
      * @inheritdoc IL1RestakeDelegator
      */
-    function setL1Limit(address l1, uint96 stakableAsset, uint256 amount) external onlyRole(L1_LIMIT_SET_ROLE) {
-        if (amount > maxL1Limit[l1][stakableAsset]) {
+    function setL1Limit(address l1, uint96 assetClass, uint256 amount) external onlyRole(L1_LIMIT_SET_ROLE) {
+        if (amount > maxL1Limit[l1][assetClass]) {
             revert L1RestakeDelegator__ExceedsMaxL1Limit();
         }
 
-        if (l1Limit(l1, stakableAsset) == amount) {
+        if (l1Limit(l1, assetClass) == amount) {
             revert BaseDelegator__AlreadySet();
         }
 
-        _l1Limit[l1][stakableAsset].push(Time.timestamp(), amount);
+        _l1Limit[l1][assetClass].push(Time.timestamp(), amount);
 
-        emit SetL1Limit(l1, stakableAsset, amount);
+        emit SetL1Limit(l1, assetClass, amount);
     }
 
     /**
@@ -131,26 +131,26 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      */
     function setOperatorL1Shares(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator,
         uint256 shares
     ) external onlyRole(OPERATOR_L1_SHARES_SET_ROLE) {
-        uint256 operatorL1Shares_ = operatorL1Shares(l1, stakableAsset, operator);
+        uint256 operatorL1Shares_ = operatorL1Shares(l1, assetClass, operator);
         if (operatorL1Shares_ == shares) {
             revert BaseDelegator__AlreadySet();
         }
 
-        _totalOperatorL1Shares[l1][stakableAsset].push(
-            Time.timestamp(), totalOperatorL1Shares(l1, stakableAsset) - operatorL1Shares_ + shares
+        _totalOperatorL1Shares[l1][assetClass].push(
+            Time.timestamp(), totalOperatorL1Shares(l1, assetClass) - operatorL1Shares_ + shares
         );
-        _operatorL1Shares[l1][stakableAsset][operator].push(Time.timestamp(), shares);
+        _operatorL1Shares[l1][assetClass][operator].push(Time.timestamp(), shares);
 
-        emit SetOperatorL1Shares(l1, stakableAsset, operator, shares);
+        emit SetOperatorL1Shares(l1, assetClass, operator, shares);
     }
 
     function _stakeAt(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator,
         uint48 timestamp,
         bytes memory hints
@@ -161,14 +161,14 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
         }
 
         uint256 totalOperatorL1SharesAt_ =
-            totalOperatorL1SharesAt(l1, stakableAsset, timestamp, stakesHints.totalOperatorL1SharesHint);
+            totalOperatorL1SharesAt(l1, assetClass, timestamp, stakesHints.totalOperatorL1SharesHint);
         return totalOperatorL1SharesAt_ == 0
             ? (0, stakesHints.baseHints)
             : (
-                operatorL1SharesAt(l1, stakableAsset, operator, timestamp, stakesHints.operatorL1SharesHint).mulDiv(
+                operatorL1SharesAt(l1, assetClass, operator, timestamp, stakesHints.operatorL1SharesHint).mulDiv(
                     Math.min(
                         IVaultTokenized(vault).activeStakeAt(timestamp, stakesHints.activeStakeHint),
-                        l1LimitAt(l1, stakableAsset, timestamp, stakesHints.l1LimitHint)
+                        l1LimitAt(l1, assetClass, timestamp, stakesHints.l1LimitHint)
                     ),
                     totalOperatorL1SharesAt_
                 ),
@@ -176,20 +176,20 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
             );
     }
 
-    function _stake(address l1, uint96 stakableAsset, address operator) internal view override returns (uint256) {
-        uint256 totalOperatorL1Shares_ = totalOperatorL1Shares(l1, stakableAsset);
+    function _stake(address l1, uint96 assetClass, address operator) internal view override returns (uint256) {
+        uint256 totalOperatorL1Shares_ = totalOperatorL1Shares(l1, assetClass);
         return totalOperatorL1Shares_ == 0
             ? 0
-            : operatorL1Shares(l1, stakableAsset, operator).mulDiv(
-                Math.min(IVaultTokenized(vault).activeStake(), l1Limit(l1, stakableAsset)),
+            : operatorL1Shares(l1, assetClass, operator).mulDiv(
+                Math.min(IVaultTokenized(vault).activeStake(), l1Limit(l1, assetClass)),
                 totalOperatorL1Shares_
             );
     }
 
-    function _setMaxL1Limit(address l1, uint96 stakableAsset, uint256 amount) internal override {
-        (bool exists,, uint256 latestValue) = _l1Limit[l1][stakableAsset].latestCheckpoint();
+    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal override {
+        (bool exists,, uint256 latestValue) = _l1Limit[l1][assetClass].latestCheckpoint();
         if (exists && latestValue > amount) {
-            _l1Limit[l1][stakableAsset].push(Time.timestamp(), amount);
+            _l1Limit[l1][assetClass].push(Time.timestamp(), amount);
         }
     }
 

@@ -4,8 +4,8 @@ pragma solidity ^0.8.0;
 interface IDelegatorHook {
     /**
      * @notice Called when a slash happens.
-     * @param l1 address of the l1 (part of the subnetwork full  stakableAsset)
-     * @param stakableAsset the uint96  stakableAsset (part of the subnetwork full  stakableAsset)
+     * @param l1 address of the l1.
+     * @param assetClass the uint96 assetClass.
      * @param operator address of the operator
      * @param amount amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -13,7 +13,7 @@ interface IDelegatorHook {
      */
     function onSlash(
         address l1,
-        uint96  stakableAsset,
+        uint96  assetClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,

@@ -71,7 +71,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
     uint256 public subnetworksCount;
-    mapping(uint96 stakableAsset => address l1) public subnetworks;
+    mapping(uint96 assetClass => address l1) public subnetworks;
 
     mapping(uint48 => uint256) public totalStakeCache;
     mapping(uint48 => bool) public totalStakeCached;

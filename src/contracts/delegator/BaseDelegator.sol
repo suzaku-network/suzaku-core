@@ -114,12 +114,12 @@ abstract contract BaseDelegator is
      */
     function stakeAt(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator,
         uint48 timestamp,
         bytes memory hints
     ) public view returns (uint256) {
-        (uint256 stake_, bytes memory baseHints) = _stakeAt(l1, stakableAsset, operator, timestamp, hints);
+        (uint256 stake_, bytes memory baseHints) = _stakeAt(l1, assetClass, operator, timestamp, hints);
         StakeBaseHints memory stakeBaseHints;
         if (baseHints.length > 0) {
             stakeBaseHints = abi.decode(baseHints, (StakeBaseHints));
@@ -143,7 +143,7 @@ abstract contract BaseDelegator is
     /**
      * @inheritdoc IBaseDelegator
      */
-    function stake(address l1, uint96 stakableAsset, address operator) external view returns (uint256) {
+    function stake(address l1, uint96 assetClass, address operator) external view returns (uint256) {
         if (
             !IOptInService(OPERATOR_VAULT_OPT_IN_SERVICE).isOptedIn(operator, vault)
             || !IOptInService(OPERATOR_L1_OPT_IN_SERVICE).isOptedIn(operator, l1)
@@ -151,26 +151,26 @@ abstract contract BaseDelegator is
             return 0;
         }
 
-        return _stake(l1, stakableAsset, operator);
+        return _stake(l1, assetClass, operator);
     }
 
     /**
      * @inheritdoc IBaseDelegator
      */
-    function setMaxL1Limit(address l1, uint96 stakableAsset, uint256 amount) external nonReentrant {
+    function setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) external nonReentrant {
         if (!IL1Registry(L1_REGISTRY).isRegistered(msg.sender)) {
             revert BaseDelegator__NotL1();
         }
 
-        if (maxL1Limit[l1][ stakableAsset] == amount) {
+        if (maxL1Limit[l1][ assetClass] == amount) {
             revert BaseDelegator__AlreadySet();
         }
 
-        maxL1Limit[l1][ stakableAsset] = amount;
+        maxL1Limit[l1][ assetClass] = amount;
 
-        _setMaxL1Limit(l1, stakableAsset, amount);
+        _setMaxL1Limit(l1, assetClass, amount);
 
-        emit SetMaxL1Limit(l1, stakableAsset, amount);
+        emit SetMaxL1Limit(l1, assetClass, amount);
     }
 
     /**
@@ -193,7 +193,7 @@ abstract contract BaseDelegator is
      */
     function onSlash(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,
@@ -206,7 +206,7 @@ abstract contract BaseDelegator is
         address hook_ = hook;
         if (hook_ != address(0)) {
             bytes memory calldata_ =
-                abi.encodeCall(IDelegatorHook.onSlash, (l1, stakableAsset, operator, amount, captureTimestamp, data));
+                abi.encodeCall(IDelegatorHook.onSlash, (l1, assetClass, operator, amount, captureTimestamp, data));
 
             if (gasleft() < HOOK_RESERVE + HOOK_GAS_LIMIT * 64 / 63) {
                 revert BaseDelegator__InsufficientHookGas();
@@ -217,7 +217,7 @@ abstract contract BaseDelegator is
             }
         }
 
-        emit OnSlash(l1, stakableAsset, operator, amount, captureTimestamp);
+        emit OnSlash(l1, assetClass, operator, amount, captureTimestamp);
     }
 
     /**
@@ -256,7 +256,7 @@ abstract contract BaseDelegator is
 
     function _stakeAt(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator,
         uint48 timestamp,
         bytes memory hints
@@ -264,11 +264,11 @@ abstract contract BaseDelegator is
 
     function _stake(
         address l1,
-        uint96 stakableAsset,
+        uint96 assetClass,
         address operator
     ) internal view virtual returns (uint256) {}
 
-    function _setMaxL1Limit(address l1, uint96 stakableAsset, uint256 amount) internal virtual {}
+    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual {}
 
     function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory) {}
 

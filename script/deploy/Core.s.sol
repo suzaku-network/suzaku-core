@@ -154,6 +154,9 @@ contract CoreScript is Script {
                 })
             );
         } 
+
+        // These are commented out because they are not available in the current implementation
+
         // else if (config.delegatorConfig.delegatorIndex == 1) {
         //     delegatorParams = abi.encode(
         //         IFullRestakeDelegator.InitParams({

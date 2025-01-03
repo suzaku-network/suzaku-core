@@ -104,7 +104,7 @@ contract L1RestakeDelegatorTest is Test {
         // Register an L1 and a subnetwork for testing
         address l1 = alice;
         l1Registry.registerL1(l1, address(0), "metadataURL");
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
         assertEq(delegator.VERSION(), 1);
         assertEq(delegator.L1_REGISTRY(), address(l1Registry));
@@ -112,18 +112,18 @@ contract L1RestakeDelegatorTest is Test {
         assertEq(delegator.OPERATOR_VAULT_OPT_IN_SERVICE(), address(operatorVaultOptInService));
         assertEq(delegator.OPERATOR_L1_OPT_IN_SERVICE(), address(operatorL1OptInService));
         assertEq(delegator.vault(), address(vault));
-        assertEq(delegator.maxL1Limit(l1, stakableAsset), 0);
-        assertEq(delegator.stakeAt(l1, stakableAsset, alice, 0, ""), 0);
-        assertEq(delegator.stake(l1, stakableAsset, alice), 0);
+        assertEq(delegator.maxL1Limit(l1, assetClass), 0);
+        assertEq(delegator.stakeAt(l1, assetClass, alice, 0, ""), 0);
+        assertEq(delegator.stake(l1, assetClass, alice), 0);
         assertEq(delegator.L1_LIMIT_SET_ROLE(), keccak256("L1_LIMIT_SET_ROLE"));
         assertEq(delegator.OPERATOR_L1_SHARES_SET_ROLE(), keccak256("OPERATOR_L1_SHARES_SET_ROLE"));
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, 0, ""), 0);
-        assertEq(delegator.l1Limit(l1, stakableAsset), 0);
+        assertEq(delegator.l1LimitAt(l1, assetClass, 0, ""), 0);
+        assertEq(delegator.l1Limit(l1, assetClass), 0);
         // Not set any operator L1 shares yet
-        assertEq(delegator.totalOperatorL1SharesAt(l1, stakableAsset, 0, ""), 0);
-        assertEq(delegator.totalOperatorL1Shares(l1, stakableAsset), 0);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, alice, 0, ""), 0);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, alice), 0);
+        assertEq(delegator.totalOperatorL1SharesAt(l1, assetClass, 0, ""), 0);
+        assertEq(delegator.totalOperatorL1Shares(l1, assetClass), 0);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, alice, 0, ""), 0);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, alice), 0);
     }
 
     function test_CreateRevertNotVault(uint48 epochDuration) public {
@@ -297,42 +297,42 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = bob;
         _registerL1(l1, bob);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
-        _setMaxL1Limit(l1, stakableAsset, type(uint256).max);
+        _setMaxL1Limit(l1, assetClass, type(uint256).max);
 
-        _setL1Limit(alice, l1, stakableAsset, amount1);
+        _setL1Limit(alice, l1, assetClass, amount1);
 
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp), ""), amount1);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp + 1), ""), amount1);
-        assertEq(delegator.l1Limit(l1, stakableAsset), amount1);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount1);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount1);
+        assertEq(delegator.l1Limit(l1, assetClass), amount1);
 
-        _setL1Limit(alice, l1, stakableAsset, amount2);
+        _setL1Limit(alice, l1, assetClass, amount2);
 
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp), ""), amount2);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp + 1), ""), amount2);
-        assertEq(delegator.l1Limit(l1, stakableAsset), amount2);
-
-        blockTimestamp = blockTimestamp + 1;
-        vm.warp(blockTimestamp);
-
-        _setL1Limit(alice, l1, stakableAsset, amount3);
-
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp - 1), ""), amount2);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp), ""), amount3);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp + 1), ""), amount3);
-        assertEq(delegator.l1Limit(l1, stakableAsset), amount3);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount2);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount2);
+        assertEq(delegator.l1Limit(l1, assetClass), amount2);
 
         blockTimestamp = blockTimestamp + 1;
         vm.warp(blockTimestamp);
 
-        _setL1Limit(alice, l1, stakableAsset, amount4);
+        _setL1Limit(alice, l1, assetClass, amount3);
 
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp - 2), ""), amount2);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp - 1), ""), amount3);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp), ""), amount4);
-        assertEq(delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp + 1), ""), amount4);
-        assertEq(delegator.l1Limit(l1, stakableAsset), amount4);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp - 1), ""), amount2);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount3);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount3);
+        assertEq(delegator.l1Limit(l1, assetClass), amount3);
+
+        blockTimestamp = blockTimestamp + 1;
+        vm.warp(blockTimestamp);
+
+        _setL1Limit(alice, l1, assetClass, amount4);
+
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp - 2), ""), amount2);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp - 1), ""), amount3);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount4);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount4);
+        assertEq(delegator.l1Limit(l1, assetClass), amount4);
     }
 
     function test_SetL1LimitRevertExceedsMaxL1Limit(
@@ -348,12 +348,12 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = bob;
         _registerL1(l1, bob);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
-        _setMaxL1Limit(l1, stakableAsset, maxL1Limit);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit);
 
         vm.expectRevert(IL1RestakeDelegator.L1RestakeDelegator__ExceedsMaxL1Limit.selector);
-        _setL1Limit(alice, l1, stakableAsset, amount1);
+        _setL1Limit(alice, l1, assetClass, amount1);
     }
 
     function test_SetL1LimitRevertAlreadySet(
@@ -369,14 +369,14 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = bob;
         _registerL1(l1, bob);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
-        _setMaxL1Limit(l1, stakableAsset, maxL1Limit);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit);
 
-        _setL1Limit(alice, l1, stakableAsset, amount1);
+        _setL1Limit(alice, l1, assetClass, amount1);
 
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
-        _setL1Limit(alice, l1, stakableAsset, amount1);
+        _setL1Limit(alice, l1, assetClass, amount1);
     }
 
     function test_SetOperatorL1Limit(
@@ -404,42 +404,42 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = bob;
         _registerL1(l1, bob);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
         address operator = bob;
         _registerOperator(operator, "operatorMetadata");
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, operator, amount1);
+        _setOperatorL1Shares(alice, l1, assetClass, operator, amount1);
 
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp), ""), amount1);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp + 1), ""), amount1);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, operator), amount1);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp), ""), amount1);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp + 1), ""), amount1);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, operator), amount1);
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, operator, amount2);
+        _setOperatorL1Shares(alice, l1, assetClass, operator, amount2);
 
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp), ""), amount2);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp + 1), ""), amount2);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, operator), amount2);
-
-        blockTimestamp = blockTimestamp + 1;
-        vm.warp(blockTimestamp);
-
-        _setOperatorL1Shares(alice, l1, stakableAsset, operator, amount3);
-
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp - 1), ""), amount2);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp), ""), amount3);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp + 1), ""), amount3);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, operator), amount3);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp), ""), amount2);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp + 1), ""), amount2);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, operator), amount2);
 
         blockTimestamp = blockTimestamp + 1;
         vm.warp(blockTimestamp);
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, operator, amount4);
+        _setOperatorL1Shares(alice, l1, assetClass, operator, amount3);
 
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp - 2), ""), amount2);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp - 1), ""), amount3);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp), ""), amount4);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, operator, uint48(blockTimestamp + 1), ""), amount4);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, operator), amount4);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp - 1), ""), amount2);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp), ""), amount3);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp + 1), ""), amount3);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, operator), amount3);
+
+        blockTimestamp = blockTimestamp + 1;
+        vm.warp(blockTimestamp);
+
+        _setOperatorL1Shares(alice, l1, assetClass, operator, amount4);
+
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp - 2), ""), amount2);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp - 1), ""), amount3);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp), ""), amount4);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, operator, uint48(blockTimestamp + 1), ""), amount4);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, operator), amount4);
     }
 
     function test_SetOperatorL1LimitBoth(
@@ -461,28 +461,28 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = bob;
         _registerL1(l1, bob);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
         _registerOperator(alice, "aliceMetadata");
         _registerOperator(bob, "bobMetadata");
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, alice, amount1);
+        _setOperatorL1Shares(alice, l1, assetClass, alice, amount1);
 
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, alice, uint48(blockTimestamp + 1), ""), amount1);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, alice), amount1);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, alice, uint48(blockTimestamp + 1), ""), amount1);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, alice), amount1);
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, bob, amount2);
+        _setOperatorL1Shares(alice, l1, assetClass, bob, amount2);
 
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, bob, uint48(blockTimestamp + 1), ""), amount2);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, bob), amount2);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, bob, uint48(blockTimestamp + 1), ""), amount2);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, bob), amount2);
 
         blockTimestamp = blockTimestamp + 1;
         vm.warp(blockTimestamp);
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, bob, amount3);
+        _setOperatorL1Shares(alice, l1, assetClass, bob, amount3);
 
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, bob, uint48(blockTimestamp - 1), ""), amount2);
-        assertEq(delegator.operatorL1SharesAt(l1, stakableAsset, bob, uint48(blockTimestamp + 1), ""), amount3);
-        assertEq(delegator.operatorL1Shares(l1, stakableAsset, bob), amount3);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, bob, uint48(blockTimestamp - 1), ""), amount2);
+        assertEq(delegator.operatorL1SharesAt(l1, assetClass, bob, uint48(blockTimestamp + 1), ""), amount3);
+        assertEq(delegator.operatorL1Shares(l1, assetClass, bob), amount3);
     }
 
     function test_SetOperatorL1LimitRevertAlreadySet(uint48 epochDuration, uint256 amount1) public {
@@ -497,14 +497,14 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = bob;
         _registerL1(l1, bob);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
         _registerOperator(alice, "aliceMetadata");
 
-        _setOperatorL1Shares(alice, l1, stakableAsset, alice, amount1);
+        _setOperatorL1Shares(alice, l1, assetClass, alice, amount1);
 
         vm.startPrank(alice);
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
-        delegator.setOperatorL1Shares(l1, stakableAsset, alice, amount1);
+        delegator.setOperatorL1Shares(l1, assetClass, alice, amount1);
         vm.stopPrank();
     }
 
@@ -528,16 +528,16 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = alice;
         _registerL1(l1, alice);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
-        _setMaxL1Limit(l1, stakableAsset, maxL1Limit1);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit1);
 
-        assertEq(delegator.maxL1Limit(l1, stakableAsset), maxL1Limit1);
+        assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit1);
 
-        _setL1Limit(alice, l1, stakableAsset, l1Limit1);
+        _setL1Limit(alice, l1, assetClass, l1Limit1);
 
         assertEq(
-            delegator.l1LimitAt(l1, stakableAsset, uint48(blockTimestamp + 2 * vault.epochDuration()), ""),
+            delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 2 * vault.epochDuration()), ""),
             l1Limit1
         );
 
@@ -545,23 +545,23 @@ contract L1RestakeDelegatorTest is Test {
         vm.warp(newEpochStart);
 
         assertEq(
-            delegator.l1LimitAt(l1, stakableAsset, uint48(newEpochStart + vault.epochDuration()), ""),
+            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""),
             l1Limit1
         );
         assertEq(
-            delegator.l1LimitAt(l1, stakableAsset, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
+            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
             l1Limit1
         );
 
-        _setMaxL1Limit(l1, stakableAsset, maxL1Limit2);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit2);
 
-        assertEq(delegator.maxL1Limit(l1, stakableAsset), maxL1Limit2);
+        assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit2);
         assertEq(
-            delegator.l1LimitAt(l1, stakableAsset, uint48(newEpochStart + vault.epochDuration()), ""),
+            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""),
             maxL1Limit2
         );
         assertEq(
-            delegator.l1LimitAt(l1, stakableAsset, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
+            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
             maxL1Limit2
         );
     }
@@ -573,12 +573,12 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         _registerL1(alice, alice);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
         // Bob is not an L1
         vm.startPrank(bob);
         vm.expectRevert(IBaseDelegator.BaseDelegator__NotL1.selector);
-        delegator.setMaxL1Limit(bob, stakableAsset, maxL1Limit);
+        delegator.setMaxL1Limit(bob, assetClass, maxL1Limit);
         vm.stopPrank();
     }
 
@@ -589,13 +589,13 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         _registerL1(alice, alice);
-        uint96 stakableAsset = 0;
+        uint96 assetClass = 0;
 
-        _setMaxL1Limit(alice, stakableAsset, maxL1Limit);
+        _setMaxL1Limit(alice, assetClass, maxL1Limit);
 
         vm.startPrank(alice);
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
-        delegator.setMaxL1Limit(alice, stakableAsset, maxL1Limit);
+        delegator.setMaxL1Limit(alice, assetClass, maxL1Limit);
         vm.stopPrank();
     }
 
@@ -629,91 +629,91 @@ contract L1RestakeDelegatorTest is Test {
 
         address l1 = alice;
         _registerL1(l1, alice);
-        uint96 stakableAsset = 0;
-        _setMaxL1Limit(l1, stakableAsset, type(uint256).max);
+        uint96 assetClass = 0;
+        _setMaxL1Limit(l1, assetClass, type(uint256).max);
 
         _registerOperator(alice, "aliceMetadata");
         _registerOperator(bob, "bobMetadata");
 
         // Initially no stake
-        assertEq(delegator.stake(l1, stakableAsset, alice), 0);
-        assertEq(delegator.stake(l1, stakableAsset, bob), 0);
+        assertEq(delegator.stake(l1, assetClass, alice), 0);
+        assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         _optInOperatorVault(alice);
         _optInOperatorVault(bob);
 
-        assertEq(delegator.stake(l1, stakableAsset, alice), 0);
-        assertEq(delegator.stake(l1, stakableAsset, bob), 0);
+        assertEq(delegator.stake(l1, assetClass, alice), 0);
+        assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         _optInOperatorL1(alice, l1);
         _optInOperatorL1(bob, l1);
 
-        assertEq(delegator.stake(l1, stakableAsset, alice), 0);
-        assertEq(delegator.stake(l1, stakableAsset, bob), 0);
+        assertEq(delegator.stake(l1, assetClass, alice), 0);
+        assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         // Deposit and withdraw before setting any limits/shares
         _deposit(alice, depositAmount);
         _withdraw(alice, withdrawAmount);
 
-        assertEq(delegator.stake(l1, stakableAsset, alice), 0);
-        assertEq(delegator.stake(l1, stakableAsset, bob), 0);
+        assertEq(delegator.stake(l1, assetClass, alice), 0);
+        assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         // Set L1 limit
-        _setL1Limit(alice, l1, stakableAsset, l1Limit);
+        _setL1Limit(alice, l1, assetClass, l1Limit);
 
-        assertEq(delegator.stake(l1, stakableAsset, alice), 0);
-        assertEq(delegator.stake(l1, stakableAsset, bob), 0);
+        assertEq(delegator.stake(l1, assetClass, alice), 0);
+        assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         // Set operator L1 shares for alice
-        _setOperatorL1Shares(alice, l1, stakableAsset, alice, operatorL1Shares1);
+        _setOperatorL1Shares(alice, l1, assetClass, alice, operatorL1Shares1);
         // Checking if CURRENT timestamp is fine
         uint256 effectiveStake = Math.min(depositAmount - withdrawAmount, l1Limit);
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, alice),
+            delegator.stake(l1, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1)
         );
-        assertEq(delegator.stake(l1, stakableAsset, bob), 0);
+        assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         // Set operator L1 shares for bob
-        _setOperatorL1Shares(alice, l1, stakableAsset, bob, operatorL1Shares2);
+        _setOperatorL1Shares(alice, l1, assetClass, bob, operatorL1Shares2);
         // Check again current timestamp
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, alice),
+            delegator.stake(l1, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, bob, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp), ""),
             operatorL1Shares2.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, bob),
+            delegator.stake(l1, assetClass, bob),
             operatorL1Shares2.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
 
         // Decrease bob's shares at current timestamp
-        _setOperatorL1Shares(alice, l1, stakableAsset, bob, operatorL1Shares2 - 1);
+        _setOperatorL1Shares(alice, l1, assetClass, bob, operatorL1Shares2 - 1);
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, alice),
+            delegator.stake(l1, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, bob, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, bob),
+            delegator.stake(l1, assetClass, bob),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
 
@@ -722,33 +722,33 @@ contract L1RestakeDelegatorTest is Test {
         vm.warp(blockTimestamp);
 
         // Reduce bob's shares again
-        _setOperatorL1Shares(alice, l1, stakableAsset, bob, operatorL1Shares3);
+        _setOperatorL1Shares(alice, l1, assetClass, bob, operatorL1Shares3);
 
         // Check the state at blockTimestamp - 1
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, alice, uint48(blockTimestamp - 1), ""),
+            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp - 1), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, bob, uint48(blockTimestamp - 1), ""),
+            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp - 1), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
 
         // Current state after changes
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, alice),
+            delegator.stake(l1, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, bob, uint48(blockTimestamp), ""),
+            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp), ""),
             operatorL1Shares3.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
         assertEq(
-            delegator.stake(l1, stakableAsset, bob),
+            delegator.stake(l1, assetClass, bob),
             operatorL1Shares3.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
 
@@ -757,19 +757,19 @@ contract L1RestakeDelegatorTest is Test {
 
         // Historical checks (blockTimestamp - 2), should be stable
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, alice, uint48(blockTimestamp - 2), ""),
+            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp - 2), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stakeAt(l1, stakableAsset, bob, uint48(blockTimestamp - 2), ""),
+            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp - 2), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
 
 
     }
 
-    function test_StakableAssetVariants() public {
-        // Test with a few different stakableAssets.
+    function test_assetClassVariants() public {
+        // Test with a few different assetClasss.
         uint96[] memory assets = new uint96[](3);
         assets[0] = 0;
         assets[1] = 1;
@@ -983,15 +983,15 @@ contract L1RestakeDelegatorTest is Test {
         vm.stopPrank();
     }
 
-    function _setL1Limit(address user, address l1, uint96 stakableAsset, uint256 amount) internal {
+    function _setL1Limit(address user, address l1, uint96 assetClass, uint256 amount) internal {
         vm.startPrank(user);
-        delegator.setL1Limit(l1, stakableAsset, amount);
+        delegator.setL1Limit(l1, assetClass, amount);
         vm.stopPrank();
     }
 
-    function _setOperatorL1Shares(address user, address l1, uint96 stakableAsset, address operator, uint256 shares) internal {
+    function _setOperatorL1Shares(address user, address l1, uint96 assetClass, address operator, uint256 shares) internal {
         vm.startPrank(user);
-        delegator.setOperatorL1Shares(l1, stakableAsset, operator, shares);
+        delegator.setOperatorL1Shares(l1, assetClass, operator, shares);
         vm.stopPrank();
     }
 
@@ -1009,9 +1009,9 @@ contract L1RestakeDelegatorTest is Test {
     //     vm.stopPrank();
     // }
 
-    function _setMaxL1Limit(address l1, uint96 stakableAsset, uint256 amount) internal {
+    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal {
         vm.startPrank(l1);
-        delegator.setMaxL1Limit(l1, stakableAsset, amount);
+        delegator.setMaxL1Limit(l1, assetClass, amount);
         vm.stopPrank();
     }
 

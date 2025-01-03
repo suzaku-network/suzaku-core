@@ -133,9 +133,6 @@ contract VaultTokenized is
         vs.DELEGATOR_FACTORY = delegatorFactory;
         vs.SLASHER_FACTORY = slasherFactory;
 
-        // vs.isDelegatorInitialized = delegatorFactory != address(0);
-        // vs.isSlasherInitialized = slasherFactory != address(0);
-
         _initialize(initialVersion, owner_, data);
     }
 
