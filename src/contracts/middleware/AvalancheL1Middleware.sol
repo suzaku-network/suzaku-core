@@ -4,6 +4,7 @@ pragma solidity 0.8.25;
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
+import {AssetClassManager} from "./AssetClassManager.sol";
 
 import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
 import {IRegistry} from "../../interfaces/common/IRegistry.sol";
@@ -33,7 +34,7 @@ struct ValidatorData {
     bytes32 key;
 }
 
-contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
+contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManager {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
 
@@ -48,9 +49,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     error AvalancheL1Middleware__VaultAlreadyRegistred();
     error AvalancheL1Middleware__VaultEpochTooShort();
     error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-
-    error AvalancheL1Middleware__InvalidSubnetworksCnt();
-
+    
     error AvalancheL1Middleware__TooOldEpoch();
     error AvalancheL1Middleware__InvalidEpoch();
 
@@ -70,8 +69,8 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
-    uint256 public subnetworksCount;
-    mapping(uint96 assetClass => address l1) public subnetworks;
+    uint32 private minValidatorStake;
+    uint32 private maxValidatorStake;
 
     mapping(uint48 => uint256) public totalStakeCache;
     mapping(uint48 => bool) public totalStakeCached;
@@ -88,7 +87,13 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
         _;
     }
 
-    constructor(AvalancheL1MiddlewareSettings memory settings, address owner) SimpleKeyRegistry32() Ownable(owner) {
+    constructor(
+        AvalancheL1MiddlewareSettings memory settings, 
+        address owner,
+        uint256 _MaxStake,
+        uint256 _primaryMinStake,
+        uint256 _secondaryMinStake
+        ) SimpleKeyRegistry32() Ownable(owner) AssetClassManager(_MaxStake, _primaryMinStake, _secondaryMinStake) {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort();
         }
@@ -102,7 +107,6 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
         OPERATOR_L1_OPTIN = settings.operatorL1Optin;
         SLASHING_WINDOW = settings.slashingWindow;
 
-        subnetworksCount = 1;
     }
 
     function getEpochStartTs(
@@ -173,9 +177,13 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     }
 
     function registerVault(
-        address vault
+        address vault,
+        uint96 assetClassId
+        
     ) external onlyOwner {
-        if (vaults.contains(vault)) {
+        address delegator = IVaultTokenized(vault).delegator();
+
+        if (vaults.contains(vault) && IBaseDelegator(delegator).maxL1Limit(msg.sender, assetClassId) != 0) {
             revert AvalancheL1Middleware__VaultAlreadyRegistred();
         }
 
@@ -194,20 +202,29 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
             revert AvalancheL1Middleware__VaultEpochTooShort();
         }
 
+        _setVaultMaxL1Limit(vault, assetClassId, maxValidatorStake);
+
         vaults.add(vault);
         vaults.enable(vault);
     }
 
-    function disableVault(
-        address vault
-    ) external onlyOwner {
-        vaults.disable(vault);
-    }
+    function _setVaultMaxL1Limit(
+        address vault,
+        uint96 assetClassId,
+        uint256 amount
+    ) internal onlyOwner {
+        if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
+            revert AvalancheL1Middleware__NotVault();
+        }
 
-    function enableVault(
-        address vault
-    ) external onlyOwner {
-        vaults.enable(vault);
+        address delegator = IVaultTokenized(vault).delegator();
+        IBaseDelegator(delegator).setMaxL1Limit(L1_VALIDATOR_MANAGER, assetClassId, amount);
+
+        if (amount == 0) {
+            vaults.disable(vault);
+        } else {
+            vaults.enable(vault);
+        }
     }
 
     function removeVault(
@@ -222,16 +239,6 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
         vaults.remove(vault);
     }
 
-    function setSubnetworksCount(
-        uint256 subnetworksCount_
-    ) external onlyOwner {
-        if (subnetworksCount >= subnetworksCount_) {
-            revert AvalancheL1Middleware__InvalidSubnetworksCnt();
-        }
-
-        subnetworksCount = subnetworksCount_;
-    }
-
     function getOperatorStake(address operator, uint48 epoch) public view returns (uint256 stake) {
         if (totalStakeCached[epoch]) {
             return operatorStakeCache[epoch][operator];
@@ -242,19 +249,29 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
         for (uint256 i; i < vaults.length(); ++i) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
 
-            // just skip the vault if it was enabled after the target epoch or not enabled
+            // Skip if vault not active in the target epoch
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
                 continue;
             }
 
-            for (uint96 j = 0; j < subnetworksCount; ++j) {
-                address l1 = subnetworks[j];
-                stake += IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                    l1, j, operator, epochStartTs, new bytes(0)
-                );
-            }
-        }
+            // PRIMARY tokens
+            stake += IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                L1_VALIDATOR_MANAGER,
+                0, // Asset Class ID = 0
+                operator,
+                epochStartTs,
+                new bytes(0)
+            );
 
+            // SECONDARY tokens
+            stake += IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                L1_VALIDATOR_MANAGER,
+                1, // Asset Class ID = 1
+                operator,
+                epochStartTs,
+                new bytes(0)
+            );
+        }
         return stake;
     }
 
@@ -307,7 +324,11 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     }
 
     // just for example, our devnets don't support slashing
-    function slash(uint48 epoch, address operator, uint256 amount) public onlyOwner updateStakeCache(epoch) {
+    function slash(uint48 epoch, address operator, uint256 amount)
+        public
+        onlyOwner
+        updateStakeCache(epoch)
+    {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
@@ -315,28 +336,51 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
         }
 
         uint256 totalOperatorStake = getOperatorStake(operator, epoch);
-
         if (totalOperatorStake < amount) {
             revert AvalancheL1Middleware__TooBigSlashAmount();
         }
 
         // simple pro-rata slasher
         for (uint256 i; i < vaults.length(); ++i) {
-            (address vault, uint48 enabledTime, uint48 disabledTime) = operators.atWithTimes(i);
-
-            // just skip the vault if it was enabled after the target epoch or not enabled
+            (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
                 continue;
             }
 
-            for (uint96 j = 0; j < subnetworksCount; ++j) {
-                address l1 = subnetworks[j];
+            // PrimaryAssetClass ID = 0
+            {
                 uint256 vaultStake = IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                    l1, j, operator, epochStartTs, new bytes(0)
+                    L1_VALIDATOR_MANAGER,
+                    0,
+                    operator,
+                    epochStartTs,
+                    new bytes(0)
                 );
+                _slashVault(
+                    epochStartTs,
+                    vault,
+                    0,
+                    operator,
+                    (amount * vaultStake) / totalOperatorStake
+                );
+            }
 
-                bytes32 subnetwork = bytes32((uint256(uint160(l1)) << 96) | uint256(j));
-                _slashVault(epochStartTs, vault, subnetwork, operator, amount * vaultStake / totalOperatorStake);
+            // SecondaryAssetClass ID = 1
+            {
+                uint256 vaultStake = IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                    L1_VALIDATOR_MANAGER,
+                    1,
+                    operator,
+                    epochStartTs,
+                    new bytes(0)
+                );
+                _slashVault(
+                    epochStartTs,
+                    vault,
+                    1,
+                    operator,
+                    (amount * vaultStake) / totalOperatorStake
+                );
             }
         }
     }
@@ -407,16 +451,16 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable {
     function _slashVault(
         uint48 timestamp,
         address vault,
-        bytes32 subnetwork,
+        uint8 assetClass,
         address operator,
         uint256 amount
     ) private {
         address slasher = IVaultTokenized(vault).slasher();
         uint256 slasherType = IEntity(slasher).TYPE();
         if (slasherType == INSTANT_SLASHER_TYPE) {
-            ISlasher(slasher).slash(subnetwork, operator, amount, timestamp, new bytes(0));
+            ISlasher(slasher).slash(L1_VALIDATOR_MANAGER, assetClass, operator, amount, timestamp, new bytes(0));
         } else if (slasherType == VETO_SLASHER_TYPE) {
-            IVetoSlasher(slasher).requestSlash(subnetwork, operator, amount, timestamp, new bytes(0));
+            IVetoSlasher(slasher).requestSlash(L1_VALIDATOR_MANAGER, assetClass, operator, amount, timestamp, new bytes(0));
         } else {
             revert AvalancheL1Middleware__UnknownSlasherType();
         }

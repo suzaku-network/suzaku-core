@@ -35,16 +35,18 @@ interface ISlasher is IBaseSlasher {
 
     /**
      * @notice Emitted when a slash is performed.
-     * @param subnetwork subnetwork that requested the slash
+     * @param l1 address of the l1.
+     * @param assetClass the uint96 assetClass.
      * @param operator operator that is slashed
      * @param slashedAmount virtual amount of the collateral slashed
      * @param captureTimestamp time point when the stake was captured
      */
-    event Slash(bytes32 indexed subnetwork, address indexed operator, uint256 slashedAmount, uint48 captureTimestamp);
+    event Slash(address indexed l1, uint96 indexed assetClass, address indexed operator, uint256 slashedAmount, uint48 captureTimestamp);
 
     /**
      * @notice Perform a slash using a subnetwork for a particular operator by a given amount using hints.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass
      * @param operator address of the operator
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -53,7 +55,8 @@ interface ISlasher is IBaseSlasher {
      * @dev Only a network middleware can call this function.
      */
     function slash(
-        bytes32 subnetwork,
+        address l1,
+        uint96 assetClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,
