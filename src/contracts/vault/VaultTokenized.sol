@@ -5,6 +5,7 @@ import { IVaultTokenized } from "../../interfaces/vault/IVaultTokenized.sol";
 import { IBaseDelegator } from "../../interfaces/delegator/IBaseDelegator.sol";
 import { IBaseSlasher } from "../../interfaces/slasher/IBaseSlasher.sol";
 import { IRegistry } from "../../interfaces/common/IRegistry.sol";
+import { IDelegatorFactory } from "../../interfaces/IDelegatorFactory.sol";
 
 import { Checkpoints } from "../libraries/Checkpoints.sol";
 import { ERC4626Math } from "../libraries/ERC4626Math.sol";
@@ -131,9 +132,6 @@ contract VaultTokenized is
 
         vs.DELEGATOR_FACTORY = delegatorFactory;
         vs.SLASHER_FACTORY = slasherFactory;
-
-        vs.isDelegatorInitialized = delegatorFactory != address(0);
-        vs.isSlasherInitialized = slasherFactory != address(0);
 
         _initialize(initialVersion, owner_, data);
     }
@@ -748,7 +746,7 @@ contract VaultTokenized is
         }
 
         // replace by IDelegatorFactory
-        if (!IRegistry(vs.DELEGATOR_FACTORY).isEntity(delegator_)) {
+        if (!IDelegatorFactory(vs.DELEGATOR_FACTORY).isEntity(delegator_)) {
             revert Vault__NotDelegator();
         }
 
