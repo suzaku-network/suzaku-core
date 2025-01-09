@@ -1,216 +1,367 @@
-// // SPDX-License-Identifier: MIT
-// pragma solidity 0.8.25;
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.25;
 
-// import {Test, console2} from "forge-std/Test.sol";
+import {Test, console2} from "forge-std/Test.sol";
 
-// import {AvalancheL1Middleware, AvalancheL1MiddlewareSettings} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
-// import {AssetClassManager} from "../../src/contracts/middleware/AssetClassManager.sol";
+import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
+import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
+import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
+import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
-// // import {MockOperatorRegistry, MockRegistry, MockVault, MockDelegator, MockSlasher, MockVetoSlasher} from "../mocks/YourMockImports.sol";
-// import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
-// import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
-// import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
-// import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
+import {AvalancheL1Middleware, AvalancheL1MiddlewareSettings} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {AssetClassManager} from "../../src/contracts/middleware/AssetClassManager.sol";
+import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
+import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
+import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
+import {L1Registry} from "../../src/contracts/L1Registry.sol";
+import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
+import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
+import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
+import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
+import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
+import {HelperConfig} from "../../script/middleware/HelperConfig.s.sol";
 
-// contract AvalancheL1MiddlewareTest is Test {
-//     AvalancheL1Middleware middleware;
+import {Token} from "../mocks/MockToken.sol";
 
-//     MockOperatorRegistry operatorRegistry;
-//     MockRegistry vaultRegistry;
-//     MockDelegator delegator;
-//     MockSlasher slasherInstant;
-//     MockVetoSlasher slasherVeto;
-//     MockVault vaultInstant;
-//     MockVault vaultVeto;
+import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
+import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
+import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
+import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 
-//     address owner = address(1000);
-//     address operator = address(2000);
 
-//     function setUp() public {
-//         vm.startPrank(owner);
+contract AvalancheL1MiddlewareTest is Test {
 
-//         operatorRegistry = new MockOperatorRegistry();
-//         vaultRegistry = new MockRegistry();
-//         delegator = new MockDelegator();
-//         slasherInstant = new MockSlasher();
-//         slasherVeto = new MockVetoSlasher();
+    address internal owner;
+    address internal alice;
+    address internal validatorManagerAddress; 
+    uint256 internal alicePrivateKey;
+    address internal bob;
+    uint256 internal bobPrivateKey;
 
-//         // Create 2 vault mocks with different slashers
-//         vaultInstant = new MockVault(address(delegator), address(slasherInstant));
-//         vaultVeto = new MockVault(address(delegator), address(slasherVeto));
+    // Factories & Registries
+    VaultFactory internal vaultFactory;
+    DelegatorFactory internal delegatorFactory;
+    SlasherFactory internal slasherFactory;
+    L1Registry internal l1Registry;
+    OperatorRegistry internal operatorRegistry;
+    OperatorVaultOptInService internal operatorVaultOptInService;
+    OperatorL1OptInService internal operatorL1OptInService;
+    VaultTokenized internal vault;
+    L1RestakeDelegator internal delegator;
+    AvalancheL1Middleware internal middleware;
+    Token internal collateral;
 
-//         // Make them recognized by "registry" so we can register them
-//         vaultRegistry.setIsEntityReturn(true);
+    function setUp() public {
+        owner = address(this);
+        (alice, alicePrivateKey) = makeAddrAndKey("alice");
+        (bob, bobPrivateKey) = makeAddrAndKey("bob");
 
-//         // Setup operator registry to always return "true" => is operator
-//         operatorRegistry.setRegisteredReturn(true);
+        vaultFactory = new VaultFactory(owner);
+        delegatorFactory = new DelegatorFactory(owner);
+        slasherFactory = new SlasherFactory(owner);
+        l1Registry = new L1Registry();
+        operatorRegistry = new OperatorRegistry();
 
-//         // Deploy the middleware
-//         AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
-//             l1ValidatorManager: address(0x1234),
-//             operatorRegistry: address(operatorRegistry),
-//             vaultRegistry: address(vaultRegistry),
-//             operatorL1Optin: address(0x7777),
-//             epochDuration: 3 hours,
-//             slashingWindow: 4 hours
-//         });
+        HelperConfig helperConfig = new HelperConfig();
+        (
+            uint256 proxyAdminOwnerKey,
+            uint256 protocolOwnerKey,
+            bytes32 subnetID,
+            uint64 churnPeriodSeconds,
+            uint8 maximumChurnPercentage,
+            uint256 maxStake,
+            uint256 primaryMinStake,
+            uint256 secondaryMinStake
+        ) = helperConfig.activeNetworkConfig();
+        address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
+        address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
-//         // Example constructor arguments for AssetClassManager:
-//         uint256 maxStake = 1_000_000 ether;
-//         uint256 primaryMinStake = 10_000 ether;
-//         uint256 secondaryMinStake = 5_000 ether;
+        ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
+            subnetID: subnetID,
+            churnPeriodSeconds: churnPeriodSeconds,
+            maximumChurnPercentage: maximumChurnPercentage
+        });
 
-//         middleware = new AvalancheL1Middleware(
-//             settings,
-//             owner,
-//             maxStake,
-//             primaryMinStake,
-//             secondaryMinStake
-//         );
+        validatorManagerAddress =
+            _deployValidatorManager(
+                validatorSettings, 
+                proxyAdminOwnerAddress, 
+                protocolOwnerAddress
+            );
 
-//         vm.stopPrank();
-//     }
+        operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry), // whoRegistry
+            address(vaultFactory),     // whereRegistry
+            "OperatorVaultOptInService"
+        );
 
-//     function testConstructorValues() public {
-//         // Slashing window check
-//         assertEq(middleware.SLASHING_WINDOW(), 4 hours);
-//         // epochDuration
-//         assertEq(middleware.EPOCH_DURATION(), 3 hours);
+        operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry), // whoRegistry
+            address(l1Registry),       // whereRegistry
+            "OperatorL1OptInService"
+        );
 
-//         // Check start time (roughly block.timestamp within the same block)
-//         uint256 blockTime = block.timestamp;
-//         assertApproxEqAbs(middleware.START_TIME(), blockTime, 2);
+        // Whitelist a vault implementation
+        address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
+        vaultFactory.whitelist(vaultImpl);
 
-//         // The rest are direct from the settings
-//         assertEq(middleware.L1_VALIDATOR_MANAGER(), address(0x1234));
-//     }
+        // Whitelist L1RestakeDelegator
+        address l1RestakeDelegatorImpl = address(
+            new L1RestakeDelegator(
+                address(l1Registry),
+                address(vaultFactory),
+                address(operatorVaultOptInService),
+                address(operatorL1OptInService),
+                address(delegatorFactory),
+                delegatorFactory.totalTypes()
+            )
+        );
+        delegatorFactory.whitelist(l1RestakeDelegatorImpl);
 
-//     function testRegisterOperatorSuccess() public {
-//         bytes32 pubkey = keccak256("myPubKey");
+        // Create a test collateral token
+        collateral = new Token("MockCollateral");
 
-//         vm.startPrank(owner);
-//         middleware.registerOperator(operator, pubkey);
-//         vm.stopPrank();
+        // Deploy vaultTokenized
+        uint48 epochDuration = 1 days;
+        uint64 lastVersion = vaultFactory.lastVersion();
+        address vaultAddress = vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: alice,
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
 
-//         // We can't query "operators" directly as it's private. 
-//         // But we can verify no revert => success. 
-//         // Ideally you'd expose a public method or event logs to confirm.
-//         // For example, we might do an action that fails if operator not recognized...
-//         // Here we just assume success if no revert.
-//     }
+        vault = VaultTokenized(vaultAddress);
 
-//     function testRegisterOperatorRevertIfNotOperator() public {
-//         // Make registry return false => not an operator
-//         operatorRegistry.setRegisteredReturn(false);
-//         bytes32 pubkey = keccak256("myPubKey");
+        // Deploy delegator
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = alice;
+        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+        operatorL1SharesSetRoleHolders[0] = alice;
 
-//         vm.startPrank(owner);
-//         vm.expectRevert(AvalancheL1Middleware.AvalancheL1Middleware__NotOperator.selector);
-//         middleware.registerOperator(operator, pubkey);
-//         vm.stopPrank();
-//     }
+        address delegatorAddress = delegatorFactory.create(
+            0,
+            abi.encode(
+                address(vault),
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: alice,
+                            hook: address(0),
+                            hookSetRoleHolder: alice
+                        }),
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                    })
+                )
+            )
+        );
 
-//     function testRegisterVaultAndSetMaxL1Limit() public {
-//         // registerVault calls `_setVaultMaxL1Limit`
-//         // which calls delegator.setMaxL1Limit(OWNER, assetClassId, amount)
-//         // so we can check it from delegator mock
+        delegator = L1RestakeDelegator(delegatorAddress);
 
-//         // Let’s pick a random assetClassId
-//         uint96 assetClassId = 42;
+        // Set the delegator in the vault
+        vault.setDelegator(delegatorAddress);
 
-//         vm.startPrank(owner);
-//         // We expect it to pass successfully
-//         middleware.registerVault(address(vaultInstant), assetClassId);
+        // Deploy the middleware
+        AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
+            l1ValidatorManager: address(validatorManagerAddress),
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 3 hours,
+            slashingWindow: 4 hours
+        });
 
-//         // Confirm the delegator got setMaxL1Limit() with the chosen assetClassId + maxValidatorStake
-//         // Because the contract sets `_setVaultMaxL1Limit(vault, assetClassId, maxValidatorStake)`
-//         // in registerVault
-//         // (We store maxValidatorStake in the parent AssetClassManager.)
-//         // 
-//         // In this example, the new contract has 
-//         //   `uint32 private minValidatorStake;`
-//         //   `uint32 private maxValidatorStake;`
-//         //
-//         // If you need to expose them, you can do so in the AssetClassManager or in tests
-//         // we can only verify from the mock delegator:
+        middleware = new AvalancheL1Middleware(
+            middlewareSettings,
+            owner,
+            maxStake,
+            primaryMinStake,
+            secondaryMinStake
+        );
 
-//         uint256 storedLimit = delegator.maxL1Limit(owner, assetClassId);
-//         // By default, in your code, `maxValidatorStake` is uninitialized or 0 
-//         // unless you set it inside the AssetClassManager logic.
-//         // If you want to test a known value, you might store it in your contract 
-//         // or retrieve it from a public getter.
+        middleware.transferOwnership(address(validatorManagerAddress));
+    }
 
-//         // If your contract sets something like this in the constructor:
-//         //    maxValidatorStake = uint32(_MaxStake);
-//         // Then:
-//         // storedLimit should equal _MaxStake passed in the constructor, i.e. 1_000_000 ether in setUp.
+    function test_ConstructorValues() public view {
+        assertEq(middleware.SLASHING_WINDOW(), 4 hours);
+        assertEq(middleware.EPOCH_DURATION(), 3 hours);
 
-//         assertEq(storedLimit, 1_000_000 ether);
+        // Check that START_TIME is close to block.timestamp
+        uint256 blockTime = block.timestamp;
+        assertApproxEqAbs(middleware.START_TIME(), blockTime, 2);
 
-//         vm.stopPrank();
-//     }
+        assertEq(middleware.L1_VALIDATOR_MANAGER(), validatorManagerAddress);
+    }
 
-//     function testGetOperatorStakeAndCaching() public {
-//         // We'll set up a scenario where operator has some stake in vaultInstant
-//         // We'll call getOperatorStake first => expect it to read from delegator
-//         // Then call again => verify it's cached?
 
-//         // Prepare mock stake
-//         // subnetwork 0 => 100 tokens, subnetwork 1 => 200 tokens => total 300
-//         // (In your code these are "asset classes", but we call them subnetwork = 0 / 1)
-//         delegator.setStakeAt(address(middleware.L1_VALIDATOR_MANAGER()), 0, operator, uint48(block.timestamp), 100);
-//         delegator.setStakeAt(address(middleware.L1_VALIDATOR_MANAGER()), 1, operator, uint48(block.timestamp), 200);
+    function test_RegisterVault() public {
+        uint96 assetClassId = 0;
+        uint256 maxVaultL1Limit = 2000 ether;
 
-//         vm.startPrank(owner);
-//         // Need to register the vault, so it’s recognized
-//         middleware.registerVault(address(vaultInstant), 0);
-//         vm.stopPrank();
+        _registerL1(address(validatorManagerAddress), address(middleware));
 
-//         uint48 epoch = middleware.getCurrentEpoch();
-//         uint256 stake = middleware.getOperatorStake(operator, epoch);
-//         assertEq(stake, 300);
+        vm.startPrank(address(validatorManagerAddress)); // Check if this should change
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+    }
 
-//         // Check that getOperatorStake is cached now
-//         (bool cachedBefore,) = middleware.totalStakeCached(epoch);
-//         assertFalse(cachedBefore); 
-//         // Because the caching actually occurs in `calcAndCacheStakes` or `submission`. 
-//         // Right now it's only triggered by the `updateStakeCache` modifier or direct call.
+    function test_RegisterOperator() public {
+        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerOperator(alice, "metadata"); 
+        _optInOperatorL1(alice, validatorManagerAddress);
 
-//         // Force a direct caching call
-//         vm.prank(owner);
-//         middleware.calcAndCacheStakes(epoch);
-//         (bool cachedAfter,) = middleware.totalStakeCached(epoch);
-//         assertTrue(cachedAfter);
+        vm.startPrank(address(validatorManagerAddress));
 
-//         // Now, if we change the underlying stake in delegator, it won't reflect unless we reset the cache or move epoch
-//         delegator.setStakeAt(address(middleware.L1_VALIDATOR_MANAGER()), 0, operator, uint48(block.timestamp), 999);
-//         uint256 stake2 = middleware.getOperatorStake(operator, epoch);
-//         // We expect the old cached value => 300
-//         assertEq(stake2, 300);
-//     }
+        middleware.registerOperator(alice, keccak256("myPubKey"));
+        vm.stopPrank();
+    }
 
-//     function testSlashBasic() public {
-//         // We test the slash flow to ensure no reverts
-//         // In reality you’d test amounts being pro-rated, events, etc.
-//         // Let’s register vaultInstant as if it had stake
-//         vm.startPrank(owner);
-//         middleware.registerVault(address(vaultInstant), 0);
-//         vm.stopPrank();
+    function test_DepositAndGetOperatorStake() public {
+        uint96 assetClassId = 0;
+        uint256 maxVaultL1Limit = 2000 ether;
 
-//         // Place some stake in subnetwork 0/1 for the operator
-//         // Then slash => confirm no revert
-//         delegator.setStakeAt(address(middleware.L1_VALIDATOR_MANAGER()), 0, operator, uint48(block.timestamp), 600);
-//         delegator.setStakeAt(address(middleware.L1_VALIDATOR_MANAGER()), 1, operator, uint48(block.timestamp), 400);
+        _registerL1(address(validatorManagerAddress), address(middleware));
 
-//         uint48 epoch = middleware.getCurrentEpoch();
-//         uint256 totalStake = middleware.getOperatorStake(operator, epoch);
-//         assertEq(totalStake, 1000);
+        vm.startPrank(address(validatorManagerAddress));
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
 
-//         // Perform slash
-//         vm.startPrank(owner);
-//         middleware.slash(epoch, operator, 100);
-//         vm.stopPrank();
-//         // Confirm no revert => success. 
-//         // In an advanced test, you’d check calls to slasher(s).
-//     }
-// }
+        _grantDepositorWhitelistRole(alice, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+
+        _setL1Limit(alice, middleware.L1_VALIDATOR_MANAGER(), assetClassId, depositedAmount);
+
+        _registerOperator(bob, "bob metadata");
+        _optInOperatorVault(bob);
+        _optInOperatorL1(bob, validatorManagerAddress);
+
+        vm.startPrank(alice);
+        delegator.setOperatorL1Shares(
+            middleware.L1_VALIDATOR_MANAGER(),
+            assetClassId,
+            bob,
+            mintedShares
+        );
+        vm.stopPrank();
+
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 stakeBob = middleware.getOperatorStake(bob, epoch);
+        console2.log("Bob stake:", stakeBob);
+        assertGt(stakeBob, 0, "Bob's stake should be > 0 now");
+    }
+
+    // Internal helpers
+    function _registerOperator(address user, string memory metadataURL) internal {
+        vm.startPrank(user);
+        operatorRegistry.registerOperator(metadataURL);
+        vm.stopPrank();
+    }
+
+    function _registerL1(address l1, address _middleware) internal {
+        vm.prank(l1);
+        l1Registry.registerL1(l1, _middleware, "metadataURL");
+    }
+
+    function _grantDepositorWhitelistRole(address user, address account) internal {
+        vm.startPrank(user);
+        VaultTokenized(address(vault)).grantRole(vault.DEPOSITOR_WHITELIST_ROLE(), account);
+        vm.stopPrank();
+    }
+
+    function _deposit(address user, uint256 amount) internal returns (uint256 depositedAmount, uint256 mintedShares) {
+        collateral.transfer(user, amount);
+        vm.startPrank(user);
+        collateral.approve(address(vault), amount);
+        (depositedAmount, mintedShares) = vault.deposit(user, amount);
+        vm.stopPrank();
+    }
+
+    function _withdraw(address user, uint256 amount) internal returns (uint256 burnedShares, uint256 mintedShares) {
+        vm.startPrank(user);
+        (burnedShares, mintedShares) = vault.withdraw(user, amount);
+        vm.stopPrank();
+    }
+
+    function _claim(address user, uint256 epoch) internal returns (uint256 amount) {
+        vm.startPrank(user);
+        amount = vault.claim(user, epoch);
+        vm.stopPrank();
+    }
+
+    function _claimBatch(address user, uint256[] memory epochs) internal returns (uint256 amount) {
+        vm.startPrank(user);
+        amount = vault.claimBatch(user, epochs);
+        vm.stopPrank();
+    }
+
+    function _optInOperatorVault(address user) internal {
+        vm.startPrank(user);
+        operatorVaultOptInService.optIn(address(vault));
+        vm.stopPrank();
+    }
+
+    function _optOutOperatorVault(address user) internal {
+        vm.startPrank(user);
+        operatorVaultOptInService.optOut(address(vault));
+        vm.stopPrank();
+    }
+
+    function _optInOperatorL1(address user, address l1) internal {
+        vm.startPrank(user);
+        operatorL1OptInService.optIn(l1);
+        vm.stopPrank();
+    }
+
+    function _optOutOperatorL1(address user, address l1) internal {
+        vm.startPrank(user);
+        operatorL1OptInService.optOut(l1);
+        vm.stopPrank();
+    }
+
+    function _setL1Limit(address user, address l1, uint96 assetClass, uint256 amount) internal {
+        vm.startPrank(user);
+        delegator.setL1Limit(l1, assetClass, amount);
+        vm.stopPrank();
+    }
+
+    function _setOperatorL1Shares(address user, address l1, uint96 assetClass, address operator, uint256 shares) internal {
+        vm.startPrank(user);
+        delegator.setOperatorL1Shares(l1, assetClass, operator, shares);
+        vm.stopPrank();
+    }
+
+    function _deployValidatorManager(
+        ValidatorManagerSettings memory settings,
+        address proxyAdminOwnerAddress,
+        address protocolOwnerAddress
+    ) private returns (address) {
+        PoAValidatorManager validatorSetManager = new PoAValidatorManager(ICMInitializable.Allowed);
+
+        address proxy = UnsafeUpgrades.deployTransparentProxy(
+            address(validatorSetManager),
+            proxyAdminOwnerAddress,
+            abi.encodeCall(PoAValidatorManager.initialize, (settings, protocolOwnerAddress))
+        );
+
+        return proxy;
+    }
+}
