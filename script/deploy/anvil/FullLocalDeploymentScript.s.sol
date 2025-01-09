@@ -2,7 +2,7 @@
 pragma solidity 0.8.25;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {HelperConfig} from "./HelperConfig.s.sol";
+import {HelperConfig, NetworkConfig} from "./HelperConfig.s.sol";
 
 import {VaultFactory} from "../../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../../src/contracts/DelegatorFactory.sol";
@@ -38,7 +38,7 @@ contract FullLocalDeploymentScript is Script {
     function run() public {
 
         HelperConfig helperConfig = new HelperConfig();
-        HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
+        NetworkConfig memory config = helperConfig.getConfig();
 
         vm.startBroadcast();
 
