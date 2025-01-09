@@ -10,7 +10,7 @@ import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
 import {IRegistry} from "../../interfaces/common/IRegistry.sol";
 import {IEntity} from "../../interfaces/common/IEntity.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
-import {IBaseDelegator} from "../../interfaces/delegator/IBaseDelegator.sol";
+import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
 import {IBaseSlasher} from "../../interfaces/slasher/IBaseSlasher.sol";
 import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {IEntity} from "../../interfaces/common/IEntity.sol";
@@ -68,9 +68,6 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
 
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
-
-    uint32 private minValidatorStake;
-    uint32 private maxValidatorStake;
 
     mapping(uint48 => uint256) public totalStakeCache;
     mapping(uint48 => bool) public totalStakeCached;
@@ -178,12 +175,13 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
 
     function registerVault(
         address vault,
-        uint96 assetClassId
+        uint96 assetClassId,
+        uint256 maxValidatorStake
         
     ) external onlyOwner {
         address delegator = IVaultTokenized(vault).delegator();
 
-        if (vaults.contains(vault) && IBaseDelegator(delegator).maxL1Limit(msg.sender, assetClassId) != 0) {
+        if (vaults.contains(vault) && BaseDelegator(delegator).maxL1Limit(msg.sender, assetClassId) != 0) {
             revert AvalancheL1Middleware__VaultAlreadyRegistred();
         }
 
@@ -204,7 +202,16 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
 
         _setVaultMaxL1Limit(vault, assetClassId, maxValidatorStake);
 
-        vaults.add(vault);
+        if (maxValidatorStake == 0) {
+            if (vaults.contains(vault)) {
+                vaults.disable(vault);
+            }
+            return;
+        }
+
+        if (!vaults.contains(vault)) {
+            vaults.add(vault);
+        }
         vaults.enable(vault);
     }
 
@@ -218,13 +225,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
         }
 
         address delegator = IVaultTokenized(vault).delegator();
-        IBaseDelegator(delegator).setMaxL1Limit(L1_VALIDATOR_MANAGER, assetClassId, amount);
-
-        if (amount == 0) {
-            vaults.disable(vault);
-        } else {
-            vaults.enable(vault);
-        }
+        BaseDelegator(delegator).setMaxL1Limit(L1_VALIDATOR_MANAGER, assetClassId, amount);
     }
 
     function removeVault(
@@ -255,7 +256,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
             }
 
             // PRIMARY tokens
-            stake += IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+            stake += BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 L1_VALIDATOR_MANAGER,
                 0, // Asset Class ID = 0
                 operator,
@@ -264,7 +265,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
             );
 
             // SECONDARY tokens
-            stake += IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+            stake += BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 L1_VALIDATOR_MANAGER,
                 1, // Asset Class ID = 1
                 operator,
@@ -349,7 +350,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
 
             // PrimaryAssetClass ID = 0
             {
-                uint256 vaultStake = IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                     L1_VALIDATOR_MANAGER,
                     0,
                     operator,
@@ -367,7 +368,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassManage
 
             // SecondaryAssetClass ID = 1
             {
-                uint256 vaultStake = IBaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                     L1_VALIDATOR_MANAGER,
                     1,
                     operator,
