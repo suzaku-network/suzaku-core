@@ -1,81 +1,46 @@
-# SuzVault Deployment Guide
+# SuzVault Deployment Guide 
 
-Follow the steps below to deploy the SuzVault along with the required collateral token and associated contracts.
+This guide outlines how to deploy the collateral token, the suzaku factories, registeries and rest of contracts on a local Anvil network using a single deployment script.
 
-## 1. Create the `Collateral` Token
+## Prerequisites
 
-After deploying anvil and before deploying SuzVault, you need to create the `collateral` token.
+- **Anvil**: A local EVM testnet
+- **Foundry**: For `forge` commands (see [Foundry Book](https://book.getfoundry.sh/) for installation instructions)
+- **Node.js + jq**: For processing JSON outputs
 
-- **Repository:** Use the [suzaku-deployments repository](https://github.com/suzaku-network/suzaku-deployments).
-- **Path:** Navigate to the `/suzaku-restaking/docs/local-anvil/collateral.md` section for detailed instructions on creating the collateral token.
+## Steps
 
-## 2. Set Up Environment Variables
+1. **Start Anvil**
 
-Create a `.env.anvil` file in your project root directory and populate it with the following variables:
+   In a new terminal:
+   ```bash
+   anvil
+   ```
 
-```env
-CHAIN_ID=31337
-OWNER=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-INITIAL_VAULT_VERSION=1
-DEFAULT_INCLUDE_SLASHER=false
-COLLATERAL_TOKEN_ADDRESS= # Replace with your collateral token address
-EPOCH_DURATION=3600
-DEPOSIT_WHITELIST=true
-DEPOSIT_LIMIT=1000000
-DELEGATOR_INDEX=0
-SLASHER_INDEX=0
-VETO_DURATION=3600
-OPERATOR=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-RESOLVER_EPOCHS_DELAY=10
-NAME="SuzVault"
-SYMBOL="Suz"
-DEPLOYER_PRIV_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
-INCLUDE_SLASHER=false
-```
+   This starts a local Ethereum test network at `http://127.0.0.1:8545`.
 
-**Important:**
+2. **Run the Centralized Deployment Script**
 
-- Ensure you replace the placeholder comments (e.g., `# Replace with your collateral token address`) with actual deployed contract addresses.
-- The owner and private key are the first anvil created address.
+   In another terminal, navigate to your project directory and run:
+   ```bash
+   forge script script/deploy/anvil/FullLocalDeploymentScript.s.sol:FullLocalDeploymentScript \
+       --broadcast \
+       --rpc-url http://127.0.0.1:8545 \
+       --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+       --via-ir
+   ```
 
-## 3. Deploy Factories and Registries
+   **What this does:**
+   - Deploys a mock collateral token (with an initial supply allocated to the deployer).
+   - Deploys all required factories and registries.
+   - Whitelists the Vault and Delegator implementations.
+   - Creates a fully functioning vault and delegator setup in one go.
+   - Generates a `fullLocalDeployment.json` file in the `./deployments/` directory containing addresses of all deployed contracts.
 
-Deploy the necessary factories and registries using the following commands:
+3. **Review the Deployment**
 
-```bash
-# Export all variables from .env.anvil
-set -a
-source .env.anvil
+   Check the output in the terminal and the `fullLocalDeployment.json` file in the `./deployments/` folder for the deployed contract addresses. These addresses can now be used directly in your tests or further scripts.
 
-# Deploy Factory and Registry contracts
-forge script ./script/deploy/FactoryAndRegistry.s.sol:FactoryAndRegistryScript \
-  --broadcast \
-  --rpc-url http://127.0.0.1:8545 \
-  --private-key $DEPLOYER_PRIV_KEY \
-  --via-ir
-```
+## Optional Steps for Customization
 
-## 4. Update Environment Variables with Deployed Addresses
-
-```bash
-export DELEGATOR_FACTORY=$(jq -r '.DelegatorFactory' deployments/deploymentDetails.json)
-export VAULT_FACTORY=$(jq -r '.VaultFactory' deployments/deploymentDetails.json)
-export SLASHER_FACTORY=$(jq -r '.SlasherFactory' deployments/deploymentDetails.json)
-export L1_REGISTRY=$(jq -r '.L1Registry' deployments/deploymentDetails.json)
-export OPERATOR_REGISTRY=$(jq -r '.OperatorRegistry' deployments/deploymentDetails.json)
-```
-
-## 5. Deploy Core Contracts
-
-```bash
-# Deploy Core contracts
-forge script ./script/deploy/Core.s.sol:CoreScript \
-  --broadcast \
-  --rpc-url http://127.0.0.1:8545 \
-  --private-key $DEPLOYER_PRIV_KEY \
-  --via-ir
-```
-
-## 6. Verification and Final Steps
-
-- **Verify Deployments:** Check the `deployments` folder to ensure all contracts have been deployed successfully.
+If you wish to adjust configurations (e.g., deposit limits, epoch duration, token names), modify the `HelperConfig.s.sol` file. The `FullLocalDeploymentScript` reads these static configurations directly. No `.env.anvil` file or environment variable sourcing is required.
