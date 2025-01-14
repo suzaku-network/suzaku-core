@@ -36,12 +36,12 @@ interface IL1Registry {
     function isRegistered(address l1) external view returns (bool);
 
     /**
-     * @notice Check if an address is registered as an L1
+     * @notice Check if an address is registered as an L1 and if the Middleware is correct
      * @param l1 The address to check
-     * @param l1middleware The l1Middleware to check
+     * @param l1middleware_ The l1Middleware to check
      * @return True if the address is registered as an L1 and the middleware is correct, false otherwise
      */
-    function secureIsRegistered(address l1, address l1middleware) external view returns (bool);
+    function isRegisteredWithMiddleware(address l1, address l1middleware_) external view returns (bool);
 
     /**
      * @notice Get the L1 at a specific index

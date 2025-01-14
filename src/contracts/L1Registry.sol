@@ -45,9 +45,9 @@ contract L1Registry is IL1Registry {
     }
 
     // @inheritdoc IL1Registry
-    function secureIsRegistered(address l1, address l1middleware) external view returns (bool) {
+    function isRegisteredWithMiddleware(address l1, address l1Middleware_) external view returns (bool) {
         isRegistered(l1);
-        if (l1Middleware[l1] != l1middleware) {
+        if (l1Middleware[l1] != l1Middleware_) {
             revert L1Registry__InvalidL1Middleware();
         }
         return l1s.contains(l1);

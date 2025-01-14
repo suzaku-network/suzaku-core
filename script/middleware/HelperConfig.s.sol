@@ -13,8 +13,8 @@ contract HelperConfig is Script {
         uint64 churnPeriodSeconds;
         uint8 maximumChurnPercentage;
         uint256 maxStake;
-        uint256 primaryMinStake;
-        uint256 secondaryMinStake;
+        uint256 minStake;
+        address defaultAsset;
     }
 
     NetworkConfig public activeNetworkConfig;
@@ -37,8 +37,8 @@ contract HelperConfig is Script {
             churnPeriodSeconds: 1 hours,
             maximumChurnPercentage: 20,
             maxStake: 1000000000000000000000,
-            primaryMinStake: 10000000000000000000,
-            secondaryMinStake: 10000000000000000000
+            minStake: 100000000000000000,
+            defaultAsset: address(0)
         });
     }
 }
