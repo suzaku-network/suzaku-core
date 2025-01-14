@@ -58,7 +58,7 @@ contract HelperConfig is Script {
         activeNetworkConfig = getAnvilConfig();
     }
 
-    function getAnvilConfig() internal returns (NetworkConfig memory) {
+    function getAnvilConfig() internal pure returns (NetworkConfig memory) {
         // Hardcode owner to the default Anvil #1 address:
         address ownerAddr = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266; 
         // Hardcoded operator to the default Anvil #2 address:

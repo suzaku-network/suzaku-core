@@ -17,8 +17,6 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {Script, console2} from "forge-std/Script.sol";
-
 abstract contract BaseDelegator is
     AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
@@ -160,11 +158,11 @@ abstract contract BaseDelegator is
      * @inheritdoc IBaseDelegator
      */
     function setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) external nonReentrant {
-        console2.log(msg.sender);
-
-        if (!IL1Registry(L1_REGISTRY).secureIsRegistered(l1, msg.sender)) {
+        if (!IL1Registry(L1_REGISTRY).isRegistered(l1)) {
             revert BaseDelegator__NotL1();
         }
+
+        IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
 
         if (maxL1Limit[l1][ assetClass] == amount) {
             revert BaseDelegator__AlreadySet();

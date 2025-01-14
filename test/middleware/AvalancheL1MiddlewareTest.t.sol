@@ -10,7 +10,7 @@ import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.s
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 import {AvalancheL1Middleware, AvalancheL1MiddlewareSettings} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
-import {AssetClassManager} from "../../src/contracts/middleware/AssetClassManager.sol";
+import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
@@ -71,8 +71,8 @@ contract AvalancheL1MiddlewareTest is Test {
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
             uint256 maxStake,
-            uint256 primaryMinStake,
-            uint256 secondaryMinStake
+            uint256 minStake,
+            address defaultAsset
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -194,9 +194,12 @@ contract AvalancheL1MiddlewareTest is Test {
             middlewareSettings,
             owner,
             maxStake,
-            primaryMinStake,
-            secondaryMinStake
+            minStake,
+            defaultAsset
         );
+
+        middleware.addAssetClass(0, minStake, maxStake);
+        middleware.activateSecondaryAssetClass(0);
 
         middleware.transferOwnership(address(validatorManagerAddress));
     }
