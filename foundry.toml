@@ -11,10 +11,12 @@ fs_permissions = [{ access = "read-write", path = "./" }]
 [rpc_endpoints]
 sepolia = "${SEPOLIA_RPC_URL}"
 avalanche = "${AVALANCHE_RPC_URL}"
+fuji = "${FUJI_RPC_URL}"
 
 [etherscan]
 sepolia = { key = "${ETHERSCAN_API_KEY}", url = "https://api-sepolia.etherscan.io/api" }
 avalanche = { key = "${ETHERSCAN_API_KEY}", url = "https://api.snowscan.xyz/api" }
+fuji = { key = "${SNOWSCAN_API_KEY}", url = "https://api-testnet.snowscan.xyz/api" }
 
 [fmt]
 bracket_spacing = false
