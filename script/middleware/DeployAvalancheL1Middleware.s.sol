@@ -4,7 +4,7 @@
 pragma solidity 0.8.25;
 
 import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {HelperConfig} from "./HelperConfig.s.sol";
+import {MiddlewareHelperConfig} from "./MiddlewareHelperConfig.s.sol";
 import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
 import {Script} from "forge-std/Script.sol";
 import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
@@ -29,7 +29,7 @@ contract DeployTestAvalancheL1Middleware is Script {
             revert("Not on Anvil");
         }
 
-        HelperConfig helperConfig = new HelperConfig();
+        MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
         (
             uint256 proxyAdminOwnerKey,
             uint256 protocolOwnerKey,

@@ -3,17 +3,23 @@ pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
 
+import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
+import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
+import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
+
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
 import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
-// import {NetworkMiddlewareService} from "../../src/contracts/service/NetworkMiddlewareService.sol";
+import {AvalancheL1Middleware, AvalancheL1MiddlewareSettings} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
 import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
 import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
+import {MiddlewareHelperConfig} from "../../script/middleware/MiddlewareHelperConfig.s.sol";
 
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
@@ -32,13 +38,15 @@ contract L1RestakeDelegatorTest is Test {
     uint256 alicePrivateKey;
     address bob;
     uint256 bobPrivateKey;
+    address validatorManagerAddress; 
+
 
     VaultFactory vaultFactory;
     DelegatorFactory delegatorFactory;
     SlasherFactory slasherFactory;
     L1Registry l1Registry;
     OperatorRegistry operatorRegistry;
-    // NetworkMiddlewareService networkMiddlewareService;
+    AvalancheL1Middleware middleware;
     OperatorVaultOptInService operatorVaultOptInService;
     OperatorL1OptInService operatorL1OptInService;
 
@@ -60,7 +68,49 @@ contract L1RestakeDelegatorTest is Test {
         operatorRegistry = new OperatorRegistry();
         
         // Deploy middleware service
-        // networkMiddlewareService = new NetworkMiddlewareService(address(l1Registry));
+        MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
+        (
+            uint256 proxyAdminOwnerKey,
+            uint256 protocolOwnerKey,
+            bytes32 subnetID,
+            uint64 churnPeriodSeconds,
+            uint8 maximumChurnPercentage,
+            uint256 maxStake,
+            uint256 minStake,
+            address defaultAsset
+        ) = helperConfig.activeNetworkConfig();
+        address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
+        address protocolOwnerAddress = vm.addr(protocolOwnerKey);
+
+        ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
+            subnetID: subnetID,
+            churnPeriodSeconds: churnPeriodSeconds,
+            maximumChurnPercentage: maximumChurnPercentage
+        });
+
+        validatorManagerAddress =
+            _deployValidatorManager(
+                validatorSettings, 
+                proxyAdminOwnerAddress, 
+                protocolOwnerAddress
+            );
+
+        AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
+            l1ValidatorManager: address(validatorManagerAddress),
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 3 hours,
+            slashingWindow: 4 hours
+        });
+
+        middleware = new AvalancheL1Middleware(
+                        middlewareSettings,
+                        owner,
+                        maxStake,
+                        minStake,
+                        defaultAsset
+                    );
 
         // Deploy opt-in services
         operatorVaultOptInService = new OperatorVaultOptInService(
@@ -104,7 +154,7 @@ contract L1RestakeDelegatorTest is Test {
         // Register an L1 and a subnetwork for testing
         address l1 = alice;
         l1Registry.registerL1(l1, address(0), "metadataURL");
-        uint96 assetClass = 0;
+        uint96 assetClass = 1;
 
         assertEq(delegator.VERSION(), 1);
         assertEq(delegator.L1_REGISTRY(), address(l1Registry));
@@ -296,10 +346,10 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = bob;
-        _registerL1(l1, bob);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, type(uint256).max);
+        _setMaxL1Limit(l1, assetClass, type(uint256).max, address(middleware));
 
         _setL1Limit(alice, l1, assetClass, amount1);
 
@@ -347,10 +397,10 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = bob;
-        _registerL1(l1, bob);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit, address(middleware));
 
         vm.expectRevert(IL1RestakeDelegator.L1RestakeDelegator__ExceedsMaxL1Limit.selector);
         _setL1Limit(alice, l1, assetClass, amount1);
@@ -368,10 +418,10 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = bob;
-        _registerL1(l1, bob);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit, address(middleware));
 
         _setL1Limit(alice, l1, assetClass, amount1);
 
@@ -403,8 +453,8 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = bob;
-        _registerL1(l1, bob);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
         address operator = bob;
         _registerOperator(operator, "operatorMetadata");
 
@@ -460,8 +510,8 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = bob;
-        _registerL1(l1, bob);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
         _registerOperator(alice, "aliceMetadata");
         _registerOperator(bob, "bobMetadata");
 
@@ -496,8 +546,8 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = bob;
-        _registerL1(l1, bob);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
         _registerOperator(alice, "aliceMetadata");
 
         _setOperatorL1Shares(alice, l1, assetClass, alice, amount1);
@@ -527,10 +577,10 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = alice;
-        _registerL1(l1, alice);
-        uint96 assetClass = 0;
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit1);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit1, address(middleware));
 
         assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit1);
 
@@ -553,7 +603,7 @@ contract L1RestakeDelegatorTest is Test {
             l1Limit1
         );
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit2);
+        _setMaxL1Limit(l1, assetClass, maxL1Limit2, address(middleware));
 
         assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit2);
         assertEq(
@@ -572,8 +622,8 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        _registerL1(alice, alice);
-        uint96 assetClass = 0;
+        _registerL1(alice, address(middleware));
+        uint96 assetClass = 1;
 
         // Bob is not an L1
         vm.startPrank(bob);
@@ -588,12 +638,12 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        _registerL1(alice, alice);
-        uint96 assetClass = 0;
+        _registerL1(alice, address(middleware));
+        uint96 assetClass = 1;
 
-        _setMaxL1Limit(alice, assetClass, maxL1Limit);
+        _setMaxL1Limit(alice, assetClass, maxL1Limit, address(middleware));
 
-        vm.startPrank(alice);
+        vm.startPrank(address(middleware));
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
         delegator.setMaxL1Limit(alice, assetClass, maxL1Limit);
         vm.stopPrank();
@@ -628,9 +678,9 @@ contract L1RestakeDelegatorTest is Test {
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = alice;
-        _registerL1(l1, alice);
-        uint96 assetClass = 0;
-        _setMaxL1Limit(l1, assetClass, type(uint256).max);
+        _registerL1(l1, address(middleware));
+        uint96 assetClass = 1;
+        _setMaxL1Limit(l1, assetClass, type(uint256).max, address(middleware));
 
         _registerOperator(alice, "aliceMetadata");
         _registerOperator(bob, "bobMetadata");
@@ -781,7 +831,7 @@ contract L1RestakeDelegatorTest is Test {
         address l1 = alice;
         address operatorA = alice;
         address operatorB = bob;
-        _registerL1(l1, alice);
+        _registerL1(l1, address(middleware));
         _registerOperator(operatorA, "operatorA");
         _registerOperator(operatorB, "operatorB");
 
@@ -802,7 +852,7 @@ contract L1RestakeDelegatorTest is Test {
             uint96 asset = assets[i];
 
             // Set max L1 limit for this stakable asset
-            _setMaxL1Limit(l1, asset, type(uint256).max);
+            _setMaxL1Limit(l1, asset, type(uint256).max, address(middleware));
 
             // Set L1 limit
             _setL1Limit(alice, l1, asset, l1LimitAmount);
@@ -900,9 +950,9 @@ contract L1RestakeDelegatorTest is Test {
         vm.stopPrank();
     }
 
-    function _registerL1(address l1, address middleware) internal {
+    function _registerL1(address l1, address _middleware) internal {
         vm.prank(l1);
-        l1Registry.registerL1(l1, middleware, "metadataURL");
+        l1Registry.registerL1(l1, _middleware, "metadataURL");
     }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
@@ -1009,8 +1059,8 @@ contract L1RestakeDelegatorTest is Test {
     //     vm.stopPrank();
     // }
 
-    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal {
-        vm.startPrank(l1);
+    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount, address _middleware) internal {
+        vm.startPrank(_middleware);
         delegator.setMaxL1Limit(l1, assetClass, amount);
         vm.stopPrank();
     }
@@ -1020,4 +1070,20 @@ contract L1RestakeDelegatorTest is Test {
     //     delegator.setHook(hook);
     //     vm.stopPrank();
     // }
+
+    function _deployValidatorManager(
+        ValidatorManagerSettings memory settings,
+        address proxyAdminOwnerAddress,
+        address protocolOwnerAddress
+    ) private returns (address) {
+        PoAValidatorManager validatorSetManager = new PoAValidatorManager(ICMInitializable.Allowed);
+
+        address proxy = UnsafeUpgrades.deployTransparentProxy(
+            address(validatorSetManager),
+            proxyAdminOwnerAddress,
+            abi.encodeCall(PoAValidatorManager.initialize, (settings, protocolOwnerAddress))
+        );
+
+        return proxy;
+    }
 }

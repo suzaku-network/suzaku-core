@@ -20,7 +20,7 @@ import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptI
 import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
-import {HelperConfig} from "../../script/middleware/HelperConfig.s.sol";
+import {MiddlewareHelperConfig} from "../../script/middleware/MiddlewareHelperConfig.s.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 
@@ -38,6 +38,8 @@ contract AvalancheL1MiddlewareTest is Test {
     uint256 internal alicePrivateKey;
     address internal bob;
     uint256 internal bobPrivateKey;
+    address internal tokenA;
+    address internal tokenB;
 
     // Factories & Registries
     VaultFactory internal vaultFactory;
@@ -56,6 +58,8 @@ contract AvalancheL1MiddlewareTest is Test {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
+        tokenA = makeAddr("tokenA");
+        tokenB = makeAddr("tokenB");
 
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
@@ -63,7 +67,7 @@ contract AvalancheL1MiddlewareTest is Test {
         l1Registry = new L1Registry();
         operatorRegistry = new OperatorRegistry();
 
-        HelperConfig helperConfig = new HelperConfig();
+        MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
         (
             uint256 proxyAdminOwnerKey,
             uint256 protocolOwnerKey,
@@ -121,6 +125,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Create a test collateral token
         collateral = new Token("MockCollateral");
+        defaultAsset = address(collateral);
 
         // Deploy vaultTokenized
         uint48 epochDuration = 1 days;
@@ -198,8 +203,8 @@ contract AvalancheL1MiddlewareTest is Test {
             defaultAsset
         );
 
-        middleware.addAssetClass(0, minStake, maxStake);
-        middleware.activateSecondaryAssetClass(0);
+        // middleware.addAssetClass(2, minStake, maxStake);
+        // middleware.activateSecondaryAssetClass(0);
 
         middleware.transferOwnership(address(validatorManagerAddress));
     }
@@ -217,7 +222,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
 
     function test_RegisterVault() public {
-        uint96 assetClassId = 0;
+        uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
 
         _registerL1(address(validatorManagerAddress), address(middleware));
@@ -239,8 +244,9 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     function test_DepositAndGetOperatorStake() public {
-        uint96 assetClassId = 0;
+        uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
+        // middleware.addAsset(1, address(collateral));
 
         _registerL1(address(validatorManagerAddress), address(middleware));
 
