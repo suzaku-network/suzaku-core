@@ -28,7 +28,7 @@ contract AssetClassRegistry is IAssetClassRegistry {
     }
 
     EnumerableSet.UintSet internal assetClassIds;
-    mapping(uint256 => AssetClass) private assetClasses;
+    mapping(uint256 => AssetClass) internal assetClasses;
 
     function addAssetClass(
         uint256 _classId,

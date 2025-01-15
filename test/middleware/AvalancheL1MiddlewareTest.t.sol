@@ -267,7 +267,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
 
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 stakeBob = middleware.getOperatorStake(bob, epoch);
+        uint256 stakeBob = middleware.getOperatorStake(bob, epoch, assetClassId);
         console2.log("Bob stake:", stakeBob);
         assertGt(stakeBob, 0, "Bob's stake should be > 0 now");
     }
