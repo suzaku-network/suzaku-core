@@ -152,6 +152,8 @@ contract FullLocalDeploymentScript is Script {
             address(delegatorFactory), 
             address(slasherFactory)
         );
+        // 6.1 Set deposit whitelist
+        VaultTokenized(vault).setDepositorWhitelistStatus(config.generalConfig.owner, true);
         console2.log("Vault deployed at:", vault);
 
         // 7. Deploy Delegator
