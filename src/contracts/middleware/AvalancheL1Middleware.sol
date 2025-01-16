@@ -35,6 +35,10 @@ struct ValidatorData {
     bytes32 key;
 }
 
+/**
+ * @title AvalancheL1Middleware
+ * @notice Manages operator registration, vault registration, stake accounting, and slashing for Avalanche L1
+ */
 contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegistry {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.UintSet;
@@ -83,6 +87,11 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
 
     mapping(address => uint96) public vaultToAssetClass;
 
+    /**
+     * @notice Updates stake cache before function execution
+     * @param epoch The epoch to update
+     * @param assetClassId The asset class ID
+     */
     modifier updateStakeCache(uint48 epoch, uint96 assetClassId) {
         if (!totalStakeCached[epoch][assetClassId]) {
             calcAndCacheStakes(epoch, assetClassId);
@@ -90,6 +99,14 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         _;
     }
 
+    /**
+     * @notice Initializes contract settings
+     * @param settings General contract parameters
+     * @param owner Owner address
+     * @param primaryAssetMaxStake Max stake for the primary asset class
+     * @param primaryAssetMinStake Min stake for the primary asset class
+     * @param primaryAsset The primary asset address
+     */
     constructor(
         AvalancheL1MiddlewareSettings memory settings,
         address owner,
@@ -117,57 +134,110 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         assetClasses[primaryAssetClass].assets.add(primaryAsset);
     }
 
-    function addAssetClass(uint256 _classId, uint256 _minValidatorStake, uint256 _maxValidatorStake) external {
-        _addAssetClass(_classId, _minValidatorStake, _maxValidatorStake);
+    /**
+     * @notice Adds a new asset class
+     * @param assetClassId New asset class ID
+     * @param _minValidatorStake Minimum validator stake
+     * @param _maxValidatorStake Maximum validator stake
+     */
+    function addAssetClass(uint256 assetClassId, uint256 _minValidatorStake, uint256 _maxValidatorStake) external {
+        _addAssetClass(assetClassId, _minValidatorStake, _maxValidatorStake);
     }
 
-    function addAssetToClass(uint256 _classId, address _asset) external {
-        _addAssetToClass(_classId, _asset);
+    /**
+     * @notice Adds a new asset to an existing class
+     * @param assetClassId The asset class ID
+     * @param _asset The asset address
+     */
+    function addAssetToClass(uint256 assetClassId, address _asset) external {
+        _addAssetToClass(assetClassId, _asset);
     }
 
-    function removeAssetFromClass(uint256 _classId, address _asset) external {
-        _removeAssetFromClass(_classId, _asset);
+    /**
+     * @notice Removes an asset from an existing class
+     * @param assetClassId The asset class ID
+     * @param _asset The asset address
+     */
+    function removeAssetFromClass(uint256 assetClassId, address _asset) external {
+        _removeAssetFromClass(assetClassId, _asset);
     }
 
-    function activateSecondaryAssetClass(uint256 classId) external onlyOwner {
-        if (!assetClassIds.contains(classId)) {
+    /**
+     * @notice Activates a secondary asset class
+     * @param assetClassId The asset class ID to activate
+     */
+    function activateSecondaryAssetClass(uint256 assetClassId) external onlyOwner {
+        if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        if (classId == primaryAssetClass) {
+        if (assetClassId == primaryAssetClass) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
         }
 
-        secondaryAssetClasses.add(classId);
+        secondaryAssetClasses.add(assetClassId);
     }
 
-    function deactivateSecondaryAssetClass(uint256 classId) external onlyOwner {
-        if (!secondaryAssetClasses.contains(classId)) {
+    /**
+     * @notice Deactivates a secondary asset class
+     * @param assetClassId The asset class ID to deactivate
+     */
+    function deactivateSecondaryAssetClass(uint256 assetClassId) external onlyOwner {
+        if (!secondaryAssetClasses.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        secondaryAssetClasses.remove(classId);
+        secondaryAssetClasses.remove(assetClassId);
     }
 
+    /**
+     * @notice Fetches the primary and secondary asset classes
+     * @return primary The primary asset class
+     * @return secondaries An array of secondary asset classes
+     */
     function getActiveAssetClasses() external view returns (uint256 primary, uint256[] memory secondaries) {
         primary = primaryAssetClass;
         secondaries = secondaryAssetClasses.values();
     }
 
-    function _isActiveAssetClass(uint256 classId) internal view returns (bool) {
-        return (classId == primaryAssetClass || secondaryAssetClasses.contains(classId));
+    /**
+     * @notice Checks if the classId is active
+     * @param assetClassId The asset class ID
+     * @return bool True if active
+     */
+    function _isActiveAssetClass(uint256 assetClassId) internal view returns (bool) {
+        return (assetClassId == primaryAssetClass || secondaryAssetClasses.contains(assetClassId));
     }
 
+    /**
+     * @notice Gets the start timestamp for a given epoch
+     * @param epoch The epoch number
+     * @return timestamp The start time of that epoch
+     */
     function getEpochStartTs(uint48 epoch) public view returns (uint48 timestamp) {
         return START_TIME + epoch * EPOCH_DURATION;
     }
 
+    /**
+     * @notice Gets the epoch number at a given timestamp
+     * @param timestamp The timestamp
+     * @return epoch The epoch at that time
+     */
     function getEpochAtTs(uint48 timestamp) public view returns (uint48 epoch) {
         return (timestamp - START_TIME) / EPOCH_DURATION;
     }
 
+    /**
+     * @notice Gets the current epoch based on the current block time
+     * @return epoch The current epoch
+     */
     function getCurrentEpoch() public view returns (uint48 epoch) {
         return getEpochAtTs(Time.timestamp());
     }
 
+    /**
+     * @notice Registers a new operator and enables it
+     * @param operator The operator address
+     * @param key Operator's key
+     */
     function registerOperator(address operator, bytes32 key) external onlyOwner {
         if (operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorAlreadyRegistered();
@@ -184,6 +254,11 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         operators.enable(operator);
     }
 
+    /**
+     * @notice Updates an existing operator's key
+     * @param operator The operator address
+     * @param key The new key
+     */
     function updateOperatorKey(address operator, bytes32 key) external onlyOwner {
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered();
@@ -191,14 +266,26 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         updateKey(operator, key);
     }
 
+    /**
+     * @notice Disables an operator
+     * @param operator The operator address
+     */
     function disableOperator(address operator) external onlyOwner {
         operators.disable(operator);
     }
 
+    /**
+     * @notice Enables an operator
+     * @param operator The operator address
+     */
     function enableOperator(address operator) external onlyOwner {
         operators.enable(operator);
     }
 
+    /**
+     * @notice Removes an operator if grace period has passed
+     * @param operator The operator address
+     */
     function removeOperator(address operator) external onlyOwner {
         (, uint48 disabledTime) = operators.getTimes(operator);
         if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
@@ -207,7 +294,13 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         operators.remove(operator);
     }
 
-    function registerVault(address vault, uint96 assetClassId, uint256 maxVaultStake) external onlyOwner {
+    /**
+     * @notice Registers a vault to a specific asset class, sets the max stake, and enables or disables it
+     * @param vault The vault address
+     * @param assetClassId The asset class ID for that vault
+     * @param maxVaultStake The maximum stake allowed for this vault
+     */
+    function registerOrUpdateVault(address vault, uint96 assetClassId, uint256 maxVaultStake) external onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
             revert AvalancheL1Middleware__NotVault();
         }
@@ -249,6 +342,10 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         }
     }
 
+    /**
+     * @notice Removes a vault if the grace period has passed
+     * @param vault The vault address
+     */
     function removeVault(address vault) external onlyOwner {
         (, uint48 disabledTime) = vaults.getTimes(vault);
         if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
@@ -260,6 +357,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         vaults.remove(vault);
     }
 
+    /**
+     * @notice Sets a vault's max L1 stake limit
+     * @param vault The vault address
+     * @param assetClassId The asset class ID
+     * @param amount The new maximum stake
+     */
     function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
             revert AvalancheL1Middleware__NotVault();
@@ -268,6 +371,13 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         BaseDelegator(delegator).setMaxL1Limit(L1_VALIDATOR_MANAGER, assetClassId, amount);
     }
 
+    /**
+     * @notice Returns an operator's stake at a given epoch for a specific asset class
+     * @param operator The operator address
+     * @param epoch The epoch number
+     * @param assetClassId The asset class ID
+     * @return stake The operator's stake
+     */
     function getOperatorStake(
         address operator,
         uint48 epoch,
@@ -298,6 +408,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         }
     }
 
+    /**
+     * @notice Returns total stake across all operators in a specific epoch
+     * @param epoch The epoch number
+     * @param assetClassId The asset class ID
+     * @return Total stake in that epoch
+     */
     function getTotalStake(uint48 epoch, uint96 assetClassId) public view returns (uint256) {
         if (totalStakeCached[epoch][assetClassId]) {
             return totalStakeCache[epoch][assetClassId];
@@ -305,6 +421,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         return _calcTotalStake(epoch, assetClassId);
     }
 
+    /**
+     * @notice Returns validator data (stake and key) for an epoch
+     * @param epoch The epoch number
+     * @param assetClassId The asset class ID
+     * @return validatorsData An array of ValidatorData (stake and key)
+     */
     function getValidatorSet(
         uint48 epoch,
         uint96 assetClassId
@@ -342,16 +464,13 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         }
     }
 
-    function submission(
-        bytes memory payload,
-        bytes32[] memory signatures,
-        uint96 assetClassId
-    ) public updateStakeCache(getCurrentEpoch(), assetClassId) {
-        // validate signatures
-        // validate payload
-        // process payload
-    }
-
+    /**
+     * @notice Slashes an operator's stake
+     * @param epoch The epoch of the slash
+     * @param operator The operator being slashed
+     * @param amount The slash amount
+     * @param assetClassId The asset class ID
+     */
     function slash(
         uint48 epoch,
         address operator,
@@ -392,6 +511,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         }
     }
 
+    /**
+     * @notice Calculates and caches total stake for an epoch
+     * @param epoch The epoch number
+     * @param assetClassId The asset class ID
+     * @return totalStake The total stake calculated and cached
+     */
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
@@ -421,6 +546,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         totalStakeCached[epoch][assetClassId] = true;
     }
 
+    /**
+     * @notice Helper to calculate total stake for an epoch
+     * @param epoch The epoch number
+     * @param assetClassId The asset class ID
+     * @return totalStake The total stake across all operators
+     */
     function _calcTotalStake(uint48 epoch, uint96 assetClassId) private view returns (uint256 totalStake) {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
@@ -445,10 +576,25 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         }
     }
 
+    /**
+     * @notice Checks if an operator or vault was active at a specific timestamp
+     * @param enabledTime The time it was enabled
+     * @param disabledTime The time it was disabled
+     * @param timestamp The timestamp to check
+     * @return bool True if active
+     */
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
         return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
     }
 
+    /**
+     * @notice Helper that slashes a vault based on slasher type and if it's initialized
+     * @param timestamp The epoch start timestamp
+     * @param vault The vault address
+     * @param assetClass The asset class ID
+     * @param operator The operator address
+     * @param amount The slash amount
+     */
     function _slashVault(uint48 timestamp, address vault, uint8 assetClass, address operator, uint256 amount) private {
         if (!IVaultTokenized(vault).isSlasherInitialized()) {
             revert AvalancheL1Middleware__NoSlasher();

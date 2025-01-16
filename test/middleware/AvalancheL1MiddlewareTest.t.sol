@@ -9,7 +9,10 @@ import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
-import {AvalancheL1Middleware, AvalancheL1MiddlewareSettings} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {
+    AvalancheL1Middleware,
+    AvalancheL1MiddlewareSettings
+} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
 import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
@@ -29,12 +32,10 @@ import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 
-
 contract AvalancheL1MiddlewareTest is Test {
-
     address internal owner;
     address internal alice;
-    address internal validatorManagerAddress; 
+    address internal validatorManagerAddress;
     uint256 internal alicePrivateKey;
     address internal bob;
     uint256 internal bobPrivateKey;
@@ -88,21 +89,17 @@ contract AvalancheL1MiddlewareTest is Test {
         });
 
         validatorManagerAddress =
-            _deployValidatorManager(
-                validatorSettings, 
-                proxyAdminOwnerAddress, 
-                protocolOwnerAddress
-            );
+            _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
 
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
-            address(vaultFactory),     // whereRegistry
+            address(vaultFactory), // whereRegistry
             "OperatorVaultOptInService"
         );
 
         operatorL1OptInService = new OperatorL1OptInService(
             address(operatorRegistry), // whoRegistry
-            address(l1Registry),       // whereRegistry
+            address(l1Registry), // whereRegistry
             "OperatorL1OptInService"
         );
 
@@ -195,13 +192,7 @@ contract AvalancheL1MiddlewareTest is Test {
             slashingWindow: 4 hours
         });
 
-        middleware = new AvalancheL1Middleware(
-            middlewareSettings,
-            owner,
-            maxStake,
-            minStake,
-            defaultAsset
-        );
+        middleware = new AvalancheL1Middleware(middlewareSettings, owner, maxStake, minStake, defaultAsset);
 
         // middleware.addAssetClass(2, minStake, maxStake);
         // middleware.activateSecondaryAssetClass(0);
@@ -220,21 +211,20 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.L1_VALIDATOR_MANAGER(), validatorManagerAddress);
     }
 
-
-    function test_RegisterVault() public {
+    function test_registerOrUpdateVault() public {
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
 
         _registerL1(address(validatorManagerAddress), address(middleware));
 
         vm.startPrank(address(validatorManagerAddress)); // Check if this should change
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        middleware.registerOrUpdateVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
     }
 
     function test_RegisterOperator() public {
         _registerL1(address(validatorManagerAddress), address(middleware));
-        _registerOperator(alice, "metadata"); 
+        _registerOperator(alice, "metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
 
         vm.startPrank(address(validatorManagerAddress));
@@ -251,7 +241,7 @@ contract AvalancheL1MiddlewareTest is Test {
         _registerL1(address(validatorManagerAddress), address(middleware));
 
         vm.startPrank(address(validatorManagerAddress));
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        middleware.registerOrUpdateVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         _grantDepositorWhitelistRole(alice, alice);
@@ -264,12 +254,7 @@ contract AvalancheL1MiddlewareTest is Test {
         _optInOperatorL1(bob, validatorManagerAddress);
 
         vm.startPrank(alice);
-        delegator.setOperatorL1Shares(
-            middleware.L1_VALIDATOR_MANAGER(),
-            assetClassId,
-            bob,
-            mintedShares
-        );
+        delegator.setOperatorL1Shares(middleware.L1_VALIDATOR_MANAGER(), assetClassId, bob, mintedShares);
         vm.stopPrank();
 
         uint48 epoch = middleware.getCurrentEpoch();
@@ -352,7 +337,13 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
     }
 
-    function _setOperatorL1Shares(address user, address l1, uint96 assetClass, address operator, uint256 shares) internal {
+    function _setOperatorL1Shares(
+        address user,
+        address l1,
+        uint96 assetClass,
+        address operator,
+        uint256 shares
+    ) internal {
         vm.startPrank(user);
         delegator.setOperatorL1Shares(l1, assetClass, operator, shares);
         vm.stopPrank();
