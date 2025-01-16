@@ -5,7 +5,7 @@ pragma solidity 0.8.25;
 
 import {Script} from "forge-std/Script.sol";
 
-contract HelperConfig is Script {
+contract MiddlewareHelperConfig is Script {
     struct NetworkConfig {
         uint256 proxyAdminOwnerKey;
         uint256 protocolOwnerKey;

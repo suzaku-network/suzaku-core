@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IAssetClassRegistry} from "../../interfaces/middleware/IAssetClassRegistry.sol";
 
-contract AssetClassRegistry is IAssetClassRegistry {
+abstract contract AssetClassRegistry is IAssetClassRegistry {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
 
@@ -16,25 +16,14 @@ contract AssetClassRegistry is IAssetClassRegistry {
 
     address immutable defaultAsset;
 
-    constructor(uint256 maxStake, uint256 minStake, address _defaultAsset) {
-        // Add a default primary asset class
-        assetClassIds.add(1);
-        assetClasses[1].minValidatorStake = minStake;
-        assetClasses[1].maxValidatorStake = maxStake;
-
-        // Add the default asset to the default class
-        defaultAsset = _defaultAsset;
-        assetClasses[1].assets.add(_defaultAsset);
-    }
-
     EnumerableSet.UintSet internal assetClassIds;
     mapping(uint256 => AssetClass) internal assetClasses;
 
-    function addAssetClass(
+    function _addAssetClass(
         uint256 _classId,
         uint256 _minValidatorStake,
         uint256 _maxValidatorStake
-    ) external {
+    ) internal {
         if (assetClassIds.contains(_classId)) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
         }
@@ -48,8 +37,7 @@ contract AssetClassRegistry is IAssetClassRegistry {
         emit AssetClassAdded(_classId, _minValidatorStake, _maxValidatorStake);
     }
     
-    /// @inheritdoc IAssetClassRegistry
-    function addAsset(uint256 _classId, address _asset) external {
+    function _addAssetToClass(uint256 _classId, address _asset) internal {
         if (!assetClassIds.contains(_classId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
@@ -66,8 +54,7 @@ contract AssetClassRegistry is IAssetClassRegistry {
         emit AssetAdded(_classId, _asset);
     }
 
-    /// @inheritdoc IAssetClassRegistry
-    function removeAsset(uint256 _classId, address _asset) external {
+    function _removeAssetFromClass(uint256 _classId, address _asset) internal {
         if (!assetClassIds.contains(_classId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
@@ -86,7 +73,7 @@ contract AssetClassRegistry is IAssetClassRegistry {
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function getAssets(uint256 _classId) external view returns (address[] memory) {
+    function getClassAssets(uint256 _classId) external view returns (address[] memory) {
         if (!assetClassIds.contains(_classId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
