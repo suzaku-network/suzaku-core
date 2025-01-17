@@ -60,14 +60,7 @@ interface IAssetClassRegistry {
     /**
      * @notice Returns the minimum validator stake for a specific asset class.
      * @param assetClassId The ID of the asset class.
-     * @return The minimum validator stake.
+     * @return The minimum and maximum validator stake.
      */
-    function getMinValidatorStake(uint256 assetClassId) external view returns (uint256);
-
-    /**
-     * @notice Returns the maximum validator stake for a specific asset class.
-     * @param assetClassId The ID of the asset class.
-     * @return The maximum validator stake.
-     */
-    function getMaxValidatorStake(uint256 assetClassId) external view returns (uint256);
+    function getClassStakingRequirements(uint256 assetClassId) external view returns (uint256, uint256);
 }

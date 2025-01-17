@@ -80,8 +80,8 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
 
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
+    uint256 public constant PRIMARY_ASSET_CLASS = 1;
 
-    uint256 public immutable primaryAssetClass;
     EnumerableSet.UintSet private secondaryAssetClasses;
 
     EnumerableMap.AddressToUintMap private operators;
@@ -134,8 +134,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         SLASHING_WINDOW = settings.slashingWindow;
         PRIMARY_ASSET = primaryAsset;
 
-        primaryAssetClass = 1;
-        _addAssetClass(primaryAssetClass, primaryAssetMinStake, primaryAssetMaxStake, PRIMARY_ASSET);
+        _addAssetClass(PRIMARY_ASSET_CLASS, primaryAssetMinStake, primaryAssetMaxStake, PRIMARY_ASSET);
     }
 
     /**
@@ -146,7 +145,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        if (assetClassId == primaryAssetClass) {
+        if (assetClassId == PRIMARY_ASSET_CLASS) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
         }
 
@@ -162,7 +161,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
             revert AssetClassRegistry__AssetClassNotFound();
         }
 
-        if (_vaultPerAssetClass(assetClassId)) {
+        if (_isUsedAssetClass(assetClassId)) {
             revert AvalancheL1Middleware__AssetStillInUse();
         }
 
@@ -175,7 +174,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @return secondaries An array of secondary asset classes
      */
     function getActiveAssetClasses() external view returns (uint256 primary, uint256[] memory secondaries) {
-        primary = primaryAssetClass;
+        primary = PRIMARY_ASSET_CLASS;
         secondaries = secondaryAssetClasses.values();
     }
 
@@ -185,7 +184,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @return bool True if active
      */
     function _isActiveAssetClass(uint256 assetClassId) internal view returns (bool) {
-        return (assetClassId == primaryAssetClass || secondaryAssetClasses.contains(assetClassId));
+        return (assetClassId == PRIMARY_ASSET_CLASS || secondaryAssetClasses.contains(assetClassId));
     }
 
     /**
@@ -198,7 +197,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
             revert AssetClassRegistry__AssetIsPrimaryAsset();
         }
 
-        if (_vaultsPerAsset(assetClassId, asset)) {
+        if (_isUsedAsset(assetClassId, asset)) {
             revert AvalancheL1Middleware__AssetStillInUse();
         }
 
@@ -223,7 +222,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @param asset The asset address
      * @return bool True if in use by any vault
      */
-    function _vaultsPerAsset(uint256 assetClassId, address asset) internal view returns (bool) {
+    function _isUsedAsset(uint256 assetClassId, address asset) internal view returns (bool) {
         for (uint256 i; i < vaults.length(); ++i) {
             (address vault,) = vaults.at(i);
             if (vaultToAssetClass[vault] == assetClassId && IVaultTokenized(vault).collateral() == asset) {
@@ -238,7 +237,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @param assetClassId The asset class ID
      * @return bool True if in use by any vault
      */
-    function _vaultPerAssetClass(uint256 assetClassId) internal view returns (bool) {
+    function _isUsedAssetClass(uint256 assetClassId) internal view returns (bool) {
         for (uint256 i; i < vaults.length(); ++i) {
             (address vault,) = vaults.at(i);
             if (vaultToAssetClass[vault] == assetClassId) {
@@ -422,8 +421,8 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         if (!_isActiveAssetClass(assetClassId)) {
             revert AvalancheL1Middleware__AssetClassNotActive();
         }
-        address collateralAsset = IVaultTokenized(vault).collateral();
-        if (!assetClasses[assetClassId].assets.contains(collateralAsset)) {
+        address vaultCollateral = IVaultTokenized(vault).collateral();
+        if (!assetClasses[assetClassId].assets.contains(vaultCollateral)) {
             revert AvalancheL1Middleware__CollateralNotInAssetClass();
         }
         address delegator = IVaultTokenized(vault).delegator();

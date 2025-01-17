@@ -45,8 +45,7 @@ contract AssetClassRegistryTest is Test {
 
     function test_DefaultClass1Values() public view {
         // Class 1 is auto-created in the constructor
-        uint256 primaryAssetMinStake = assetClassRegistry.getMinValidatorStake(1);
-        uint256 primaryAssetMaxStake = assetClassRegistry.getMaxValidatorStake(1);
+        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = assetClassRegistry.getClassStakingRequirements(1);
         assertEq(primaryAssetMinStake, 50, "Expected primaryAssetMinStake = 50 for class 1");
         assertEq(primaryAssetMaxStake, 1000, "Expected primaryAssetMaxStake = 1000 for class 1");
     }
@@ -155,8 +154,8 @@ contract AssetClassRegistryTest is Test {
     function test__addAssetClassAndCheckStakes() public {
         // Add new class #3
         assetClassRegistry.addAssetClass(3, 123, 456, address(tokenC));
-        uint256 primaryAssetMinStake = assetClassRegistry.getMinValidatorStake(3);
-        uint256 primaryAssetMaxStake = assetClassRegistry.getMaxValidatorStake(3);
+
+        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = assetClassRegistry.getClassStakingRequirements(3);
         assertEq(primaryAssetMinStake, 123, "Expected primaryAssetMinStake = 123 for class 3");
         assertEq(primaryAssetMaxStake, 456, "Expected primaryAssetMaxStake = 456 for class 3");
     }
@@ -192,11 +191,6 @@ contract AssetClassRegistryTest is Test {
 
     function test_RevertOnGetMinStakeForNonExistentClass() public {
         vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
-        assetClassRegistry.getMinValidatorStake(999);
-    }
-
-    function test_RevertOnGetMaxStakeForNonExistentClass() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
-        assetClassRegistry.getMaxValidatorStake(999);
+        assetClassRegistry.getClassStakingRequirements(999);
     }
 }

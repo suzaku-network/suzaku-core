@@ -50,20 +50,16 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
         return assetClasses[assetClassId].assets.values();
     }
 
-    /// @inheritdoc IAssetClassRegistry
-    function getMinValidatorStake(uint256 assetClassId) external view returns (uint256) {
+    // @inheritdoc IAssetClassRegistry
+    function getClassStakingRequirements(uint256 assetClassId)
+        external
+        view
+        returns (uint256 minStake, uint256 maxStake)
+    {
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        return assetClasses[assetClassId].minValidatorStake;
-    }
-
-    /// @inheritdoc IAssetClassRegistry
-    function getMaxValidatorStake(uint256 assetClassId) external view returns (uint256) {
-        if (!assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-        return assetClasses[assetClassId].maxValidatorStake;
+        return (assetClasses[assetClassId].minValidatorStake, assetClasses[assetClassId].maxValidatorStake);
     }
 
     function _addAssetClass(
