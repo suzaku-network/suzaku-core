@@ -13,7 +13,10 @@ import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
 import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
-import {AvalancheL1Middleware, AvalancheL1MiddlewareSettings} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {
+    AvalancheL1Middleware,
+    AvalancheL1MiddlewareSettings
+} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
 import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
 import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 
@@ -38,8 +41,7 @@ contract L1RestakeDelegatorTest is Test {
     uint256 alicePrivateKey;
     address bob;
     uint256 bobPrivateKey;
-    address validatorManagerAddress; 
-
+    address validatorManagerAddress;
 
     VaultFactory vaultFactory;
     DelegatorFactory delegatorFactory;
@@ -66,7 +68,7 @@ contract L1RestakeDelegatorTest is Test {
         slasherFactory = new SlasherFactory(owner);
         l1Registry = new L1Registry();
         operatorRegistry = new OperatorRegistry();
-        
+
         // Deploy middleware service
         MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
         (
@@ -75,9 +77,9 @@ contract L1RestakeDelegatorTest is Test {
             bytes32 subnetID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
-            uint256 maxStake,
-            uint256 minStake,
-            address defaultAsset
+            address primaryAsset,
+            uint256 primaryAssetMaxStake,
+            uint256 primaryAssetMinStake
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -89,11 +91,7 @@ contract L1RestakeDelegatorTest is Test {
         });
 
         validatorManagerAddress =
-            _deployValidatorManager(
-                validatorSettings, 
-                proxyAdminOwnerAddress, 
-                protocolOwnerAddress
-            );
+            _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
 
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
             l1ValidatorManager: address(validatorManagerAddress),
@@ -105,23 +103,19 @@ contract L1RestakeDelegatorTest is Test {
         });
 
         middleware = new AvalancheL1Middleware(
-                        middlewareSettings,
-                        owner,
-                        maxStake,
-                        minStake,
-                        defaultAsset
-                    );
+            middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
+        );
 
         // Deploy opt-in services
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(vaultFactory),     // WHERE_REGISTRY (isRegistered)
+            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
             "OperatorVaultOptInService"
         );
 
         operatorL1OptInService = new OperatorL1OptInService(
             address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(l1Registry),       // WHERE_REGISTRY (isEntity)
+            address(l1Registry), // WHERE_REGISTRY (isEntity)
             "OperatorL1OptInService"
         );
 
@@ -262,7 +256,6 @@ contract L1RestakeDelegatorTest is Test {
         );
     }
 
-
     function test_CreateRevert_DuplicateRoleHolder1(uint48 epochDuration) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
 
@@ -385,11 +378,7 @@ contract L1RestakeDelegatorTest is Test {
         assertEq(delegator.l1Limit(l1, assetClass), amount4);
     }
 
-    function test_SetL1LimitRevertExceedsMaxL1Limit(
-        uint48 epochDuration,
-        uint256 amount1,
-        uint256 maxL1Limit
-    ) public {
+    function test_SetL1LimitRevertExceedsMaxL1Limit(uint48 epochDuration, uint256 amount1, uint256 maxL1Limit) public {
         epochDuration = uint48(bound(epochDuration, 1, 100 days));
         maxL1Limit = bound(maxL1Limit, 1, type(uint256).max);
         vm.assume(amount1 > maxL1Limit);
@@ -406,11 +395,7 @@ contract L1RestakeDelegatorTest is Test {
         _setL1Limit(alice, l1, assetClass, amount1);
     }
 
-    function test_SetL1LimitRevertAlreadySet(
-        uint48 epochDuration,
-        uint256 amount1,
-        uint256 maxL1Limit
-    ) public {
+    function test_SetL1LimitRevertAlreadySet(uint48 epochDuration, uint256 amount1, uint256 maxL1Limit) public {
         epochDuration = uint48(bound(epochDuration, 1, 100 days));
         maxL1Limit = bound(maxL1Limit, 1, type(uint256).max);
         amount1 = bound(amount1, 1, maxL1Limit);
@@ -586,33 +571,20 @@ contract L1RestakeDelegatorTest is Test {
 
         _setL1Limit(alice, l1, assetClass, l1Limit1);
 
-        assertEq(
-            delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 2 * vault.epochDuration()), ""),
-            l1Limit1
-        );
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 2 * vault.epochDuration()), ""), l1Limit1);
 
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration();
         vm.warp(newEpochStart);
 
-        assertEq(
-            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""),
-            l1Limit1
-        );
-        assertEq(
-            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
-            l1Limit1
-        );
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""), l1Limit1);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""), l1Limit1);
 
         _setMaxL1Limit(l1, assetClass, maxL1Limit2, address(middleware));
 
         assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit2);
+        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""), maxL1Limit2);
         assertEq(
-            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""),
-            maxL1Limit2
-        );
-        assertEq(
-            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
-            maxL1Limit2
+            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""), maxL1Limit2
         );
     }
 
@@ -674,7 +646,7 @@ contract L1RestakeDelegatorTest is Test {
         vm.warp(blockTimestamp);
 
         // Creates the vault and delegator, ensures vault is registred "entity"
-  
+
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = alice;
@@ -722,10 +694,7 @@ contract L1RestakeDelegatorTest is Test {
             delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1)
         );
-        assertEq(
-            delegator.stake(l1, assetClass, alice),
-            operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1)
-        );
+        assertEq(delegator.stake(l1, assetClass, alice), operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1));
         assertEq(delegator.stake(l1, assetClass, bob), 0);
 
         // Set operator L1 shares for bob
@@ -814,8 +783,6 @@ contract L1RestakeDelegatorTest is Test {
             delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp - 2), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
-
-
     }
 
     function test_assetClassVariants() public {
@@ -882,12 +849,9 @@ contract L1RestakeDelegatorTest is Test {
         }
     }
 
-
     // TODO: Add slash tests
 
-    function _getVaultAndDelegator(
-        uint48 epochDuration
-    ) internal returns (VaultTokenized v, L1RestakeDelegator d) {
+    function _getVaultAndDelegator(uint48 epochDuration) internal returns (VaultTokenized v, L1RestakeDelegator d) {
         address[] memory l1LimitSetRoleHolders = new address[](1);
         l1LimitSetRoleHolders[0] = alice;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
@@ -993,17 +957,13 @@ contract L1RestakeDelegatorTest is Test {
         vm.stopPrank();
     }
 
-    function _optInOperatorVault(
-        address user
-    ) internal {
+    function _optInOperatorVault(address user) internal {
         vm.startPrank(user);
         operatorVaultOptInService.optIn(address(vault));
         vm.stopPrank();
     }
 
-    function _optOutOperatorVault(
-        address user
-    ) internal {
+    function _optOutOperatorVault(address user) internal {
         vm.startPrank(user);
         operatorVaultOptInService.optOut(address(vault));
         vm.stopPrank();
@@ -1039,12 +999,17 @@ contract L1RestakeDelegatorTest is Test {
         vm.stopPrank();
     }
 
-    function _setOperatorL1Shares(address user, address l1, uint96 assetClass, address operator, uint256 shares) internal {
+    function _setOperatorL1Shares(
+        address user,
+        address l1,
+        uint96 assetClass,
+        address operator,
+        uint256 shares
+    ) internal {
         vm.startPrank(user);
         delegator.setOperatorL1Shares(l1, assetClass, operator, shares);
         vm.stopPrank();
     }
-
 
     // function _slash(
     //     address user,

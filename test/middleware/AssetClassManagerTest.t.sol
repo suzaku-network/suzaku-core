@@ -38,21 +38,21 @@
 
 //     function test_DefaultClass1Values() public view {
 //         // Class 1 is auto-created in the constructor
-//         uint256 minStake = assetClassRegistry.getMinValidatorStake(1);
-//         uint256 maxStake = assetClassRegistry.getMaxValidatorStake(1);
-//         assertEq(minStake, 50,  "Expected minStake = 50 for class 1");
-//         assertEq(maxStake, 1000, "Expected maxStake = 1000 for class 1");
+//         uint256 primaryAssetMinStake = assetClassRegistry.getMinValidatorStake(1);
+//         uint256 primaryAssetMaxStake = assetClassRegistry.getMaxValidatorStake(1);
+//         assertEq(primaryAssetMinStake, 50,  "Expected primaryAssetMinStake = 50 for class 1");
+//         assertEq(primaryAssetMaxStake, 1000, "Expected primaryAssetMaxStake = 1000 for class 1");
 //     }
 
-//     function test_DefaultAssetIsInClass1() public view {
+//     function test_PrimaryAssetIsInClass1() public view {
 //         address[] memory assets = assetClassRegistry.getClassAssets(1);
 //         assertEq(assets.length, 1, "Expected exactly 1 default asset in class 1");
 //         assertEq(assets[0], tokenA, "Expected tokenA to be in class 1 as default asset");
 //     }
 
-//     function test_RevertOnRemoveDefaultAssetFromClass1() public {
+//     function test_RevertOnRemovePrimaryAssetFromClass1() public {
 //         // Trying to remove the default asset (tokenA) from class #1 must revert
-//         vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetIsDefaultAsset.selector);
+//         vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetIsPrimaryAsset.selector);
 //         assetClassRegistry._removeAssetFromClass(1, tokenA);
 //     }
 
@@ -103,7 +103,7 @@
 //         address[] memory assets = assetClassRegistry.getClassAssets(1);
 //         assertEq(assets.length, 1, "Expected 1 asset (the default) left in class 1");
 //         assertEq(assets[0], tokenA, "Expected the default asset to remain in class 1");
-//     }    
+//     }
 
 //     function test_RevertOn_addAssetToInvalidClass() public {
 //         vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
@@ -146,10 +146,10 @@
 //     function test__addAssetClassAndCheckStakes() public {
 //         // Add new class #3
 //         assetClassRegistry._addAssetClass(3, 123, 456);
-//         uint256 minStake = assetClassRegistry.getMinValidatorStake(3);
-//         uint256 maxStake = assetClassRegistry.getMaxValidatorStake(3);
-//         assertEq(minStake, 123, "Expected minStake = 123 for class 3");
-//         assertEq(maxStake, 456, "Expected maxStake = 456 for class 3");
+//         uint256 primaryAssetMinStake = assetClassRegistry.getMinValidatorStake(3);
+//         uint256 primaryAssetMaxStake = assetClassRegistry.getMaxValidatorStake(3);
+//         assertEq(primaryAssetMinStake, 123, "Expected primaryAssetMinStake = 123 for class 3");
+//         assertEq(primaryAssetMaxStake, 456, "Expected primaryAssetMaxStake = 456 for class 3");
 //     }
 
 //     function test_RevertOnDuplicateAssetClass() public {

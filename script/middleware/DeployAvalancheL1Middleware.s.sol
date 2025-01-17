@@ -36,9 +36,9 @@ contract DeployTestAvalancheL1Middleware is Script {
             bytes32 subnetID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
-            uint256 maxStake,
-            uint256 minStake,
-            address defaultAsset
+            address primaryAsset,
+            uint256 primaryAssetMaxStake,
+            uint256 primaryAssetMinStake
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -67,12 +67,11 @@ contract DeployTestAvalancheL1Middleware is Script {
                 operatorL1Optin: address(operatorL1OptIn),
                 epochDuration: 3 hours,
                 slashingWindow: 4 hours
-
             }),
             protocolOwnerAddress,
-            maxStake,
-            minStake,
-            defaultAsset
+            primaryAsset,
+            primaryAssetMaxStake,
+            primaryAssetMinStake
         );
 
         vm.stopBroadcast();

@@ -53,7 +53,9 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     error AvalancheL1Middleware__OperatorAlreadyRegistered();
     error AvalancheL1Middleware__VaultAlreadyRegistered();
     error AvalancheL1Middleware__VaultEpochTooShort();
+    error AvalancheL1Middleware__VaultMaxL1LimitZero();
     error AvalancheL1Middleware__VaultGracePeriodNotPassed();
+    error AvalancheL1Middleware__VaultWrongAssetClass();
     error AvalancheL1Middleware__TooOldEpoch();
     error AvalancheL1Middleware__InvalidEpoch();
     error AvalancheL1Middleware__SlashingWindowTooShort();
@@ -62,12 +64,17 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     error AvalancheL1Middleware__CollateralNotInAssetClass();
     error AvalancheL1Middleware__AssetClassNotActive();
     error AvalancheL1Middleware__NoSlasher();
+    error AvalancheL1Middleware__AssetIsPrimaryAsset();
+    error AvalancheL1Middleware__AssetStillInUse();
+    error AvalancheL1Middleware__MaxL1LimitZero();
+    error AvalancheL1Middleware__ActiveSecondaryAssetCLass();
 
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable OPERATOR_REGISTRY;
     address public immutable VAULT_REGISTRY;
     address public immutable OPERATOR_L1_OPTIN;
     address public immutable OWNER;
+    address public immutable PRIMARY_ASSET;
     uint48 public immutable EPOCH_DURATION;
     uint48 public immutable SLASHING_WINDOW;
     uint48 public immutable START_TIME;
@@ -103,16 +110,16 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @notice Initializes contract settings
      * @param settings General contract parameters
      * @param owner Owner address
+     * @param primaryAsset The primary asset address
      * @param primaryAssetMaxStake Max stake for the primary asset class
      * @param primaryAssetMinStake Min stake for the primary asset class
-     * @param primaryAsset The primary asset address
      */
     constructor(
         AvalancheL1MiddlewareSettings memory settings,
         address owner,
+        address primaryAsset,
         uint256 primaryAssetMaxStake,
-        uint256 primaryAssetMinStake,
-        address primaryAsset
+        uint256 primaryAssetMinStake
     ) SimpleKeyRegistry32() Ownable(owner) {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort();
@@ -126,40 +133,11 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         VAULT_REGISTRY = settings.vaultRegistry;
         OPERATOR_L1_OPTIN = settings.operatorL1Optin;
         SLASHING_WINDOW = settings.slashingWindow;
+        PRIMARY_ASSET = primaryAsset;
 
         primaryAssetClass = 1;
-        assetClassIds.add(primaryAssetClass);
-        assetClasses[primaryAssetClass].maxValidatorStake = primaryAssetMaxStake;
-        assetClasses[primaryAssetClass].minValidatorStake = primaryAssetMinStake;
-        assetClasses[primaryAssetClass].assets.add(primaryAsset);
-    }
-
-    /**
-     * @notice Adds a new asset class
-     * @param assetClassId New asset class ID
-     * @param _minValidatorStake Minimum validator stake
-     * @param _maxValidatorStake Maximum validator stake
-     */
-    function addAssetClass(uint256 assetClassId, uint256 _minValidatorStake, uint256 _maxValidatorStake) external {
-        _addAssetClass(assetClassId, _minValidatorStake, _maxValidatorStake);
-    }
-
-    /**
-     * @notice Adds a new asset to an existing class
-     * @param assetClassId The asset class ID
-     * @param _asset The asset address
-     */
-    function addAssetToClass(uint256 assetClassId, address _asset) external {
-        _addAssetToClass(assetClassId, _asset);
-    }
-
-    /**
-     * @notice Removes an asset from an existing class
-     * @param assetClassId The asset class ID
-     * @param _asset The asset address
-     */
-    function removeAssetFromClass(uint256 assetClassId, address _asset) external {
-        _removeAssetFromClass(assetClassId, _asset);
+        _addAssetClass(primaryAssetClass, primaryAssetMinStake, primaryAssetMaxStake);
+        _addAssetToClass(primaryAssetClass, PRIMARY_ASSET);
     }
 
     /**
@@ -185,6 +163,8 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         if (!secondaryAssetClasses.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
+        _vaultPerAssetClass(assetClassId);
+
         secondaryAssetClasses.remove(assetClassId);
     }
 
@@ -205,6 +185,60 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      */
     function _isActiveAssetClass(uint256 assetClassId) internal view returns (bool) {
         return (assetClassId == primaryAssetClass || secondaryAssetClasses.contains(assetClassId));
+    }
+
+    /**
+     * @notice Removes a asset from an asset class, except primary asset
+     * @param assetClassId The ID of the asset class
+     * @param asset The address of the asset to remove
+     */
+    function removeAssetFromClass(uint256 assetClassId, address asset) external {
+        if (assetClassId == 1 && asset == PRIMARY_ASSET) {
+            revert AssetClassRegistry__AssetIsPrimaryAsset();
+        }
+
+        _vaultsPerAsset(assetClassId, asset);
+
+        _removeAssetFromClass(assetClassId, asset);
+    }
+
+    /**
+     * @notice Removes an asset class
+     * @param assetClassId The asset class ID
+     */
+    function removeAssetClass(uint256 assetClassId) external onlyOwner {
+        if (secondaryAssetClasses.contains(assetClassId)) {
+            revert AvalancheL1Middleware__ActiveSecondaryAssetCLass();
+        }
+
+        _removeAssetClass(assetClassId);
+    }
+
+    /**
+     * @notice Checks if the asset is still in use by a vault
+     * @param assetClassId The asset class ID
+     * @param asset The asset address
+     */
+    function _vaultsPerAsset(uint256 assetClassId, address asset) internal view {
+        for (uint256 i; i < vaults.length(); ++i) {
+            (address vault,) = vaults.at(i);
+            if (vaultToAssetClass[vault] == assetClassId && IVaultTokenized(vault).collateral() == asset) {
+                revert AvalancheL1Middleware__AssetStillInUse();
+            }
+        }
+    }
+
+    /**
+     * @notice Checks if the asset class is still in use by a vault
+     * @param assetClassId The asset class ID
+     */
+    function _vaultPerAssetClass(uint256 assetClassId) internal view {
+        for (uint256 i; i < vaults.length(); ++i) {
+            (address vault,) = vaults.at(i);
+            if (vaultToAssetClass[vault] == assetClassId) {
+                revert AvalancheL1Middleware__AssetStillInUse();
+            }
+        }
     }
 
     /**
@@ -295,18 +329,16 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     }
 
     /**
-     * @notice Registers a vault to a specific asset class, sets the max stake, and enables or disables it
+     * @notice Registers a vault to a specific asset class, sets the max stake.
      * @param vault The vault address
      * @param assetClassId The asset class ID for that vault
-     * @param maxVaultStake The maximum stake allowed for this vault
+     * @param vaultMaxL1Limit The maximum stake allowed for this vault
      */
-    function registerOrUpdateVault(address vault, uint96 assetClassId, uint256 maxVaultStake) external onlyOwner {
+    function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
             revert AvalancheL1Middleware__NotVault();
         }
-
-        address delegator = IVaultTokenized(vault).delegator();
-        if (vaults.contains(vault) && BaseDelegator(delegator).maxL1Limit(msg.sender, assetClassId) != 0) {
+        if (vaults.contains(vault)) {
             revert AvalancheL1Middleware__VaultAlreadyRegistered();
         }
 
@@ -327,15 +359,46 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         if (vaultEpoch < SLASHING_WINDOW) {
             revert AvalancheL1Middleware__VaultEpochTooShort();
         }
+        if (vaultMaxL1Limit == 0) {
+            revert AvalancheL1Middleware__VaultMaxL1LimitZero();
+        }
 
         vaultToAssetClass[vault] = assetClassId;
 
-        _setVaultMaxL1Limit(vault, assetClassId, maxVaultStake);
+        _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
 
-        if (!vaults.contains(vault)) {
-            vaults.add(vault);
+        vaults.add(vault);
+        vaults.enable(vault);
+    }
+
+    /**
+     * @notice Updates a vault's max L1 stake limit. Disables or enables the vault based on the new limit
+     * @param vault The vault address
+     * @param assetClassId The asset class ID
+     * @param vaultMaxL1Limit The new maximum stake
+     */
+    function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+        if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
+            revert AvalancheL1Middleware__NotVault();
         }
-        if (maxVaultStake == 0) {
+        if (!vaults.contains(vault)) {
+            revert AvalancheL1Middleware__NotVault();
+        }
+        if (!_isActiveAssetClass(assetClassId)) {
+            revert AvalancheL1Middleware__AssetClassNotActive();
+        }
+        if (vaultToAssetClass[vault] != assetClassId) {
+            revert AvalancheL1Middleware__VaultWrongAssetClass();
+        }
+
+        address collateralAsset = IVaultTokenized(vault).collateral();
+        if (!assetClasses[assetClassId].assets.contains(collateralAsset)) {
+            revert AvalancheL1Middleware__CollateralNotInAssetClass();
+        }
+
+        _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
+
+        if (vaultMaxL1Limit == 0) {
             vaults.disable(vault);
         } else {
             vaults.enable(vault);
@@ -347,6 +410,10 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @param vault The vault address
      */
     function removeVault(address vault) external onlyOwner {
+        if (!vaults.contains(vault)) {
+            revert AvalancheL1Middleware__NotVault();
+        }
+
         (, uint48 disabledTime) = vaults.getTimes(vault);
         if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
             revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
@@ -355,6 +422,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         _setVaultMaxL1Limit(vault, vaultToAssetClass[vault], 0);
 
         vaults.remove(vault);
+        delete vaultToAssetClass[vault];
     }
 
     /**

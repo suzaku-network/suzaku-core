@@ -75,9 +75,9 @@ contract AvalancheL1MiddlewareTest is Test {
             bytes32 subnetID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
-            uint256 maxStake,
-            uint256 minStake,
-            address defaultAsset
+            address primaryAsset,
+            uint256 primaryAssetMaxStake,
+            uint256 primaryAssetMinStake
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -122,7 +122,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Create a test collateral token
         collateral = new Token("MockCollateral");
-        defaultAsset = address(collateral);
+        primaryAsset = address(collateral);
 
         // Deploy vaultTokenized
         uint48 epochDuration = 1 days;
@@ -192,9 +192,11 @@ contract AvalancheL1MiddlewareTest is Test {
             slashingWindow: 4 hours
         });
 
-        middleware = new AvalancheL1Middleware(middlewareSettings, owner, maxStake, minStake, defaultAsset);
+        middleware = new AvalancheL1Middleware(
+            middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
+        );
 
-        // middleware.addAssetClass(2, minStake, maxStake);
+        // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
         // middleware.activateSecondaryAssetClass(0);
 
         middleware.transferOwnership(address(validatorManagerAddress));
@@ -211,14 +213,14 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.L1_VALIDATOR_MANAGER(), validatorManagerAddress);
     }
 
-    function test_registerOrUpdateVault() public {
+    function test_registerVault() public {
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
 
         _registerL1(address(validatorManagerAddress), address(middleware));
 
         vm.startPrank(address(validatorManagerAddress)); // Check if this should change
-        middleware.registerOrUpdateVault(address(vault), assetClassId, maxVaultL1Limit);
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
     }
 
@@ -241,7 +243,7 @@ contract AvalancheL1MiddlewareTest is Test {
         _registerL1(address(validatorManagerAddress), address(middleware));
 
         vm.startPrank(address(validatorManagerAddress));
-        middleware.registerOrUpdateVault(address(vault), assetClassId, maxVaultL1Limit);
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         _grantDepositorWhitelistRole(alice, alice);
