@@ -19,10 +19,16 @@ interface IAssetClassRegistry {
     /**
      * @notice Adds a new asset class
      * @param assetClassId New asset class ID
-     * @param _minValidatorStake Minimum validator stake
-     * @param _maxValidatorStake Maximum validator stake
+     * @param minValidatorStake Minimum validator stake
+     * @param maxValidatorStake Maximum validator stake
+     * @param initialAsset Initial asset to add to the asset class
      */
-    function addAssetClass(uint256 assetClassId, uint256 _minValidatorStake, uint256 _maxValidatorStake) external;
+    function addAssetClass(
+        uint256 assetClassId,
+        uint256 minValidatorStake,
+        uint256 maxValidatorStake,
+        address initialAsset
+    ) external;
 
     /**
      * @notice Adds a asset to an asset class.
@@ -37,6 +43,12 @@ interface IAssetClassRegistry {
      * @param asset The address of the asset to remove.
      */
     function removeAssetFromClass(uint256 assetClassId, address asset) external;
+
+    /**
+     * @notice Removes an asset class.
+     * @param assetClassId The ID of the asset class.
+     */
+    function removeAssetClass(uint256 assetClassId) external;
 
     /**
      * @notice Returns all the assets in a specific asset class.

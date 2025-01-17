@@ -18,13 +18,28 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
     mapping(uint256 => AssetClass) internal assetClasses;
 
     /// @inheritdoc IAssetClassRegistry
-    function addAssetClass(uint256 assetClassId, uint256 _minValidatorStake, uint256 _maxValidatorStake) external {
-        _addAssetClass(assetClassId, _minValidatorStake, _maxValidatorStake);
+    function addAssetClass(
+        uint256 assetClassId,
+        uint256 minValidatorStake,
+        uint256 maxValidatorStake,
+        address initialAsset
+    ) external {
+        _addAssetClass(assetClassId, minValidatorStake, maxValidatorStake, initialAsset);
     }
 
     /// @inheritdoc IAssetClassRegistry
     function addAssetToClass(uint256 assetClassId, address asset) external {
         _addAssetToClass(assetClassId, asset);
+    }
+
+    /// @inheritdoc IAssetClassRegistry
+    function removeAssetFromClass(uint256 assetClassId, address asset) external virtual {
+        _removeAssetFromClass(assetClassId, asset);
+    }
+
+    /// @inheritdoc IAssetClassRegistry
+    function removeAssetClass(uint256 assetClassId) external virtual {
+        _removeAssetClass(assetClassId);
     }
 
     /// @inheritdoc IAssetClassRegistry
@@ -51,18 +66,28 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
         return assetClasses[assetClassId].maxValidatorStake;
     }
 
-    function _addAssetClass(uint256 assetClassId, uint256 _minValidatorStake, uint256 _maxValidatorStake) internal {
+    function _addAssetClass(
+        uint256 assetClassId,
+        uint256 minValidatorStake,
+        uint256 maxValidatorStake,
+        address initialAsset
+    ) internal {
         if (assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
+        }
+        if (initialAsset == address(0)) {
+            revert AssetClassRegistry__InvalidAsset();
         }
 
         assetClassIds.add(assetClassId);
 
         AssetClass storage cls = assetClasses[assetClassId];
-        cls.minValidatorStake = _minValidatorStake;
-        cls.maxValidatorStake = _maxValidatorStake;
+        cls.minValidatorStake = minValidatorStake;
+        cls.maxValidatorStake = maxValidatorStake;
 
-        emit AssetClassAdded(assetClassId, _minValidatorStake, _maxValidatorStake);
+        emit AssetClassAdded(assetClassId, minValidatorStake, maxValidatorStake);
+
+        _addAssetToClass(assetClassId, initialAsset);
     }
 
     function _addAssetToClass(uint256 assetClassId, address asset) internal {

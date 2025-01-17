@@ -14,7 +14,6 @@ import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
 import {IBaseSlasher} from "../../interfaces/slasher/IBaseSlasher.sol";
 import {IOptInService} from "../../interfaces/service/IOptInService.sol";
-import {IEntity} from "../../interfaces/common/IEntity.sol";
 import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
 
@@ -45,29 +44,29 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     using EnumerableSet for EnumerableSet.AddressSet;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
 
-    error AvalancheL1Middleware__NotOperator();
-    error AvalancheL1Middleware__NotVault();
-    error AvalancheL1Middleware__OperatorNotOptedIn();
-    error AvalancheL1Middleware__OperatorNotRegistered();
-    error AvalancheL1Middleware__OperarorGracePeriodNotPassed();
-    error AvalancheL1Middleware__OperatorAlreadyRegistered();
-    error AvalancheL1Middleware__VaultAlreadyRegistered();
-    error AvalancheL1Middleware__VaultEpochTooShort();
-    error AvalancheL1Middleware__VaultMaxL1LimitZero();
-    error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-    error AvalancheL1Middleware__VaultWrongAssetClass();
-    error AvalancheL1Middleware__TooOldEpoch();
-    error AvalancheL1Middleware__InvalidEpoch();
-    error AvalancheL1Middleware__SlashingWindowTooShort();
-    error AvalancheL1Middleware__TooBigSlashAmount();
-    error AvalancheL1Middleware__UnknownSlasherType();
-    error AvalancheL1Middleware__CollateralNotInAssetClass();
+    error AvalancheL1Middleware__ActiveSecondaryAssetCLass();
     error AvalancheL1Middleware__AssetClassNotActive();
-    error AvalancheL1Middleware__NoSlasher();
     error AvalancheL1Middleware__AssetIsPrimaryAsset();
     error AvalancheL1Middleware__AssetStillInUse();
+    error AvalancheL1Middleware__CollateralNotInAssetClass();
+    error AvalancheL1Middleware__InvalidEpoch();
     error AvalancheL1Middleware__MaxL1LimitZero();
-    error AvalancheL1Middleware__ActiveSecondaryAssetCLass();
+    error AvalancheL1Middleware__NoSlasher();
+    error AvalancheL1Middleware__NotOperator();
+    error AvalancheL1Middleware__NotVault();
+    error AvalancheL1Middleware__OperatorGracePeriodNotPassed();
+    error AvalancheL1Middleware__OperatorAlreadyRegistered();
+    error AvalancheL1Middleware__OperatorNotOptedIn();
+    error AvalancheL1Middleware__OperatorNotRegistered();
+    error AvalancheL1Middleware__SlashingWindowTooShort();
+    error AvalancheL1Middleware__TooBigSlashAmount();
+    error AvalancheL1Middleware__TooOldEpoch();
+    error AvalancheL1Middleware__UnknownSlasherType();
+    error AvalancheL1Middleware__VaultAlreadyRegistered();
+    error AvalancheL1Middleware__VaultEpochTooShort();
+    error AvalancheL1Middleware__VaultGracePeriodNotPassed();
+    error AvalancheL1Middleware__VaultMaxL1LimitZero();
+    error AvalancheL1Middleware__VaultWrongAssetClass();
 
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable OPERATOR_REGISTRY;
@@ -136,8 +135,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         PRIMARY_ASSET = primaryAsset;
 
         primaryAssetClass = 1;
-        _addAssetClass(primaryAssetClass, primaryAssetMinStake, primaryAssetMaxStake);
-        _addAssetToClass(primaryAssetClass, PRIMARY_ASSET);
+        _addAssetClass(primaryAssetClass, primaryAssetMinStake, primaryAssetMaxStake, PRIMARY_ASSET);
     }
 
     /**
@@ -192,7 +190,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @param assetClassId The ID of the asset class
      * @param asset The address of the asset to remove
      */
-    function removeAssetFromClass(uint256 assetClassId, address asset) external {
+    function removeAssetFromClass(uint256 assetClassId, address asset) external override {
         if (assetClassId == 1 && asset == PRIMARY_ASSET) {
             revert AssetClassRegistry__AssetIsPrimaryAsset();
         }
@@ -206,7 +204,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @notice Removes an asset class
      * @param assetClassId The asset class ID
      */
-    function removeAssetClass(uint256 assetClassId) external onlyOwner {
+    function removeAssetClass(uint256 assetClassId) external override {
         if (secondaryAssetClasses.contains(assetClassId)) {
             revert AvalancheL1Middleware__ActiveSecondaryAssetCLass();
         }
@@ -323,7 +321,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     function removeOperator(address operator) external onlyOwner {
         (, uint48 disabledTime) = operators.getTimes(operator);
         if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
-            revert AvalancheL1Middleware__OperarorGracePeriodNotPassed();
+            revert AvalancheL1Middleware__OperatorGracePeriodNotPassed();
         }
         operators.remove(operator);
     }
