@@ -62,6 +62,9 @@ contract L1RestakeDelegatorTest is Test {
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
 
+        // Deploy a test collateral token
+        collateral = new Token("Token");
+
         // Deploy factories and registries
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
@@ -103,7 +106,7 @@ contract L1RestakeDelegatorTest is Test {
         });
 
         middleware = new AvalancheL1Middleware(
-            middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
+            middlewareSettings, owner, address(collateral), primaryAssetMaxStake, primaryAssetMinStake
         );
 
         // Deploy opt-in services
@@ -135,9 +138,6 @@ contract L1RestakeDelegatorTest is Test {
             )
         );
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
-
-        // Deploy a test collateral token
-        collateral = new Token("Token");
     }
 
     function test_Create(uint48 epochDuration) public {
