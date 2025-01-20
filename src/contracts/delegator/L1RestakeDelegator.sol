@@ -63,10 +63,7 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
     /**
      * @inheritdoc IL1RestakeDelegator
      */
-    function l1Limit(
-        address l1, 
-        uint96 assetClass
-        ) public view returns (uint256) {
+    function l1Limit(address l1, uint96 assetClass) public view returns (uint256) {
         return _l1Limit[l1][assetClass].latest();
     }
 
@@ -113,6 +110,9 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      * @inheritdoc IL1RestakeDelegator
      */
     function setL1Limit(address l1, uint96 assetClass, uint256 amount) external onlyRole(L1_LIMIT_SET_ROLE) {
+        if (maxL1Limit[l1][assetClass] == 0) {
+            revert L1RestakeDelegator__MaxL1LimitNotSet();
+        }
         if (amount > maxL1Limit[l1][assetClass]) {
             revert L1RestakeDelegator__ExceedsMaxL1Limit();
         }
@@ -181,8 +181,7 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
         return totalOperatorL1Shares_ == 0
             ? 0
             : operatorL1Shares(l1, assetClass, operator).mulDiv(
-                Math.min(IVaultTokenized(vault).activeStake(), l1Limit(l1, assetClass)),
-                totalOperatorL1Shares_
+                Math.min(IVaultTokenized(vault).activeStake(), l1Limit(l1, assetClass)), totalOperatorL1Shares_
             );
     }
 

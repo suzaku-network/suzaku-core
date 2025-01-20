@@ -11,6 +11,7 @@ interface IL1Registry {
     error L1Registry__L1AlreadyRegistered();
     error L1Registry__L1NotRegistered();
     error L1Registry__InvalidValidatorManager(address ValidatorManager);
+    error L1Registry__InvalidL1Middleware();
 
     /**
      * @notice Register an Avalanche L1
@@ -33,6 +34,14 @@ interface IL1Registry {
      * @return True if the address is registered as an L1, false otherwise
      */
     function isRegistered(address l1) external view returns (bool);
+
+    /**
+     * @notice Check if an address is registered as an L1 and if the Middleware is correct
+     * @param l1 The address to check
+     * @param l1middleware_ The l1Middleware to check
+     * @return True if the address is registered as an L1 and the middleware is correct, false otherwise
+     */
+    function isRegisteredWithMiddleware(address l1, address l1middleware_) external view returns (bool);
 
     /**
      * @notice Get the L1 at a specific index

@@ -6,6 +6,7 @@ import {IBaseDelegator} from "./IBaseDelegator.sol";
 interface IL1RestakeDelegator is IBaseDelegator {
     error L1RestakeDelegator__DuplicateRoleHolder();
     error L1RestakeDelegator__ExceedsMaxL1Limit();
+    error L1RestakeDelegator__MaxL1LimitNotSet();
     error L1RestakeDelegator__MissingRoleHolders();
     error L1RestakeDelegator__ZeroAddressRoleHolder();
 
@@ -87,10 +88,7 @@ interface IL1RestakeDelegator is IBaseDelegator {
      * @param assetClass uint96 identifier of the stakable asset
      * @return limit of the subnetwork
      */
-    function l1Limit(
-        address l1, 
-        uint96 assetClass
-    ) external view returns (uint256);
+    function l1Limit(address l1, uint96 assetClass) external view returns (uint256);
 
     /**
      * @notice Get total operators' shares for a subnetwork at a given timestamp using a hint.
@@ -113,10 +111,7 @@ interface IL1RestakeDelegator is IBaseDelegator {
      * @param assetClass uint96 identifier of the stakable asset
      * @return total shares of the operators for the subnetwork
      */
-    function totalOperatorL1Shares(
-        address l1,
-        uint96 assetClass
-    ) external view returns (uint256);
+    function totalOperatorL1Shares(address l1, uint96 assetClass) external view returns (uint256);
 
     /**
      * @notice Get an operator's shares for a subnetwork at a given timestamp using a hint.
@@ -142,11 +137,7 @@ interface IL1RestakeDelegator is IBaseDelegator {
      * @param operator address of the operator
      * @return shares of the operator for the subnetwork
      */
-    function operatorL1Shares(
-        address l1,
-        uint96 assetClass,
-        address operator
-    ) external view returns (uint256);
+    function operatorL1Shares(address l1, uint96 assetClass, address operator) external view returns (uint256);
 
     /**
      * @notice Set a subnetwork's limit.

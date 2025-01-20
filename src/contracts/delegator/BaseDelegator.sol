@@ -158,9 +158,11 @@ abstract contract BaseDelegator is
      * @inheritdoc IBaseDelegator
      */
     function setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) external nonReentrant {
-        if (!IL1Registry(L1_REGISTRY).isRegistered(msg.sender)) {
+        if (!IL1Registry(L1_REGISTRY).isRegistered(l1)) {
             revert BaseDelegator__NotL1();
         }
+
+        IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
 
         if (maxL1Limit[l1][ assetClass] == amount) {
             revert BaseDelegator__AlreadySet();

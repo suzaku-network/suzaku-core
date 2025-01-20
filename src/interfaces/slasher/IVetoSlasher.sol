@@ -32,7 +32,8 @@ interface IVetoSlasher is IBaseSlasher {
 
     /**
      * @notice Structure for a slash request.
-     * @param subnetwork subnetwork that requested the slash
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass     
      * @param operator operator that could be slashed (if the request is not vetoed)
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -40,7 +41,8 @@ interface IVetoSlasher is IBaseSlasher {
      * @param completed if the slash was vetoed/executed
      */
     struct SlashRequest {
-        bytes32 subnetwork;
+        address l1;
+        uint96 assetClass;
         address operator;
         uint256 amount;
         uint48 captureTimestamp;
@@ -101,7 +103,8 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Emitted when a slash request is created.
      * @param slashIndex index of the slash request
-     * @param subnetwork subnetwork that requested the slash
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass
      * @param operator operator that could be slashed (if the request is not vetoed)
      * @param slashAmount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -109,7 +112,8 @@ interface IVetoSlasher is IBaseSlasher {
      */
     event RequestSlash(
         uint256 indexed slashIndex,
-        bytes32 indexed subnetwork,
+        address l1,
+        uint96 assetClass,
         address indexed operator,
         uint256 slashAmount,
         uint48 captureTimestamp,
@@ -132,10 +136,11 @@ interface IVetoSlasher is IBaseSlasher {
 
     /**
      * @notice Emitted when a resolver is set.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass
      * @param resolver address of the resolver
      */
-    event SetResolver(bytes32 indexed subnetwork, address resolver);
+    event SetResolver(address indexed l1, uint96 indexed assetClass, address resolver);
 
     /**
      * @notice Get the network registry's address.
@@ -158,7 +163,8 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Get a particular slash request.
      * @param slashIndex index of the slash request
-     * @return subnetwork subnetwork that requested the slash
+     * @return l1 address of the l1
+     * @return assetClass the uint96 assetClass
      * @return operator operator that could be slashed (if the request is not vetoed)
      * @return amount maximum amount of the collateral to be slashed
      * @return captureTimestamp time point when the stake was captured
@@ -171,7 +177,8 @@ interface IVetoSlasher is IBaseSlasher {
         external
         view
         returns (
-            bytes32 subnetwork,
+            address l1,
+            uint96 assetClass,
             address operator,
             uint256 amount,
             uint48 captureTimestamp,
@@ -186,25 +193,28 @@ interface IVetoSlasher is IBaseSlasher {
     function resolverSetEpochsDelay() external view returns (uint256);
 
     /**
-     * @notice Get a resolver for a given subnetwork at a particular timestamp using a hint.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @notice Get a resolver for a given assset class at a particular timestamp using a hint.
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass
      * @param timestamp timestamp to get the resolver at
      * @param hint hint for the checkpoint index
      * @return address of the resolver
      */
-    function resolverAt(bytes32 subnetwork, uint48 timestamp, bytes memory hint) external view returns (address);
+    function resolverAt(address l1, uint96 assetClass, uint48 timestamp, bytes memory hint) external view returns (address);
 
     /**
-     * @notice Get a resolver for a given subnetwork using a hint.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @notice Get a resolver for a given assset class using a hint.
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass
      * @param hint hint for the checkpoint index
      * @return address of the resolver
      */
-    function resolver(bytes32 subnetwork, bytes memory hint) external view returns (address);
+    function resolver(address l1, uint96 assetClass, bytes memory hint) external view returns (address);
 
     /**
-     * @notice Request a slash using a subnetwork for a particular operator by a given amount using hints.
-     * @param subnetwork full identifier of the subnetwork (address of the network concatenated with the uint96 identifier)
+     * @notice Request a slash using a assset class for a particular operator by a given amount using hints.
+     * @param l1 address of the l1
+     * @param assetClass the uint96 assetClass
      * @param operator address of the operator
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -213,7 +223,8 @@ interface IVetoSlasher is IBaseSlasher {
      * @dev Only a network middleware can call this function.
      */
     function requestSlash(
-        bytes32 subnetwork,
+        address l1,
+        uint96 assetClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,
@@ -238,8 +249,8 @@ interface IVetoSlasher is IBaseSlasher {
     function vetoSlash(uint256 slashIndex, bytes calldata hints) external;
 
     /**
-     * @notice Set a resolver for a subnetwork using hints.
-     * identifier identifier of the subnetwork
+     * @notice Set a resolver for a assset class using hints.
+     * identifier identifier of the assset class
      * @param resolver address of the resolver
      * @param hints hints for checkpoints' indexes
      * @dev Only a network can call this function.
