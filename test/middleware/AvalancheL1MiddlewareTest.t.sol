@@ -229,9 +229,12 @@ contract AvalancheL1MiddlewareTest is Test {
         _registerOperator(alice, "metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
 
+        uint256 maxNodeStake = 1_000_000_000_000_000_000;
+        uint256 minNodeStake = 100_000_000_000_000;
+
         vm.startPrank(address(validatorManagerAddress));
 
-        middleware.registerOperator(alice, keccak256("myPubKey"));
+        middleware.registerOperator(alice, keccak256("myPubKey"), maxNodeStake, minNodeStake);
         vm.stopPrank();
     }
 
