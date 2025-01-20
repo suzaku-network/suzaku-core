@@ -164,13 +164,7 @@ contract OperatorL1OptInService is StaticDelegateCallable, EIP712, IOptInService
     function _hash(bool ifOptIn, address who, address where, uint48 deadline) internal view returns (bytes32) {
         return _hashTypedDataV4(
             keccak256(
-                abi.encode(
-                    ifOptIn ? OPT_IN_TYPEHASH : OPT_OUT_TYPEHASH,
-                    who,
-                    where,
-                    nonces[who][where],
-                    deadline
-                )
+                abi.encode(ifOptIn ? OPT_IN_TYPEHASH : OPT_OUT_TYPEHASH, who, where, nonces[who][where], deadline)
             )
         );
     }
