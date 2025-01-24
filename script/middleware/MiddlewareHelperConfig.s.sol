@@ -42,7 +42,7 @@ contract MiddlewareHelperConfig is Script {
             maximumChurnPercentage: 20,
             primaryAsset: address(localToken),
             primaryAssetMaxStake: 1_000_000_000_000_000_000_000,
-            primaryAssetMinStake: 100_000_000_000_000_000
+            primaryAssetMinStake: 100_000_000_000_000
         });
     }
 }

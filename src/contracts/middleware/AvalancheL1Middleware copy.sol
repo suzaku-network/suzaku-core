@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
@@ -17,7 +16,9 @@ import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
 
-// added
+// If you have a custom Time library, replace this import accordingly
+// import {Time} from "@openzeppelin/contracts/utils/types/Time.sol"; // <-- doesn't exist in OpenZeppelin
+
 import {
     IValidatorManager,
     Validator,
@@ -103,6 +104,10 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     event OperatorHasLeftoverStake(address indexed operator, uint256 leftoverStake);
     event AllNodeWeightsUpdated(address indexed operator, uint256 newStake);
 
+    // NOTE: This Time.timestamp() call must come from your own custom library or replaced with `block.timestamp`
+    // e.g. you can define: function _now() internal view returns (uint48) { return uint48(block.timestamp); }
+    // and swap out references to Time.timestamp() below.
+
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable OPERATOR_REGISTRY;
     address public immutable VAULT_REGISTRY;
@@ -168,7 +173,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
             revert AvalancheL1Middleware__SlashingWindowTooShort();
         }
 
-        START_TIME = Time.timestamp();
+        START_TIME = uint48(block.timestamp); // replaced Time.timestamp() with block.timestamp
         EPOCH_DURATION = settings.epochDuration;
         L1_VALIDATOR_MANAGER = settings.l1ValidatorManager;
         OWNER = owner;
@@ -316,7 +321,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @return epoch The current epoch
      */
     function getCurrentEpoch() public view returns (uint48 epoch) {
-        return getEpochAtTs(Time.timestamp());
+        return getEpochAtTs(uint48(block.timestamp));
     }
 
     /**
@@ -388,7 +393,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      */
     function removeOperator(address operator) external onlyOwner {
         (, uint48 disabledTime) = operators.getTimes(operator);
-        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
+        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > block.timestamp) {
             revert AvalancheL1Middleware__OperatorGracePeriodNotPassed();
         }
         operators.remove(operator);
@@ -457,7 +462,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         }
 
         (, uint48 disabledTime) = vaults.getTimes(vault);
-        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
+        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > block.timestamp) {
             revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
         }
 
@@ -595,7 +600,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
     ) public onlyOwner updateStakeCache(epoch, assetClassId) {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
-        if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
+        if (epochStartTs < block.timestamp - SLASHING_WINDOW) {
             revert AvalancheL1Middleware__TooOldEpoch();
         }
 
@@ -623,6 +628,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
 
             uint256 slashAmt = (amount * vaultStake) / totalOperatorStake;
             _slashVault(epochStartTs, vault, uint8(assetClassId), operator, slashAmt);
+            // ^ NOTE: if assetClassId can exceed 255, consider using a larger type or revert
         }
     }
 
@@ -636,10 +642,10 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         // for epoch older than SLASHING_WINDOW total stake can be invalidated (use cache)
-        if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
+        if (epochStartTs < block.timestamp - SLASHING_WINDOW) {
             revert AvalancheL1Middleware__TooOldEpoch();
         }
-        if (epochStartTs > Time.timestamp()) {
+        if (epochStartTs > block.timestamp) {
             revert AvalancheL1Middleware__InvalidEpoch();
         }
 
@@ -670,10 +676,10 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         // for epoch older than SLASHING_WINDOW total stake can be invalidated (use cache)
-        if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
+        if (epochStartTs < block.timestamp - SLASHING_WINDOW) {
             revert AvalancheL1Middleware__TooOldEpoch();
         }
-        if (epochStartTs > Time.timestamp()) {
+        if (epochStartTs > block.timestamp) {
             revert AvalancheL1Middleware__InvalidEpoch();
         }
 
@@ -737,7 +743,6 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
 
     /**
      * @notice Add a new node => create a new validator.
-     * Check the new node stake to nodeMinStake / nodeMaxStake and also ensure security module capacity.
      * @param nodeId The node ID
      * @param blsKey The BLS key
      * @param registrationExpiry The Unix timestamp after which the reigistration is no longer valid on the P-Chain
@@ -763,9 +768,9 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         uint256 totalOpStake = getOperatorStake(operator, epochNow, uint96(PRIMARY_ASSET_CLASS));
 
         calcAndCacheNodeWeightsForOperator(operator, epochNow);
-        uint256 registeredWeight = getOperatorUsedWeightCached(operator, epochNow);
+        uint256 usedWeight = getOperatorUsedWeightCached(operator, epochNow);
 
-        uint256 available = (totalOpStake > registeredWeight) ? (totalOpStake - registeredWeight) : 0;
+        uint256 available = (totalOpStake > usedWeight) ? (totalOpStake - usedWeight) : 0;
         if (available < nodeMinStake[operator]) {
             revert("Not enough free stake to add node");
         }
@@ -851,13 +856,12 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
 
         calcAndCacheNodeWeightsForOperator(operator, epochNow);
 
-        (uint64 securityModuleWeight, uint64 securityModuleMaxWeight) =
-            balancerValidatorManager.getSecurityModuleWeights(address(this));
-        if (newTotalStake > (securityModuleMaxWeight - securityModuleWeight)) {
-            newTotalStake = (securityModuleMaxWeight - securityModuleWeight);
+        (uint64 currModWeight, uint64 maxModWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
+        if (newTotalStake > (maxModWeight - currModWeight)) {
+            newTotalStake = (maxModWeight - currModWeight);
         }
 
-        uint256 registeredWeight;
+        uint256 usedWeight;
         NodeInfo[] storage nodes = operatorNodes[operator];
         for (uint256 i = 0; i < nodes.length; i++) {
             bytes32 vid = nodes[i].validationID;
@@ -866,25 +870,24 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
             }
             Validator memory val = _getValidator(vid);
             if (val.status == ValidatorStatus.Active || val.status == ValidatorStatus.PendingAdded) {
-                registeredWeight += nodeWeightCache[epochNow][vid];
+                usedWeight += nodeWeightCache[epochNow][vid];
             }
         }
 
-        if (newTotalStake == registeredWeight) {
+        if (newTotalStake == usedWeight) {
             return;
-        } else if (newTotalStake > registeredWeight) {
-            uint256 diff = newTotalStake - registeredWeight;
+        } else if (newTotalStake > usedWeight) {
+            uint256 diff = newTotalStake - usedWeight;
             if (nodes.length == 0) {
                 emit OperatorHasLeftoverStake(operator, diff);
                 return;
             }
             uint256 lastIndex = nodes.length - 1;
             bytes32 lastValID = nodes[lastIndex].validationID;
+            Validator memory lastVal = _getValidator(lastValID);
             if (
-                (
-                    _getValidator(lastValID).status == ValidatorStatus.Active
-                        || _getValidator(lastValID).status == ValidatorStatus.PendingAdded
-                ) && !balancerValidatorManager.isValidatorPendingWeightUpdate(lastValID)
+                (lastVal.status == ValidatorStatus.Active || lastVal.status == ValidatorStatus.PendingAdded)
+                    && !balancerValidatorManager.isValidatorPendingWeightUpdate(lastValID)
             ) {
                 uint256 oldW = nodeWeightCache[epochNow][lastValID];
                 uint256 capacity = (oldW < nodeMaxStake[operator]) ? (nodeMaxStake[operator] - oldW) : 0;
@@ -903,7 +906,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
                 emit OperatorHasLeftoverStake(operator, diff);
             }
         } else {
-            uint256 diff = registeredWeight - newTotalStake;
+            uint256 diff = usedWeight - newTotalStake;
             for (uint256 i = nodes.length; i > 0 && diff > 0;) {
                 i--;
                 bytes32 vid = nodes[i].validationID;
@@ -986,6 +989,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
             revert AvalancheL1Middleware__NodeNotFound();
         }
 
+        // Added lines for refreshing nodeWeightCache after finalization
         _completeWeightUpdateAndCache(nodes[idx].validationID, messageIndex, msg.sender);
     }
 
@@ -1015,17 +1019,14 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
      * @notice Summation of node weights from the nodeWeightCache
      * @param operator The operator address
      * @param epochNow The current epoch
-     * @return registeredWeight The sum of node weights
+     * @return usedWeight The sum of node weights
      */
-    function getOperatorUsedWeightCached(
-        address operator,
-        uint48 epochNow
-    ) public view returns (uint256 registeredWeight) {
+    function getOperatorUsedWeightCached(address operator, uint48 epochNow) public view returns (uint256 usedWeight) {
         NodeInfo[] storage nodes = operatorNodes[operator];
         for (uint256 i = 0; i < nodes.length; i++) {
             bytes32 valID = nodes[i].validationID;
             if (nodeWeightCached[epochNow][valID]) {
-                registeredWeight += nodeWeightCache[epochNow][valID];
+                usedWeight += nodeWeightCache[epochNow][valID];
             }
         }
     }
@@ -1058,6 +1059,7 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         nodeWeightCached[epochNow][validationID] = true;
     }
 
+    // Added operator param to refresh nodeWeightCache in the same epoch
     function _completeWeightUpdateAndCache(bytes32 validationID, uint32 messageIndex, address operator) internal {
         balancerValidatorManager.completeValidatorWeightUpdate(validationID, messageIndex);
         uint48 epochNow = getCurrentEpoch();
@@ -1065,6 +1067,8 @@ contract AvalancheL1Middleware is SimpleKeyRegistry32, Ownable, AssetClassRegist
         nodeWeightCache[epochNow][validationID] = finalW;
         nodeWeightCached[epochNow][validationID] = true;
 
+        // Added lines for refreshing nodeWeightCache after finalization
+        // So if the operator's node weight changed within this epoch, re-run caching so it's not stale.
         calcAndCacheNodeWeightsForOperator(operator, epochNow);
     }
 }
