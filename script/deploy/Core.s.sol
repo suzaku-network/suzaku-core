@@ -9,6 +9,8 @@ import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
 import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
+import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
+import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
@@ -43,7 +45,6 @@ contract CoreScript is Script {
     }
 
     function run() public {
-
         HelperConfig helperConfig = new HelperConfig();
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
 
@@ -66,10 +67,17 @@ contract CoreScript is Script {
         console2.log("L1Registry deployed at:", address(l1Registry));
         console2.log("OperatorRegistry deployed at:", address(operatorRegistry));
 
+        // Opt-in services
+        OperatorVaultOptInService operatorVaultOptInService =
+            new OperatorVaultOptInService(address(operatorRegistry), address(vaultFactory), "OperatorVaultOptInService");
+
+        OperatorL1OptInService operatorL1OptInService =
+            new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "OperatorL1OptInService");
+
         // Check Slasher inclusion
         includeSlasher = config.slasherConfig.includeSlasher;
         console2.log("Include Slasher:", includeSlasher);
-        
+
         // Deploy vault implementation contracts
         uint256 implementationCountBefore = vaultFactory.totalEntities();
         console2.log("Implementation count before whitelist:", implementationCountBefore);
@@ -81,7 +89,9 @@ contract CoreScript is Script {
         console2.log("Latest implementation version:", latestVersion);
 
         // Verify that the implementation at the latest version is the one you just whitelisted
-        require(vaultFactory.implementation(latestVersion) == vaultTokenizedImpl, "VaultTokenized implementation mismatch");
+        require(
+            vaultFactory.implementation(latestVersion) == vaultTokenizedImpl, "VaultTokenized implementation mismatch"
+        );
 
         console2.log("VaultTokenized implementation whitelisted.");
 
@@ -90,8 +100,8 @@ contract CoreScript is Script {
             new L1RestakeDelegator(
                 address(l1Registry),
                 address(vaultFactory),
-                address(0), // operatorVaultOptInService (not needed now)
-                address(0), // operatorL1OptInService (not needed now)
+                address(operatorVaultOptInService), // operatorVaultOptInService (not needed now)
+                address(operatorL1OptInService), // operatorL1OptInService (not needed now)
                 address(delegatorFactory),
                 delegatorFactory.totalTypes()
             )
@@ -125,7 +135,6 @@ contract CoreScript is Script {
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
         operatorL1SharesSetRoleHolders[0] = config.generalConfig.owner;
 
-
         // Use L1RestakeDelegator
         // bytes memory delegatorParams = abi.encode(
         //     IL1RestakeDelegator.InitParams({
@@ -153,7 +162,7 @@ contract CoreScript is Script {
                     operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
                 })
             );
-        } 
+        }
 
         // These are commented out because they are not available in the current implementation
 
@@ -187,11 +196,8 @@ contract CoreScript is Script {
         bytes memory slasherParams;
         if (config.generalConfig.defaultIncludeSlasher) {
             if (config.slasherConfig.slasherIndex == 0) {
-                slasherParams = abi.encode(
-                    ISlasher.InitParams({
-                        baseParams: IBaseSlasher.BaseParams({isBurnerHook: false})
-                    })
-                );
+                slasherParams =
+                    abi.encode(ISlasher.InitParams({baseParams: IBaseSlasher.BaseParams({isBurnerHook: false})}));
             } else if (config.slasherConfig.slasherIndex == 1) {
                 slasherParams = abi.encode(
                     IVetoSlasher.InitParams({
@@ -217,19 +223,12 @@ contract CoreScript is Script {
 
         // Create Vault
         address vault = vaultFactory.create(
-            params.version, 
-            params.owner, 
-            params.vaultParams, 
-            address(delegatorFactory), 
-            address(slasherFactory)
+            params.version, params.owner, params.vaultParams, address(delegatorFactory), address(slasherFactory)
         );
         console2.log("Vault deployed at:", vault);
 
         // Create Delegator
-        address delegator = delegatorFactory.create(
-            params.delegatorIndex,
-            abi.encode(vault, params.delegatorParams)
-        );
+        address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 
         VaultTokenized(vault).setDelegator(delegator);
@@ -249,9 +248,10 @@ contract CoreScript is Script {
         //     VaultTokenized(vault).setSlasher(slasher);
         // }
 
-
         require(vaultFactory.owner() == config.generalConfig.owner, "VaultFactory ownership is incorrect");
-        require(delegatorFactory.owner() == config.generalConfig.owner, "DelegatorFactory ownership transfer is incorrect");
+        require(
+            delegatorFactory.owner() == config.generalConfig.owner, "DelegatorFactory ownership transfer is incorrect"
+        );
         require(slasherFactory.owner() == config.generalConfig.owner, "SlasherFactory ownership transfer is incorrect");
 
         // Log the addresses of the deployed contracts for verification
@@ -263,8 +263,8 @@ contract CoreScript is Script {
         // console2.log("OperatorMetadataService: ", address(operatorMetadataService));
         // console2.log("L1MetadataService: ", address(l1MetadataService));
         // console2.log("L1MiddlewareService: ", address(l1MiddlewareService));
-        // console2.log("OperatorVaultOptInService: ", address(operatorVaultOptInService));
-        // console2.log("OperatorL1OptInService: ", address(operatorL1OptInService));
+        console2.log("OperatorVaultOptInService: ", address(operatorVaultOptInService));
+        console2.log("OperatorL1OptInService: ", address(operatorL1OptInService));
 
         console2.log("Deployment completed.");
 
@@ -284,7 +284,7 @@ contract CoreScript is Script {
         // if (params.withSlasher) {
         //     vm.serializeAddress(coreContracts, "Slasher", slasher);
         // }
-        
+
         string memory coreOutput = vm.serializeAddress(coreContracts, "Vault", address(vault));
 
         vm.writeJson(coreOutput, filePath);
