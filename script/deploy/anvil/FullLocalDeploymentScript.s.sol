@@ -23,7 +23,6 @@ import {IBaseSlasher} from "../../../src/interfaces/slasher/IBaseSlasher.sol";
 import {Token} from "../../../test/mocks/MockToken.sol"; // A simple ERC20 for collateral
 
 contract FullLocalDeploymentScript is Script {
-
     struct InitParams {
         uint64 version;
         address owner;
@@ -36,7 +35,6 @@ contract FullLocalDeploymentScript is Script {
     }
 
     function run() public {
-
         HelperConfig helperConfig = new HelperConfig();
         NetworkConfig memory config = helperConfig.getConfig();
 
@@ -47,34 +45,67 @@ contract FullLocalDeploymentScript is Script {
 
         collateralAsset.transfer(config.generalConfig.owner, 500_000 ether);
 
-        VaultFactory vaultFactory = new VaultFactory(config.generalConfig.owner);
-        DelegatorFactory delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
-        SlasherFactory slasherFactory = new SlasherFactory(config.generalConfig.owner);
+        VaultFactory vaultFactory = new VaultFactory(
+            config.generalConfig.owner
+        );
+        DelegatorFactory delegatorFactory = new DelegatorFactory(
+            config.generalConfig.owner
+        );
+        SlasherFactory slasherFactory = new SlasherFactory(
+            config.generalConfig.owner
+        );
         L1Registry l1Registry = new L1Registry();
         OperatorRegistry operatorRegistry = new OperatorRegistry();
 
         console2.log("VaultFactory deployed at:", address(vaultFactory));
-        console2.log("DelegatorFactory deployed at:", address(delegatorFactory));
+        console2.log(
+            "DelegatorFactory deployed at:",
+            address(delegatorFactory)
+        );
         console2.log("SlasherFactory deployed at:", address(slasherFactory));
         console2.log("L1Registry deployed at:", address(l1Registry));
-        console2.log("OperatorRegistry deployed at:", address(operatorRegistry));
+        console2.log(
+            "OperatorRegistry deployed at:",
+            address(operatorRegistry)
+        );
 
-        address vaultTokenizedImpl = address(new VaultTokenized(address(vaultFactory)));
+        address vaultTokenizedImpl = address(
+            new VaultTokenized(address(vaultFactory))
+        );
         vaultFactory.whitelist(vaultTokenizedImpl);
-        console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
+        console2.log(
+            "VaultTokenized implementation whitelisted at version:",
+            vaultFactory.lastVersion()
+        );
+
+        // Opt-in services
+        OperatorVaultOptInService operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
+            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
+            "OperatorVaultOptInService"
+        );
+
+        OperatorL1OptInService operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
+            address(l1Registry), // WHERE_REGISTRY (isEntity)
+            "OperatorL1OptInService"
+        );
 
         address l1RestakeDelegatorImpl = address(
             new L1RestakeDelegator(
                 address(l1Registry),
                 address(vaultFactory),
-                address(0),
-                address(0),
+                address(operatorVaultOptInService),
+                address(operatorL1OptInService),
                 address(delegatorFactory),
                 delegatorFactory.totalTypes()
             )
         );
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
-        console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
+        console2.log(
+            "L1RestakeDelegator implementation whitelisted at type:",
+            delegatorFactory.totalTypes() - 1
+        );
 
         bytes memory vaultParams = abi.encode(
             IVaultTokenized.InitParams({
@@ -119,15 +150,21 @@ contract FullLocalDeploymentScript is Script {
             if (config.slasherConfig.slasherIndex == 0) {
                 slasherParams = abi.encode(
                     ISlasher.InitParams({
-                        baseParams: IBaseSlasher.BaseParams({isBurnerHook: false})
+                        baseParams: IBaseSlasher.BaseParams({
+                            isBurnerHook: false
+                        })
                     })
                 );
             } else if (config.slasherConfig.slasherIndex == 1) {
                 slasherParams = abi.encode(
                     IVetoSlasher.InitParams({
-                        baseParams: IBaseSlasher.BaseParams({isBurnerHook: false}),
+                        baseParams: IBaseSlasher.BaseParams({
+                            isBurnerHook: false
+                        }),
                         vetoDuration: config.slasherConfig.vetoDuration,
-                        resolverSetEpochsDelay: config.delegatorConfig.resolverEpochsDelay
+                        resolverSetEpochsDelay: config
+                            .delegatorConfig
+                            .resolverEpochsDelay
                     })
                 );
             }
@@ -144,19 +181,20 @@ contract FullLocalDeploymentScript is Script {
             slasherParams: slasherParams
         });
 
-        // 6. Deploy Vault
         address vault = vaultFactory.create(
-            params.version, 
-            params.owner, 
-            params.vaultParams, 
-            address(delegatorFactory), 
+            params.version,
+            params.owner,
+            params.vaultParams,
+            address(delegatorFactory),
             address(slasherFactory)
         );
-        // 6.1 Set deposit whitelist
-        VaultTokenized(vault).setDepositorWhitelistStatus(config.generalConfig.owner, true);
+
+        VaultTokenized(vault).setDepositorWhitelistStatus(
+            config.generalConfig.owner,
+            true
+        );
         console2.log("Vault deployed at:", vault);
 
-        // 7. Deploy Delegator
         address delegator = delegatorFactory.create(
             params.delegatorIndex,
             abi.encode(vault, params.delegatorParams)
@@ -168,16 +206,21 @@ contract FullLocalDeploymentScript is Script {
         // If slasher included, deploy slasher
         address slasher;
         if (params.withSlasher) {
-            slasher = slasherFactory.create(params.slasherIndex, abi.encode(vault, params.slasherParams));
+            slasher = slasherFactory.create(
+                params.slasherIndex,
+                abi.encode(vault, params.slasherParams)
+            );
             console2.log("Slasher deployed at:", slasher);
             VaultTokenized(vault).setSlasher(slasher);
         }
 
         console2.log("Full local deployment completed successfully.");
 
-        // Optionally write out deployment details
         string memory deploymentFileName = "fullLocalDeployment.json";
-        string memory filePath = string.concat("./deployments/", deploymentFileName);
+        string memory filePath = string.concat(
+            "./deployments/",
+            deploymentFileName
+        );
 
         if (vm.exists(filePath)) {
             vm.removeFile(filePath);
@@ -195,8 +238,22 @@ contract FullLocalDeploymentScript is Script {
         vm.serializeAddress(key, "SlasherFactory", address(slasherFactory));
         vm.serializeAddress(key, "L1Registry", address(l1Registry));
         vm.serializeAddress(key, "OperatorRegistry", address(operatorRegistry));
+        vm.serializeAddress(
+            key,
+            "OperatorVaultOptInService",
+            address(operatorVaultOptInService)
+        );
+        vm.serializeAddress(
+            key,
+            "OperatorL1OptInService",
+            address(operatorL1OptInService)
+        );
 
-        string memory output = vm.serializeAddress(key, "OperatorRegistry", address(operatorRegistry));
+        string memory output = vm.serializeAddress(
+            key,
+            "OperatorRegistry",
+            address(operatorRegistry)
+        );
         vm.writeJson(output, filePath);
 
         vm.stopBroadcast();
