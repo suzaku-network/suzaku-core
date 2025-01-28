@@ -76,7 +76,7 @@ contract HelperConfig is Script {
                 collateralTokenAddress: address(0), // will be set after deploying mock token
                 epochDuration: 3600,
                 depositWhitelist: true,
-                depositLimit: 1_000_000,
+                depositLimit: 1_000_000_000_000_000_000_000,
                 name: "TEST",
                 symbol: "Test"
             }),
