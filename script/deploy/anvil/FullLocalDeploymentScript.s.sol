@@ -13,17 +13,25 @@ import {OperatorVaultOptInService} from "../../../src/contracts/service/Operator
 import {OperatorL1OptInService} from "../../../src/contracts/service/OperatorL1OptInService.sol";
 import {VaultTokenized} from "../../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../../src/contracts/delegator/L1RestakeDelegator.sol";
-
 import {IVaultTokenized} from "../../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 import {IBaseDelegator} from "../../../src/interfaces/delegator/IBaseDelegator.sol";
 import {ISlasher} from "../../../src/interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../../src/interfaces/slasher/IVetoSlasher.sol";
 import {IBaseSlasher} from "../../../src/interfaces/slasher/IBaseSlasher.sol";
-
 import {Token} from "../../../test/mocks/MockToken.sol"; // A simple ERC20 for collateral
 
 contract FullLocalDeploymentScript is Script {
+    HelperConfig internal helperConfig;
+    NetworkConfig internal config;
+
+    Token internal collateralAsset;
+    VaultFactory internal vaultFactory;
+    DelegatorFactory internal delegatorFactory;
+    SlasherFactory internal slasherFactory;
+    L1Registry internal l1Registry;
+    OperatorRegistry internal operatorRegistry;
+
     struct InitParams {
         uint64 version;
         address owner;
@@ -36,21 +44,21 @@ contract FullLocalDeploymentScript is Script {
     }
 
     function run() public {
-        HelperConfig helperConfig = new HelperConfig();
-        NetworkConfig memory config = helperConfig.getConfig();
+        helperConfig = new HelperConfig();
+        config = helperConfig.getConfig();
 
         vm.startBroadcast();
 
-        Token collateralAsset = new Token("CollateralToken");
+        collateralAsset = new Token("CollateralToken");
         console2.log("Test Collateral Deployed at:", address(collateralAsset));
 
         collateralAsset.transfer(config.generalConfig.owner, 500_000 ether);
 
-        VaultFactory vaultFactory = new VaultFactory(config.generalConfig.owner);
-        DelegatorFactory delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
-        SlasherFactory slasherFactory = new SlasherFactory(config.generalConfig.owner);
-        L1Registry l1Registry = new L1Registry();
-        OperatorRegistry operatorRegistry = new OperatorRegistry();
+        vaultFactory = new VaultFactory(config.generalConfig.owner);
+        delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
+        slasherFactory = new SlasherFactory(config.generalConfig.owner);
+        l1Registry = new L1Registry();
+        operatorRegistry = new OperatorRegistry();
 
         console2.log("VaultFactory deployed at:", address(vaultFactory));
         console2.log("DelegatorFactory deployed at:", address(delegatorFactory));
@@ -62,12 +70,26 @@ contract FullLocalDeploymentScript is Script {
         vaultFactory.whitelist(vaultTokenizedImpl);
         console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
 
+        OperatorVaultOptInService operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
+            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
+            "OperatorVaultOptInService"
+        );
+        console2.log("OperatorVaultOptInService deployed at:", address(operatorVaultOptInService));
+
+        OperatorL1OptInService operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
+            address(l1Registry), // WHERE_REGISTRY (isEntity)
+            "OperatorL1OptInService"
+        );
+        console2.log("OperatorL1OptInService deployed at:", address(operatorL1OptInService));
+
         address l1RestakeDelegatorImpl = address(
             new L1RestakeDelegator(
                 address(l1Registry),
                 address(vaultFactory),
-                address(0x0B306BF915C4d645ff596e518fAf3F9669b97016), // TODO: Change to operatorVaultOptInService
-                address(0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1), // TODO: Change to operatorL1OptInService
+                address(operatorVaultOptInService),
+                address(operatorL1OptInService),
                 address(delegatorFactory),
                 delegatorFactory.totalTypes()
             )
@@ -140,15 +162,12 @@ contract FullLocalDeploymentScript is Script {
             slasherParams: slasherParams
         });
 
-        // 6. Deploy Vault
         address vault = vaultFactory.create(
             params.version, params.owner, params.vaultParams, address(delegatorFactory), address(slasherFactory)
         );
-        // 6.1 Set deposit whitelist
         VaultTokenized(vault).setDepositorWhitelistStatus(config.generalConfig.owner, true);
         console2.log("Vault deployed at:", vault);
 
-        // 7. Deploy Delegator
         address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 
@@ -163,22 +182,6 @@ contract FullLocalDeploymentScript is Script {
         }
 
         console2.log("Full local deployment completed successfully.");
-
-        // 8. Deploy OperatorVaultOptInService
-        OperatorVaultOptInService operatorVaultOptInService = new OperatorVaultOptInService(
-            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
-            "OperatorVaultOptInService"
-        );
-        console2.log("OperatorVaultOptInService deployed at:", address(operatorVaultOptInService));
-
-        // 9. Deploy OperatorL1OptInService
-        OperatorL1OptInService operatorL1OptInService = new OperatorL1OptInService(
-            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(l1Registry), // WHERE_REGISTRY (isEntity)
-            "OperatorL1OptInService"
-        );
-        console2.log("OperatorL1OptInService deployed at:", address(operatorL1OptInService));
 
         // Optionally write out deployment details
         string memory deploymentFileName = "fullLocalDeployment.json";
