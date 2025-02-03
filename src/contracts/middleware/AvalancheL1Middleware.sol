@@ -17,7 +17,6 @@ import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
 
-// added
 import {
     IValidatorManager,
     Validator,
@@ -49,13 +48,6 @@ struct OperatorData {
     uint256 stake;
     bytes32 key;
 }
-
-// added (keeping NodeInfo minimal: no local stake, no pendingRemoval)
-// struct NodeInfo {
-//     bytes32 nodeId;
-//     bytes blsKey;
-//     bytes32 validationID;
-// }
 
 /**
  * @title AvalancheL1Middleware
@@ -350,18 +342,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         operators.add(operator);
         operators.enable(operator);
     }
-
-    // /**
-    //  * @notice Updates an existing operator's key
-    //  * @param operator The operator address
-    //  * @param key The new key
-    //  */
-    // function updateOperatorKey(address operator, bytes32 key) external onlyOwner {
-    //     if (!operators.contains(operator)) {
-    //         revert AvalancheL1Middleware__OperatorNotRegistered();
-    //     }
-    //     updateKey(operator, key);
-    // }
 
     /**
      * @notice Disables an operator
@@ -723,15 +703,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         }
     }
 
-    // /**
-    //  * @notice Returns an array of NodeInfo for the given operator
-    //  * @param operator The operator address
-    //  * @return nodes An array of NodeInfo
-    //  */
-    // function getOperatorNodes(address operator) external view returns (NodeInfo[] memory) {
-    //     return operatorNodes[operator];
-    // }
-
     // --- Helper: getEffectiveNodeWeight ---
     // Returns the confirmed weight (from cache). Until an async update completes,
     // rebalancing functions use the confirmed (cached) value.
@@ -764,12 +735,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         if (!totalStakeCached[epochNow][PRIMARY_ASSET_CLASS]) {
             calcAndCacheStakes(epochNow, PRIMARY_ASSET_CLASS);
         }
-        uint256 totalOpStake = getOperatorStake(operator, epochNow, uint96(PRIMARY_ASSET_CLASS));
 
-        calcAndCacheNodeWeightsForOperator(operator, epochNow);
-        uint256 registeredWeight = getOperatorUsedWeightCached(operator, epochNow);
+        _syncOperatorStake(operator);
+        uint256 available = operatorAvailableStake[operator];
 
-        uint256 available = (totalOpStake > registeredWeight) ? (totalOpStake - registeredWeight) : 0;
         if (available < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
             revert("Not enough free stake to add node");
         }
@@ -801,7 +770,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         updateNodeKey(nodeId, keccak256(blsKey));
         updateNodeValidationID(nodeId, validationID);
 
-        // Track node in our time-based map & dynamic array
+        // Track node in our time-based map a d dynamic array
         operatorNodes[operator].add(nodeId);
         operatorNodes[operator].enable(nodeId);
         operatorNodesArray[operator].push(nodeId);
@@ -841,7 +810,12 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered();
         }
-        updateAllNodeWeights(operator);
+        bytes32[] storage nodesArr = operatorNodesArray[operator];
+        // Loop backwards to safely remove nodes from the dynamic array.
+        for (uint256 i = nodesArr.length; i > 0; i--) {
+            bytes32 nodeId = nodesArr[i - 1];
+            _removeNode(operator, nodeId);
+        }
     }
 
     /**
@@ -878,7 +852,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                     arr[i] = arr[lastIndex];
                 }
                 arr.pop();
-                break; // exit loop
+                break; 
             }
         }
     }
@@ -1054,6 +1028,11 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         }
     }
 
+    function getNodeStake(uint48 epoch, bytes32 nodeId) external view returns (uint256) {
+        bytes32 validationID = getCurrentValidationID(nodeId);
+        return nodeWeightCache[epoch][validationID];
+    }
+
     function _getValidator(bytes32 validationID) internal view returns (Validator memory) {
         return balancerValidatorManager.getValidator(validationID);
     }
@@ -1077,10 +1056,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             operatorAvailableStake[operator] -= delta;
             operatorLockedStake[operator] += delta;
         } else if (newWeight < oldWeight) {
-            // For reductions, do not release stake until confirmation.
+            // not release stake until confirmation.
         }
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, newWeight);
-        // Do not update nodeWeightCache immediately; it will be updated in _completeWeightUpdateAndCache.
+        // Does not update nodeWeightCache immediately, it will be updated in _completeWeightUpdateAndCache.
     }
 
     function _initializeEndValidationAndCache(address operator, bytes32 validationID, bytes32 nodeId) internal {
@@ -1105,5 +1084,16 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             operatorAvailableStake[operator] += delta;
         }
         calcAndCacheNodeWeightsForOperator(operator, epochNow);
+    }
+
+    function _syncOperatorStake(address operator) internal {
+        uint48 epochNow = getCurrentEpoch();
+        uint256 totalStake = getOperatorStake(operator, epochNow, PRIMARY_ASSET_CLASS);
+        uint256 available = totalStake - operatorLockedStake[operator];
+        if (available < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
+            revert("Not enough free stake to add node");
+        }
+        require(totalStake >= operatorLockedStake[operator], "Locked stake exceeds total");
+        operatorAvailableStake[operator] = available;
     }
 }
