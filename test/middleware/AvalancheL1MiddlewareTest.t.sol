@@ -24,6 +24,24 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {MiddlewareHelperConfig} from "../../script/middleware/MiddlewareHelperConfig.s.sol";
+import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
+
+import {DeployBalancerValidatorManager} from "../../script/validator-manager/DeployBalancerValidatorManager.s.sol";
+import {HelperConfig} from "../../script/validator-manager/HelperConfig.s.sol";
+import {BalancerValidatorManager} from
+    "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
+import {ACP77WarpMessengerTestMock} from "@suzaku/contracts-library/contracts/mocks/ACP77WarpMessengerTestMock.sol";
+import {IBalancerValidatorManager} from
+    "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
+import {IWarpMessenger} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
+import {
+    ConversionData,
+    InitialValidator,
+    PChainOwner,
+    Validator,
+    ValidatorRegistrationInput,
+    ValidatorStatus
+} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 
@@ -41,6 +59,8 @@ contract AvalancheL1MiddlewareTest is Test {
     uint256 internal bobPrivateKey;
     address internal tokenA;
     address internal tokenB;
+    address internal l1;
+    uint256 internal l1PrivateKey;
 
     // Factories & Registries
     VaultFactory internal vaultFactory;
@@ -54,11 +74,13 @@ contract AvalancheL1MiddlewareTest is Test {
     L1RestakeDelegator internal delegator;
     AvalancheL1Middleware internal middleware;
     Token internal collateral;
+    MockBalancerValidatorManager internal mockValidatorManager;
 
     function setUp() public {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
+        (l1, l1PrivateKey) = makeAddrAndKey("l1");
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
 
@@ -88,8 +110,10 @@ contract AvalancheL1MiddlewareTest is Test {
             maximumChurnPercentage: maximumChurnPercentage
         });
 
-        validatorManagerAddress =
-            _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
+        mockValidatorManager = new MockBalancerValidatorManager();
+        validatorManagerAddress = address(mockValidatorManager);
+        // validatorManagerAddress =
+        //     _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
 
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
@@ -124,8 +148,12 @@ contract AvalancheL1MiddlewareTest is Test {
         collateral = new Token("MockCollateral");
         primaryAsset = address(collateral);
 
+        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
+        blockTimestamp = blockTimestamp + 1_720_700_948;
+        vm.warp(blockTimestamp);
+
         // Deploy vaultTokenized
-        uint48 epochDuration = 1 days;
+        uint48 epochDuration = 8 hours;
         uint64 lastVersion = vaultFactory.lastVersion();
         address vaultAddress = vaultFactory.create(
             lastVersion,
@@ -184,7 +212,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Deploy the middleware
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
-            l1ValidatorManager: address(validatorManagerAddress),
+            l1ValidatorManager: validatorManagerAddress,
             operatorRegistry: address(operatorRegistry),
             vaultRegistry: address(vaultFactory),
             operatorL1Optin: address(operatorL1OptInService),
@@ -199,7 +227,11 @@ contract AvalancheL1MiddlewareTest is Test {
         // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
         // middleware.activateSecondaryAssetClass(0);
 
-        middleware.transferOwnership(address(validatorManagerAddress));
+        middleware.transferOwnership(validatorManagerAddress);
+
+        // middleware = new AvalancheL1Middleware();
+        uint64 maxWeight = 1_000_000_000_000_000_000;
+        mockValidatorManager.setupSecurityModule(address(middleware), maxWeight);
     }
 
     function test_ConstructorValues() public view {
@@ -217,24 +249,21 @@ contract AvalancheL1MiddlewareTest is Test {
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
 
-        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerL1(validatorManagerAddress, address(middleware));
 
-        vm.startPrank(address(validatorManagerAddress)); // Check if this should change
+        vm.startPrank(validatorManagerAddress); // Check if this should change
         middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
     }
 
     function test_RegisterOperator() public {
-        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerL1(validatorManagerAddress, address(middleware));
         _registerOperator(alice, "metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
 
-        uint256 maxNodeStake = 900_000_000_000_000_000_000;
-        uint256 minNodeStake = 110_000_000_000_000;
+        vm.startPrank(validatorManagerAddress);
 
-        vm.startPrank(address(validatorManagerAddress));
-
-        middleware.registerOperator(alice, keccak256("myPubKey"), maxNodeStake, minNodeStake);
+        middleware.registerOperator(alice, keccak256("myPubKey"));
         vm.stopPrank();
     }
 
@@ -243,9 +272,9 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 maxVaultL1Limit = 2000 ether;
         // middleware.addAssetToClass(1, address(collateral));
 
-        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerL1(validatorManagerAddress, address(middleware));
 
-        vm.startPrank(address(validatorManagerAddress));
+        vm.startPrank(validatorManagerAddress);
         middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
@@ -268,7 +297,268 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(stakeBob, 0, "Bob's stake should be > 0 now");
     }
 
-    // Internal helpers
+    ///////////////////////////////
+    // NEW NODE FUNCTIONALITY TESTS
+    ///////////////////////////////
+
+    function test_AddNodeFailsWithNoStake() public {
+        // Arrange: Register L1 and vault but do not deposit any stake.
+        _registerL1(validatorManagerAddress, address(middleware));
+        vm.startPrank(validatorManagerAddress);
+        // Register vault (L1 limit can later be set if needed)
+        middleware.registerVault(address(vault), 1, 2000 ether);
+        vm.stopPrank();
+
+        // Register the operator in the OperatorRegistry and opt in on L1.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice, keccak256("myPubKey"));
+        vm.stopPrank();
+
+        // Do NOT deposit any funds for alice.
+        // Try to add a node—this should revert because there is no free stake.
+        bytes32 nodeId = bytes32("nodeNoStake");
+        bytes memory blsKey = hex"deadbeef";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory owners = new address[](1);
+        owners[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
+
+        vm.prank(alice);
+        vm.expectRevert("Not enough free stake to add node");
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct);
+    }
+
+    function test_AddNodeWithStakeAndTimeAdvance() public {
+        // Arrange: Register L1 and vault, then deposit stake.
+        _registerL1(validatorManagerAddress, address(middleware));
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        console2.log("L1Limit set to", maxVaultL1Limit);
+        console2.log("L1Limit set actually", delegator.l1Limit(validatorManagerAddress, assetClassId));
+        // console2.log("L1Limit set actually", delegator.maxL1Limit[validatorManagerAddress][assetClassId]);
+        console2.log("Current VAULT epoch start:", vault.currentEpochStart());
+
+        vm.stopPrank();
+
+        // Register and opt in the operator.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice, keccak256("myPubKey"));
+        vm.stopPrank();
+
+        // Deposit funds into the vault (the user deposits stake).
+        _grantDepositorWhitelistRole(alice, alice);
+        _grantL1LimiteRole(alice, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(alice, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(alice, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        // Capture the current epoch and time
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        uint256 currentTime = block.timestamp;
+        uint256 operatorStake = middleware.getOperatorStake(alice, currentEpoch, assetClassId);
+        console2.log("Operator stake after deposit (epoch", currentEpoch, "):", operatorStake);
+        assertGt(operatorStake, 0, "Operator stake should be higher than 0 in the current epoch"); // It should be 0, but it's updated immediately.
+        
+        // Advance time into the next middleware epoch.
+        // uint48 nextEpoch = currentEpoch + 1;
+        // uint256 nextEpochStart = middleware.getEpochStartTs(nextEpoch);
+        // uint256 nextEpochStart = middleware.getEpochStartTs(currentEpoch) + middleware.getEpochDuration();
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + vault.epochDuration();
+        vm.warp(newEpochStart); // move just past the start of the next epoch
+        console2.log("New VAULT epoch start:", vault.currentEpochStart());
+        console2.log("New VAULT epoch:", vault.currentEpoch());
+        console2.log("Vault stake:", vault.totalStake());
+        // Now, recalc stakes for the new epoch.
+        uint48 newEpoch = middleware.getCurrentEpoch();
+        console2.log("New MIDDLEWARE epoch:", newEpoch);
+        middleware.calcAndCacheStakes(newEpoch, assetClassId);
+        console2.log("New epoch:", newEpoch);
+        uint256 newStake = middleware.getOperatorStake(alice, newEpoch, assetClassId);
+        console2.log("Operator stake in new epoch:", newStake);
+        assertGe(newStake, operatorStake, "Operator stake in new epoch should reflect the deposit");
+
+        // Act: Add a node.
+        bytes32 nodeId = bytes32("nodeWithStake");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory owners = new address[](1);
+        owners[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct);
+
+        // Assert: Check that the node weight is positive and that operatorLockedStake was updated.
+        bytes32 validationID = middleware.getCurrentValidationID(nodeId);
+        uint256 nodeWeight = middleware.nodeWeightCache(newEpoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node weight must be positive");
+        uint256 lockedStake = middleware.operatorLockedStake(alice);
+        assertEq(lockedStake, nodeWeight, "Locked stake should equal node weight");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_AddNode() public {
+        // Arrange: Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(middleware));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice, keccak256("myPubKey"));
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(alice, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(alice, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(alice, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Act: Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct);
+
+        // Assert:
+        bytes32 validationID = middleware.getCurrentValidationID(nodeId);
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node weight must be positive");
+        uint256 lockedStake = middleware.operatorLockedStake(alice);
+        assertEq(lockedStake, nodeWeight, "Locked stake should equal node weight");
+    }
+
+    function test_CompleteNodeWeightUpdate() public {
+        // Arrange: Register L1 and the vault first.
+        _registerL1(validatorManagerAddress, address(middleware));
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerVault(address(vault), 1, 2000 ether);
+        vm.stopPrank();
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice, keccak256("myPubKey"));
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(alice, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 1_000 ether);
+        _setL1Limit(alice, validatorManagerAddress, 1, depositedAmount);
+        _setOperatorL1Shares(alice, validatorManagerAddress, 1, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32 nodeId = bytes32("node2");
+        bytes memory blsKey = hex"5678";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct);
+        bytes32 validationID = middleware.getCurrentValidationID(nodeId);
+        uint256 initialNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertGt(initialNodeWeight, 0);
+
+        // Simulate activation of the validator in the mock before updating weight
+        mockValidatorManager.simulateActivateValidator(validationID);
+
+        // Reduce weight by 100
+        uint64 newWeight = uint64(initialNodeWeight - 100);
+        vm.prank(address(middleware)); // Should be an EOA
+        IBalancerValidatorManager(validatorManagerAddress).initializeValidatorWeightUpdate(validationID, newWeight);
+        // Simulate the external update
+        mockValidatorManager.simulateWeightUpdate(validationID, newWeight);
+        vm.prank(address(middleware));
+        middleware.completeNodeWeightUpdate(nodeId, 0);
+
+        // Weight updated
+        uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(updatedNodeWeight, newWeight, "Node weight should be updated to the new value");
+    }
+
+    function test_ForceRemoveNode() public {
+        // Arrange: Register L1 and vault first.
+        _registerL1(validatorManagerAddress, address(middleware));
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerVault(address(vault), 1, 2000 ether);
+        vm.stopPrank();
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice, keccak256("myPubKey"));
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(alice, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(alice, validatorManagerAddress, 1, depositedAmount);
+        _setOperatorL1Shares(alice, validatorManagerAddress, 1, alice, mintedShares);
+
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32 nodeId = bytes32("node3");
+        bytes memory blsKey = hex"9abc";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct);
+        bytes32 validationID = middleware.getCurrentValidationID(nodeId);
+        uint256 initialNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertGt(initialNodeWeight, 0);
+
+        // Act: Force-remove the node.
+        vm.prank(validatorManagerAddress);
+        middleware.forceRemoveNode(alice);
+
+        // Assert: Node weight is now zero.
+        uint256 finalNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(finalNodeWeight, 0, "Node weight should be zero after force removal");
+    }
+
+
+    ///////////////////////////////
+    // INTERNAL HELPERS
+    ///////////////////////////////
+
     function _registerOperator(address user, string memory metadataURL) internal {
         vm.startPrank(user);
         operatorRegistry.registerOperator(metadataURL);
@@ -285,6 +575,11 @@ contract AvalancheL1MiddlewareTest is Test {
         VaultTokenized(address(vault)).grantRole(vault.DEPOSITOR_WHITELIST_ROLE(), account);
         vm.stopPrank();
     }
+    function _grantL1LimiteRole(address user, address account) internal {
+        vm.startPrank(user);
+        delegator.grantRole(delegator.L1_LIMIT_SET_ROLE(), account);
+        vm.stopPrank();
+    } 
 
     function _deposit(address user, uint256 amount) internal returns (uint256 depositedAmount, uint256 mintedShares) {
         collateral.transfer(user, amount);
