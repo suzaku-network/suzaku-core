@@ -322,6 +322,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         return getEpochAtTs(Time.timestamp());
     }
 
+    function getEpochDuration() public view returns (uint48) {
+        return EPOCH_DURATION;
+    }
+
     /**
      * @notice Registers a new operator and enables it
      * @param operator The operator address
@@ -478,28 +482,42 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         uint96 assetClassId
     ) public view returns (uint256 stake) {
         if (totalStakeCached[epoch][assetClassId]) {
-            return operatorStakeCache[epoch][assetClassId][operator];
+            uint256 cachedStake = operatorStakeCache[epoch][assetClassId][operator];
+            
+            return cachedStake;
         }
 
         uint48 epochStartTs = getEpochStartTs(epoch);
+        
 
         for (uint256 i; i < vaults.length(); ++i) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
 
             // Skip if vault not active in the target epoch
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
+                
                 continue;
             }
+            
+            
+            
+            
 
             // Skip if vault asset not in AssetClassID
             if (vaultToAssetClass[vault] != assetClassId) {
+                
                 continue;
             }
 
-            stake += BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+            uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 L1_VALIDATOR_MANAGER, assetClassId, operator, epochStartTs, new bytes(0)
             );
+            
+            stake += vaultStake;
         }
+        
+        
+        
     }
 
     /**
@@ -611,30 +629,34 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      */
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
         uint48 epochStartTs = getEpochStartTs(epoch);
+        
+        
+        
 
-        // for epoch older than SLASHING_WINDOW total stake can be invalidated (use cache)
+        // Check for too-old epoch: note that if Time.timestamp() < SLASHING_WINDOW this subtraction underflows.
         if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
+            
             revert AvalancheL1Middleware__TooOldEpoch();
         }
         if (epochStartTs > Time.timestamp()) {
+            
             revert AvalancheL1Middleware__InvalidEpoch();
         }
 
         for (uint256 i; i < operators.length(); ++i) {
             (address operator, uint48 enabledTime, uint48 disabledTime) = operators.atWithTimes(i);
-
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
                 continue;
             }
-
             uint256 operatorStake = getOperatorStake(operator, epoch, assetClassId);
+            
             operatorStakeCache[epoch][assetClassId][operator] = operatorStake;
-
             totalStake += operatorStake;
         }
 
         totalStakeCache[epoch][assetClassId] = totalStake;
         totalStakeCached[epoch][assetClassId] = true;
+        
     }
 
     /**
@@ -726,37 +748,54 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         PChainOwner calldata remainingBalanceOwner,
         PChainOwner calldata disableOwner
     ) external {
+        
+        
         address operator = msg.sender;
+        
         if (!operators.contains(operator)) {
+            
             revert AvalancheL1Middleware__OperatorNotRegistered();
         }
 
         uint48 epochNow = getCurrentEpoch();
+        
         if (!totalStakeCached[epochNow][PRIMARY_ASSET_CLASS]) {
+            
             calcAndCacheStakes(epochNow, PRIMARY_ASSET_CLASS);
         }
 
         _syncOperatorStake(operator);
         uint256 available = operatorAvailableStake[operator];
+        
 
-        if (available < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
+        uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
+        
+        if (available < minStake) {
+            
             revert("Not enough free stake to add node");
         }
 
-        uint256 newWeight = (available > assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake)
-            ? assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake
-            : available;
+        uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
+        
+        uint256 newWeight = (available > maxStake) ? maxStake : available;
+        
+
         (uint64 currentModuleWeight, uint64 moduleMaxWeight) =
             balancerValidatorManager.getSecurityModuleWeights(address(this));
+        
         if (currentModuleWeight + newWeight > moduleMaxWeight) {
             uint256 modCapacity = moduleMaxWeight - currentModuleWeight;
-            if (modCapacity < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
+            
+            if (modCapacity < minStake) {
+                
                 revert("SecurityModule has insufficient capacity for a new node");
             }
             if (newWeight > modCapacity) {
                 newWeight = modCapacity;
+                
             }
         }
+        
 
         ValidatorRegistrationInput memory input = ValidatorRegistrationInput({
             nodeID: abi.encodePacked(nodeId),
@@ -765,25 +804,32 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             remainingBalanceOwner: remainingBalanceOwner,
             disableOwner: disableOwner
         });
+        
         bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(input, uint64(newWeight));
+        
 
         updateNodeKey(nodeId, keccak256(blsKey));
         updateNodeValidationID(nodeId, validationID);
 
-        // Track node in our time-based map a d dynamic array
+        // Track node in our time-based map and dynamic array.
         operatorNodes[operator].add(nodeId);
         operatorNodes[operator].enable(nodeId);
         operatorNodesArray[operator].push(nodeId);
+        
 
         // Reserve stake immediately.
+        
         operatorAvailableStake[operator] -= newWeight;
         operatorLockedStake[operator] += newWeight;
-        // Immediately cache the node weight (registration is assumed confirmed or will update via external call).
+        
+
         uint48 epoch = getCurrentEpoch();
         nodeWeightCache[epoch][validationID] = newWeight;
         nodeWeightCached[epoch][validationID] = true;
+        
 
         emit NodeAdded(operator, nodeId, blsKey, newWeight, validationID);
+        
     }
 
     /**
@@ -1031,6 +1077,21 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     function getNodeStake(uint48 epoch, bytes32 nodeId) external view returns (uint256) {
         bytes32 validationID = getCurrentValidationID(nodeId);
         return nodeWeightCache[epoch][validationID];
+    }
+
+    function requestNodeWeightUpdate(bytes32 nodeId, uint64 newWeight) external {
+        if (!operatorNodes[msg.sender].contains(nodeId)) {
+            revert AvalancheL1Middleware__NodeNotFound();
+        }
+        bytes32 valID = getCurrentValidationID(nodeId);
+        _setValidatorWeightAndCache(msg.sender, valID, newWeight);
+    }
+
+    function confirmWeightUpdate(bytes32 nodeId, uint32 messageIndex) external {
+        if (!operatorNodes[msg.sender].contains(nodeId)) {
+            revert AvalancheL1Middleware__NodeNotFound();
+        }
+        _completeNodeWeightUpdate(msg.sender, nodeId, messageIndex);
     }
 
     function _getValidator(bytes32 validationID) internal view returns (Validator memory) {

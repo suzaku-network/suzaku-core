@@ -157,7 +157,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint64 lastVersion = vaultFactory.lastVersion();
         address vaultAddress = vaultFactory.create(
             lastVersion,
-            alice,
+            bob,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -166,11 +166,11 @@ contract AvalancheL1MiddlewareTest is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: alice,
-                    depositWhitelistSetRoleHolder: alice,
-                    depositorWhitelistRoleHolder: alice,
-                    isDepositLimitSetRoleHolder: alice,
-                    depositLimitSetRoleHolder: alice,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
                     name: "Test",
                     symbol: "TEST"
                 })
@@ -183,9 +183,9 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Deploy delegator
         address[] memory l1LimitSetRoleHolders = new address[](1);
-        l1LimitSetRoleHolders[0] = alice;
+        l1LimitSetRoleHolders[0] = bob;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
-        operatorL1SharesSetRoleHolders[0] = alice;
+        operatorL1SharesSetRoleHolders[0] = bob;
 
         address delegatorAddress = delegatorFactory.create(
             0,
@@ -194,9 +194,9 @@ contract AvalancheL1MiddlewareTest is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: alice,
+                            defaultAdminRoleHolder: bob,
                             hook: address(0),
-                            hookSetRoleHolder: alice
+                            hookSetRoleHolder: bob
                         }),
                         l1LimitSetRoleHolders: l1LimitSetRoleHolders,
                         operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
@@ -278,23 +278,21 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
-        _grantDepositorWhitelistRole(alice, alice);
+        _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
 
-        _setL1Limit(alice, middleware.L1_VALIDATOR_MANAGER(), assetClassId, depositedAmount);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
 
-        _registerOperator(bob, "bob metadata");
-        _optInOperatorVault(bob);
-        _optInOperatorL1(bob, validatorManagerAddress);
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorVault(alice);
+        _optInOperatorL1(alice, validatorManagerAddress);
 
-        vm.startPrank(alice);
-        delegator.setOperatorL1Shares(middleware.L1_VALIDATOR_MANAGER(), assetClassId, bob, mintedShares);
-        vm.stopPrank();
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 stakeBob = middleware.getOperatorStake(bob, epoch, assetClassId);
-        console2.log("Bob stake:", stakeBob);
-        assertGt(stakeBob, 0, "Bob's stake should be > 0 now");
+        uint256 stakeAlice = middleware.getOperatorStake(alice, epoch, assetClassId);
+        console2.log("Alice stake:", stakeAlice);
+        assertGt(stakeAlice, 0, "Bob's stake should be > 0 now");
     }
 
     ///////////////////////////////
@@ -355,11 +353,11 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
 
         // Deposit funds into the vault (the user deposits stake).
-        _grantDepositorWhitelistRole(alice, alice);
-        _grantL1LimiteRole(alice, alice);
+        _grantDepositorWhitelistRole(bob, alice);
+        // _grantL1LimiteRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
-        _setL1Limit(alice, validatorManagerAddress, assetClassId, depositedAmount);
-        _setOperatorL1Shares(alice, validatorManagerAddress, assetClassId, alice, mintedShares);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         // Capture the current epoch and time
         uint48 currentEpoch = middleware.getCurrentEpoch();
@@ -386,7 +384,7 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Operator stake in new epoch:", newStake);
         assertGe(newStake, operatorStake, "Operator stake in new epoch should reflect the deposit");
 
-        // Act: Add a node.
+        // Add a node.
         bytes32 nodeId = bytes32("nodeWithStake");
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
@@ -428,10 +426,10 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.registerOperator(alice, keccak256("myPubKey"));
         vm.stopPrank();
 
-        _grantDepositorWhitelistRole(alice, alice);
+        _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
-        _setL1Limit(alice, validatorManagerAddress, assetClassId, depositedAmount);
-        _setOperatorL1Shares(alice, validatorManagerAddress, assetClassId, alice, mintedShares);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
         vm.warp(newEpochStart);
@@ -460,6 +458,7 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     function test_CompleteNodeWeightUpdate() public {
+        uint96 assetClassId = 1;
         // Arrange: Register L1 and the vault first.
         _registerL1(validatorManagerAddress, address(middleware));
         vm.startPrank(validatorManagerAddress);
@@ -473,10 +472,10 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.registerOperator(alice, keccak256("myPubKey"));
         vm.stopPrank();
 
-        _grantDepositorWhitelistRole(alice, alice);
+        _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 1_000 ether);
-        _setL1Limit(alice, validatorManagerAddress, 1, depositedAmount);
-        _setOperatorL1Shares(alice, validatorManagerAddress, 1, alice, mintedShares);
+        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
         vm.warp(newEpochStart);
@@ -499,12 +498,14 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Reduce weight by 100
         uint64 newWeight = uint64(initialNodeWeight - 100);
-        vm.prank(address(middleware)); // Should be an EOA
-        IBalancerValidatorManager(validatorManagerAddress).initializeValidatorWeightUpdate(validationID, newWeight);
-        // Simulate the external update
+
+        vm.prank(alice);
+        middleware.requestNodeWeightUpdate(nodeId, newWeight);
+
         mockValidatorManager.simulateWeightUpdate(validationID, newWeight);
-        vm.prank(address(middleware));
-        middleware.completeNodeWeightUpdate(nodeId, 0);
+
+        vm.prank(alice);
+        middleware.confirmWeightUpdate(nodeId, 0);
 
         // Weight updated
         uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
@@ -512,6 +513,7 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     function test_ForceRemoveNode() public {
+        uint96 assetClassId = 1;
         // Arrange: Register L1 and vault first.
         _registerL1(validatorManagerAddress, address(middleware));
         vm.startPrank(validatorManagerAddress);
@@ -526,10 +528,10 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.registerOperator(alice, keccak256("myPubKey"));
         vm.stopPrank();
 
-        _grantDepositorWhitelistRole(alice, alice);
+        _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
-        _setL1Limit(alice, validatorManagerAddress, 1, depositedAmount);
-        _setOperatorL1Shares(alice, validatorManagerAddress, 1, alice, mintedShares);
+        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         uint48 epoch = middleware.getCurrentEpoch();
         bytes32 nodeId = bytes32("node3");
@@ -619,33 +621,33 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
     }
 
-    function _optInOperatorL1(address user, address l1) internal {
+    function _optInOperatorL1(address user, address _l1) internal {
         vm.startPrank(user);
-        operatorL1OptInService.optIn(l1);
+        operatorL1OptInService.optIn(_l1);
         vm.stopPrank();
     }
 
-    function _optOutOperatorL1(address user, address l1) internal {
+    function _optOutOperatorL1(address user, address _l1) internal {
         vm.startPrank(user);
-        operatorL1OptInService.optOut(l1);
+        operatorL1OptInService.optOut(_l1);
         vm.stopPrank();
     }
 
-    function _setL1Limit(address user, address l1, uint96 assetClass, uint256 amount) internal {
+    function _setL1Limit(address user, address _l1, uint96 assetClass, uint256 amount) internal {
         vm.startPrank(user);
-        delegator.setL1Limit(l1, assetClass, amount);
+        delegator.setL1Limit(_l1, assetClass, amount);
         vm.stopPrank();
     }
 
     function _setOperatorL1Shares(
         address user,
-        address l1,
+        address _l1,
         uint96 assetClass,
         address operator,
         uint256 shares
     ) internal {
         vm.startPrank(user);
-        delegator.setOperatorL1Shares(l1, assetClass, operator, shares);
+        delegator.setOperatorL1Shares(_l1, assetClass, operator, shares);
         vm.stopPrank();
     }
 
