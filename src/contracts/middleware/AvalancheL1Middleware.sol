@@ -1027,14 +1027,13 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     }
 
     /**
-     * @notice Returns the cached stake for a given node in the specified epoch, based on its validation ID.
+     * @notice Returns the cached stake for a given node in the specified epoch, based on its Validation ID.
      * @param epoch The target epoch.
-     * @param nodeId The node ID.
+     * @param validationId The node ID.
      * @return The node stake from the cache.
      */
-    function getNodeStake(uint48 epoch, bytes32 nodeId) external view returns (uint256) {
-        bytes32 validationID = getCurrentValidationID(nodeId);
-        return nodeWeightCache[epoch][validationID];
+    function getNodeStake(uint48 epoch, bytes32 validationId) external view returns (uint256) {
+        return nodeWeightCache[epoch][validationId];
     }
 
     /**
