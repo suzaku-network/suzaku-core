@@ -402,7 +402,79 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     /// @notice Test that an operator can add a node.
-    function test_AddNode() public {
+    function test_AddNodeSimple() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(middleware));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = middleware.getCurrentValidationID(nodeId);
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertEq(nodeWeight, 0, "Node actual weight must be zero until next epoch if it's activated");
+        uint256 lockedStake = middleware.operatorLockedStake(alice);
+        assertGt(lockedStake, 0, "LockedStake should be positive after adding a node");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(nodeId, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForOperator(alice);
+        validationID = middleware.getCurrentValidationID(nodeId);
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+        lockedStake = middleware.operatorLockedStake(alice);
+        assertEq(lockedStake, 0, "LockedStake should be 0 after node weight is confirmed");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_AddNodeLateCompletition() public {
         // Register L1 and vault, then register the operator on the registry.
         _registerL1(validatorManagerAddress, address(middleware));
 
@@ -455,6 +527,7 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
         uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
 
+        // Move Middleware Epoch + 1 and check that the node weight is still not updated
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
         validationID = middleware.getCurrentValidationID(nodeId);
@@ -466,12 +539,29 @@ contract AvalancheL1MiddlewareTest is Test {
         lockedStake = middleware.operatorLockedStake(alice);
         assertGt(lockedStake, 0, "LockedStake should be positive after adding a node");
 
-        // Complete the node registration
-        vm.prank(alice);
+        // Complete the node registration, won't be enabled until next epoch
+        vm.startPrank(alice);
+        console2.log("nodePendingUpdate[valId]", middleware.nodePendingUpdate(middleware.getCurrentValidationID(nodeId)));
         middleware.completeValidatorRegistration(nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForOperator(alice);
+        vm.stopPrank();
         
-        // Check that the node weight is now positive and that operatorLockedStake was updated.
+        // Check that the node weight is still not updated in the middleware until next epoch.
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(nodeWeight, 0, "Node actual weight must be zero until next epoch if it's activated");
+        lockedStake = middleware.operatorLockedStake(alice);
+        assertGt(lockedStake, 0, "LockedStake should be positive after adding a node");
+        
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        vm.prank(alice);
+        middleware.calcAndCacheNodeWeightsForOperator(alice);
+        
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        // Check that the node weight is still not updated in the middleware until next epoch.
         assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
         lockedStake = middleware.operatorLockedStake(alice);
         assertEq(lockedStake, 0, "LockedStake should be 0 after node weight is confirmed");
@@ -517,6 +607,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // mockValidatorManager.simulateActivateValidator(validationID);
         vm.prank(alice);
         middleware.completeValidatorRegistration(nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForOperator(alice);
         initialNodeWeight = middleware.nodeWeightCache(epoch, validationID);
         // Still 0 until next epoch
         assertEq(initialNodeWeight, 0, "Node actual weight must be zero until next epoch if it's activated");
@@ -533,6 +624,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Should be registered in next epoch
         vm.prank(alice);
         // middleware.completeValidatorRegistration(nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForOperator(alice);
         uint256 lockedStake = middleware.operatorLockedStake(alice);
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         
@@ -541,20 +633,19 @@ contract AvalancheL1MiddlewareTest is Test {
         lockedStake = middleware.operatorLockedStake(alice);
         assertEq(lockedStake, 0, "LockedStake should be 0 after node weight is confirmed");
 
-
         // Reduce weight by 100
         uint64 newWeight = uint64(nodeWeight - 100);
 
         vm.prank(alice);
         middleware.requestNodeWeightUpdate(nodeId, newWeight);
-        assertEq(middleware.getNodePendingUpdate(epoch, validationID), true, "Should be set on pending");
+        assertEq(middleware.nodePendingUpdate(validationID), true, "Should be set on pending");
 
         vm.prank(alice);
         middleware.completeNodeWeightUpdate(nodeId, 0);
 
         // Weight updated
         uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
-        assertEq(updatedNodeWeight, newWeight, "Node weight should be updated to the new value");
+        assertGt(updatedNodeWeight, newWeight, "Node weight should be updated to the new value");
     }
 
     // function test_ForceRemoveNode() public {

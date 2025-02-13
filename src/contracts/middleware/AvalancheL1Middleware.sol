@@ -94,6 +94,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     error AvalancheL1Middleware__NodeWeightNotCached();
     error AvalancheL1Middleware__SecutiryModuleCapacityNotEnough();
     error AvalancheL1Middleware__WeightUpdatePending();
+    error AvalancheL1Middleware__NodeStateNotUpdated();
 
     // added
     event NodeAdded(
@@ -138,7 +139,8 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(address => mapping(uint48 => bool)) private rebalancedThisEpoch;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeWeightCache;
-    mapping(uint48 => mapping(bytes32 => bool)) public nodePendingUpdate;
+    mapping(bytes32 => bool) public nodePendingUpdate;
+    mapping(uint48 => mapping(bytes32 => bool)) public nodePendingCompletedUpdate;
 
     // Local stake accounting (reserved stake)
     mapping(address => uint256) public operatorLockedStake;
@@ -802,12 +804,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         // Reserve stake immediately.
         operatorLockedStake[operator] += newWeight;
         
-
         uint48 epoch = getCurrentEpoch();
         nodeWeightCache[epoch][validationID] = 0;
-        nodePendingUpdate[epoch][validationID] = true;
+        nodePendingUpdate[validationID] = true;
         
-
         emit NodeAdded(operator, nodeId, blsKey, newWeight, validationID);
         
     }
@@ -992,32 +992,35 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             bytes32 nodeId = nodesArr[i];
             bytes32 valId = getCurrentValidationID(nodeId);
             // if true this node had no pending changes
-            if (nodePendingUpdate[previousEpoch][valId]) {
+            if (!nodePendingUpdate[valId]) {
                 nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
-                nodePendingUpdate[currentEpoch][valId] = false;
                 continue; 
                 // atm only updates for the next epoch are done, if there's a new update, it will be checked in the next epoch
                 // can be modified if we review the current epoch later as well
             }
             Validator memory validator = balancerValidatorManager.getValidator(valId);
-            if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
-                nodeWeightCache[currentEpoch][valId] = validator.weight;
+            if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId) && nodePendingCompletedUpdate[previousEpoch][valId]) {
+                // nodeWeightCache[currentEpoch][valId] = validator.weight;
                 _updateNode(operator, nodeId, valId);
-            } else if (validator.status == ValidatorStatus.Completed) {
+            } else if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
+                // nodeWeightCache[currentEpoch][valId] = validator.weight;
+                _enableNode(operator, nodeId, valId);
+            }          
+            else if (validator.status == ValidatorStatus.Completed) {
                 nodeWeightCache[currentEpoch][valId] = 0;
                 _disableNode(operator, nodeId, valId);
             }else if (validator.status == ValidatorStatus.PendingRemoved) {
                 nodeWeightCache[currentEpoch][valId] = validator.weight;
-                nodePendingUpdate[currentEpoch][valId] = true;
+                nodePendingUpdate[valId] = true;
             } else if (validator.status == ValidatorStatus.PendingAdded) {
                 nodeWeightCache[currentEpoch][valId] = 0;
-                nodePendingUpdate[currentEpoch][valId] = true;
+                nodePendingUpdate[valId] = true;
             } else if (validator.status != ValidatorStatus.Active && balancerValidatorManager.isValidatorPendingWeightUpdate(valId)){
                 nodeWeightCache[currentEpoch][valId] = validator.weight;
-                nodePendingUpdate[currentEpoch][valId] = true;
+                nodePendingUpdate[valId] = true;
             } else {
                 nodeWeightCache[currentEpoch][valId] = 0;
-                nodePendingUpdate[currentEpoch][valId] = false;
+                nodePendingUpdate[valId] = false;
             }
         }
     }
@@ -1092,7 +1095,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     }
 
     /**
-     * @notice Sets the weight of a validator and updates the operator's locked and available stake accordingly.
+     * @notice Sets the weight of a validator and updates the operator's locked stake accordingly.
      * @param operator The operator who owns the validator
      * @param validationID The unique ID of the validator whose weight is being updated
      * @param newWeight The new weight for the validator
@@ -1101,10 +1104,11 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     function _updateValidatorWeightAndLock(address operator, bytes32 validationID, uint64 newWeight) internal {
         uint48 currentEpoch = getCurrentEpoch();
         uint256 cachedWeight = getEffectiveNodeWeight(currentEpoch, validationID);
-        // Shouldn't be pending already
+        // Shouldn't be pending at thiss stage
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdatePending();
         }
+
         if (newWeight > cachedWeight) {
             uint256 delta = newWeight - cachedWeight;
             if (delta > _getOperatorAvailableStake(operator)) {
@@ -1112,16 +1116,16 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             }
             operatorLockedStake[operator] += delta;
         } else if (newWeight < cachedWeight) {
+            // no lock should happen, it's locked in the cache
         }
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, newWeight);
-        nodePendingUpdate[currentEpoch][validationID] = true;
+        nodePendingUpdate[validationID] = true;
         // Does not update nodeWeightCache immediately, it will be updated in _completeWeightUpdateAndCache.
     }
 
     function _initializeEndValidationAndCache(address operator, bytes32 validationID, bytes32 nodeId) internal {
         balancerValidatorManager.initializeEndValidation(validationID);
-        uint48 currentEpoch = getCurrentEpoch();
-        nodePendingUpdate[currentEpoch][validationID] = true;
+        nodePendingUpdate[validationID] = true;
         // operatorNodes[operator].disable(nodeId); // have to check node removal next epoch
         emit NodeRemoved(operator, nodeId);
     }
@@ -1142,13 +1146,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         balancerValidatorManager.completeValidatorRegistration(messageIndex);
 
         _enableNode(operator, nodeId, valId);
-
-        // uint64 finalWeight = balancerValidatorManager.getValidator(valId).weight;
-        // nodeWeightCache[epoch][valId] = finalWeight;
-        // operatorLockedStake[operator] -= finalWeight; 
-        // nodePendingUpdate[epoch][valId] = false;
-
-        // calcAndCacheNodeWeightsForOperator(operator); 
     }
 
     function _completeValidatorRemoval(address operator, bytes32 nodeId, uint32 messageIndex) internal {
@@ -1161,7 +1158,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
         _disableNode(operator, nodeId, valId);
 
-        calcAndCacheNodeWeightsForOperator(operator); 
+        // calcAndCacheNodeWeightsForOperator(operator); 
     }
 
     /**
@@ -1182,9 +1179,15 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         if (!balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
             revert AvalancheL1Middleware__WeightUpdateNotPending();
         }
+
+        // not solid, should be possible with nodePendingUpdate[valId]
+        nodePendingCompletedUpdate[getCurrentEpoch()][valId] = true;
+        // if the completeValidatorWeightUpdate fails, not sure if the previous bool is secure. 
         balancerValidatorManager.completeValidatorWeightUpdate(valId, messageIndex);
 
-        _updateNode(operator, nodeId, valId);
+
+
+        // _updateNode(operator, nodeId, valId); // calcAndCacheNodeWeightsForOperator should update the cache in the next epoch
         // calcAndCacheNodeWeightsForOperator(operator);  // if i call this, i will re-do tasks done in the _enableNode
     }
 
@@ -1197,11 +1200,19 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     function _enableNode(address operator, bytes32 nodeId, bytes32 valId) internal {
         (uint48 enabledTime, ) = operatorNodes[operator].getTimes(nodeId);
         Validator memory validator = balancerValidatorManager.getValidator(valId);
+        uint48 currentEpoch = getCurrentEpoch();
+        uint48 effectiveEpoch = getEpochAtTs(uint48(validator.startedAt));
 
-        if (validator.status == ValidatorStatus.Active && enabledTime == 0) {
+        if (validator.status == ValidatorStatus.Active && enabledTime == 0 && effectiveEpoch < currentEpoch) {
             operatorNodes[operator].enable(nodeId);
             operatorLockedStake[operator] -= validator.weight;
-            nodePendingUpdate[getCurrentEpoch()][valId] = false;
+            nodeWeightCache[currentEpoch][valId] = validator.weight;
+            nodePendingUpdate[valId] = false;
+        } else if (validator.status == ValidatorStatus.Active && enabledTime == 0 && effectiveEpoch == currentEpoch) {
+            // if the node was added in the current epoch, calcAndCacheNodeWeightsForOperator will update the cache in the next epoch
+            return;
+        } else {
+            revert AvalancheL1Middleware__NodeStateNotUpdated();
         }
     }
 
@@ -1214,35 +1225,42 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     function _disableNode(address operator, bytes32 nodeId, bytes32 valId) internal {
         (uint48 enabledTime, uint48 disabledTime) = operatorNodes[operator].getTimes(nodeId);
         Validator memory validator = balancerValidatorManager.getValidator(valId);
+        uint48 currentEpoch = getCurrentEpoch();
+        uint48 effectiveEpoch = getEpochAtTs(uint48(validator.startedAt));
 
-        if (validator.status == ValidatorStatus.Completed && enabledTime != 0 && disabledTime == 0) {
+        if (validator.status == ValidatorStatus.Completed && enabledTime != 0 && disabledTime == 0 && effectiveEpoch < currentEpoch) {
             operatorNodes[operator].disable(nodeId);
-            nodeWeightCache[getCurrentEpoch()][valId] = 0;
-            operatorLockedStake[operator] += validator.weight;
-            nodePendingUpdate[getCurrentEpoch()][valId] = false;
+            nodeWeightCache[currentEpoch][valId] = 0;
+            // operatorLockedStake[operator] += validator.weight;
+            nodePendingUpdate[valId] = false;
             _removeNodeFromArray(operator, nodeId);
+        } else if (validator.status == ValidatorStatus.Completed && enabledTime != 0 && disabledTime == 0 && effectiveEpoch == currentEpoch) {
+            // if the node was removed in the current epoch, calcAndCacheNodeWeightsForOperator will update the cache in the next epoch
+            return;
+        } else {
+            revert AvalancheL1Middleware__NodeStateNotUpdated();
         }
     }
 
     function _updateNode(address operator, bytes32 nodeId, bytes32 valId) internal {
         (uint48 enabledTime, uint48 disabledTime) = operatorNodes[operator].getTimes(nodeId);
         Validator memory validator = balancerValidatorManager.getValidator(valId);
-
         uint48 currentEpoch = getCurrentEpoch();
+
         uint256 oldConfirmed = getEffectiveNodeWeight(currentEpoch, valId);
         uint64 finalWeight = balancerValidatorManager.getValidator(valId).weight;
-        if (validator.status == ValidatorStatus.Active && enabledTime != 0 && disabledTime == 0) {
+        if (validator.status == ValidatorStatus.Active && enabledTime != 0 && disabledTime == 0 && nodePendingUpdate[valId]) {
             if (finalWeight < oldConfirmed) {
-                uint256 delta = oldConfirmed - finalWeight;
-                operatorNodes[operator].enable(nodeId);
-                operatorLockedStake[operator] -= delta;
+
+                // no lock should happen, it's locked in the cache
+                // uint256 delta = oldConfirmed - finalWeight;
+                // operatorLockedStake[operator] -= delta;
             } else if (finalWeight > oldConfirmed) {
                 uint256 delta = finalWeight - oldConfirmed;
-                operatorNodes[operator].enable(nodeId);
                 operatorLockedStake[operator] -= delta;
             }
-            nodeWeightCache[getCurrentEpoch()][valId] = finalWeight;
-            nodePendingUpdate[getCurrentEpoch()][valId] = false;
+            nodeWeightCache[currentEpoch][valId] = finalWeight;
+            nodePendingUpdate[valId] = false;
         }
     }
 
@@ -1315,9 +1333,5 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             }
         }
         return activeNodeIds;
-    }
-
-    function getNodePendingUpdate(uint48 epoch, bytes32 validationId) external view returns (bool) {
-        return nodePendingUpdate[epoch][validationId];
     }
 }
