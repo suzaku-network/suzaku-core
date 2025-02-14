@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
+import {Test, console2} from "forge-std/Test.sol";
+
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
@@ -130,19 +132,15 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
     mapping(address => uint96) public vaultToAssetClass;
 
-    // added
-    // For time-based enable/disable
     mapping(address => EnumerableMap.Bytes32ToUintMap) private operatorNodes;
-    // For node indexing
-    mapping(address => bytes32[]) private operatorNodesArray;           // dynamic array for stable index
-    // mapping(address => NodeInfo[]) private operatorNodes;
+    mapping(address => bytes32[]) private operatorNodesArray;           // dynamic array for stable index and random access
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(address => mapping(uint48 => bool)) private rebalancedThisEpoch;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeWeightCache;
     mapping(bytes32 => bool) public nodePendingUpdate;
     mapping(uint48 => mapping(bytes32 => bool)) public nodePendingCompletedUpdate;
 
-    // Local stake accounting (reserved stake)
+    // Local stake accounting (reserved stake until confirmed next epoch)
     mapping(address => uint256) public operatorLockedStake;
 
 
@@ -998,9 +996,21 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                 // atm only updates for the next epoch are done, if there's a new update, it will be checked in the next epoch
                 // can be modified if we review the current epoch later as well
             }
+            // is this correct in back to back updates?
+            if (!nodePendingCompletedUpdate[previousEpoch][valId] && nodePendingCompletedUpdate[currentEpoch][valId]) {
+                if (nodeWeightCache[currentEpoch][valId] == 0) {
+                    nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
+                }
+                if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
+                    nodePendingCompletedUpdate[currentEpoch][valId] = true; // 2 times
+                }
+                continue;
+            }
             Validator memory validator = balancerValidatorManager.getValidator(valId);
             if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId) && nodePendingCompletedUpdate[previousEpoch][valId]) {
-                // nodeWeightCache[currentEpoch][valId] = validator.weight;
+                if (nodeWeightCache[currentEpoch][valId] == 0) {
+                    nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
+                }
                 _updateNode(operator, nodeId, valId);
             } else if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
                 // nodeWeightCache[currentEpoch][valId] = validator.weight;
@@ -1242,6 +1252,12 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         }
     }
 
+    /**
+     * @notice Updates the weight of nodes
+     * @param operator The operator address
+     * @param nodeId The node ID
+     * @param valId The validation ID
+     */
     function _updateNode(address operator, bytes32 nodeId, bytes32 valId) internal {
         (uint48 enabledTime, uint48 disabledTime) = operatorNodes[operator].getTimes(nodeId);
         Validator memory validator = balancerValidatorManager.getValidator(valId);
@@ -1249,6 +1265,8 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
         uint256 oldConfirmed = getEffectiveNodeWeight(currentEpoch, valId);
         uint64 finalWeight = balancerValidatorManager.getValidator(valId).weight;
+        console2.log("oldConfirmed", oldConfirmed);
+        console2.log("finalWeight", finalWeight);
         if (validator.status == ValidatorStatus.Active && enabledTime != 0 && disabledTime == 0 && nodePendingUpdate[valId]) {
             if (finalWeight < oldConfirmed) {
 
@@ -1261,6 +1279,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             }
             nodeWeightCache[currentEpoch][valId] = finalWeight;
             nodePendingUpdate[valId] = false;
+            nodePendingCompletedUpdate[currentEpoch][valId] = false;
         }
     }
 
