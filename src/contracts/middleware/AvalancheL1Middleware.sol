@@ -722,15 +722,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     }
 
     /**
-     * @notice  Gets the effective weight for a specific ValidationID.
-     * @param epoch The epoch number
-     * @param validationID The validation ID
-     */
-    function getEffectiveNodeWeight(uint48 epoch, bytes32 validationID) internal view returns (uint256) {
-        return nodeWeightCache[epoch][validationID];
-    }
-
-    /**
      * @notice Add a new node => create a new validator.
      * Check the new node stake also ensure security module capacity.
      * @param nodeId The node ID
@@ -951,88 +942,50 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         emit AllNodeWeightsUpdated(operator, newTotalStake);
     }
 
-    function completeValidatorRegistration(bytes32 nodeId, uint32 messageIndex) external {
-        if (!operatorNodes[msg.sender].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
-        _completeValidatorRegistration(msg.sender, nodeId, messageIndex);
-    }
-
-
-
-    /**
-     * @notice Finalize a pending weight update
-     * @param nodeId The node ID
-     * @param messageIndex The message index
-     */
-    function completeNodeWeightUpdate(bytes32 nodeId, uint32 messageIndex) external {
-        if (!operatorNodes[msg.sender].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
-        //  
-         _completeWeightUpdateAndCache(msg.sender, nodeId, messageIndex);
-    }
-
     /**
      * @notice Caches manager-based weight for each node of `operator` in epoch `currentEpoch`.
      * @param operator The operator address
      */
     function calcAndCacheNodeWeightsForOperator(address operator) public {
-        bytes32[] storage nodesArr = operatorNodesArray[operator];
         uint48 currentEpoch = getCurrentEpoch();
-        uint48 previousEpoch;
-        if (currentEpoch == 0) {
-            previousEpoch = 0;
-        } else {
-            previousEpoch = currentEpoch - 1;
-        }
+        uint48 previousEpoch = currentEpoch == 0 ? 0 : currentEpoch - 1;
+
+        bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length; i++) {
             bytes32 nodeId = nodesArr[i];
             bytes32 valId = getCurrentValidationID(nodeId);
-            // if true this node had no pending changes
+            Validator memory validator = balancerValidatorManager.getValidator(valId);
+            // If no pending update, carry over previous weight to current epoch
             if (!nodePendingUpdate[valId]) {
                 nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
                 continue; 
                 // atm only updates for the next epoch are done, if there's a new update, it will be checked in the next epoch
                 // can be modified if we review the current epoch later as well
+            } else if (nodeWeightCache[currentEpoch][valId] == 0) {
+                nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
             }
             // is this correct in back to back updates?
             if (!nodePendingCompletedUpdate[previousEpoch][valId] && nodePendingCompletedUpdate[currentEpoch][valId]) {
-                if (nodeWeightCache[currentEpoch][valId] == 0) {
-                    nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
-                }
-                if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
-                    nodePendingCompletedUpdate[currentEpoch][valId] = true; // 2 times
-                }
                 continue;
             }
-            Validator memory validator = balancerValidatorManager.getValidator(valId);
             if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId) && nodePendingCompletedUpdate[previousEpoch][valId]) {
-                if (nodeWeightCache[currentEpoch][valId] == 0) {
-                    nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
-                }
                 _updateNode(operator, nodeId, valId);
             } else if (validator.status == ValidatorStatus.Active && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
-                // nodeWeightCache[currentEpoch][valId] = validator.weight;
                 _enableNode(operator, nodeId, valId);
             }          
             else if (validator.status == ValidatorStatus.Completed) {
-                nodeWeightCache[currentEpoch][valId] = 0;
                 _disableNode(operator, nodeId, valId);
-            }else if (validator.status == ValidatorStatus.PendingRemoved) {
-                nodeWeightCache[currentEpoch][valId] = validator.weight;
-                nodePendingUpdate[valId] = true;
-            } else if (validator.status == ValidatorStatus.PendingAdded) {
-                nodeWeightCache[currentEpoch][valId] = 0;
-                nodePendingUpdate[valId] = true;
-            } else if (validator.status != ValidatorStatus.Active && balancerValidatorManager.isValidatorPendingWeightUpdate(valId)){
-                nodeWeightCache[currentEpoch][valId] = validator.weight;
-                nodePendingUpdate[valId] = true;
-            } else {
-                nodeWeightCache[currentEpoch][valId] = 0;
-                nodePendingUpdate[valId] = false;
             }
         }
+    }
+
+    /**
+     * @notice  Gets the effective weight for a specific ValidationID.
+     * @param epoch The epoch number
+     * @param validationID The validation ID
+     */
+    function getEffectiveNodeWeight(uint48 epoch, bytes32 validationID) internal view returns (uint256) {
+        return nodeWeightCache[epoch][validationID];
     }
 
     /**
@@ -1063,6 +1016,55 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         return nodeWeightCache[epoch][validationId];
     }
 
+    /** @notice Returns the available stake for an operator
+     * @param operator The operator address
+     * @return The available stake
+     */
+    function getOperatorAvailableStake(address operator) external view returns (uint256) {
+        return _getOperatorAvailableStake(operator);
+    }
+
+    /**
+     * @notice Returns the current epoch number
+     * @param operator The operator address
+     * @param epoch The epoch number
+     * @return activeNodeIds The list of nodes
+     */
+    function getActiveNodesForEpoch(address operator, uint48 epoch)
+        external
+        view
+        returns (bytes32[] memory activeNodeIds)
+    {
+        uint48 epochStartTs = getEpochStartTs(epoch);
+
+        // iterates over operator enumerable to find active nodes
+        uint256 length = operatorNodes[operator].length();
+        uint256 activeCount;
+
+        // Count how many nodes were active at epochStartTs
+        for (uint256 i = 0; i < length; i++) {
+            (, uint48 enabledTime, uint48 disabledTime) =
+                operatorNodes[operator].atWithTimes(i);
+
+            if (_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
+                activeCount++;
+            }
+        }
+
+        // Collect them into the result array
+        activeNodeIds = new bytes32[](activeCount);
+        uint256 idx;
+        for (uint256 i = 0; i < length; i++) {
+            (bytes32 nodeId, uint48 enabledTime, uint48 disabledTime) =
+                operatorNodes[operator].atWithTimes(i);
+
+            if (_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
+                activeNodeIds[idx++] = nodeId;
+            }
+        }
+        return activeNodeIds;
+    }
+
     /**
      * @notice Update the weight of a validator.
      * @param nodeId The node ID.
@@ -1088,20 +1090,31 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         _updateValidatorWeightAndLock(msg.sender, valId, newWeight);
     }
 
+    function completeValidatorRegistration(bytes32 nodeId, uint32 messageIndex) external {
+        if (!operatorNodes[msg.sender].contains(nodeId)) {
+            revert AvalancheL1Middleware__NodeNotFound();
+        }
+        _completeValidatorRegistration(msg.sender, nodeId, messageIndex);
+    }
+
+    /**
+     * @notice Finalize a pending weight update
+     * @param nodeId The node ID
+     * @param messageIndex The message index
+     */
+    function completeNodeWeightUpdate(bytes32 nodeId, uint32 messageIndex) external {
+        if (!operatorNodes[msg.sender].contains(nodeId)) {
+            revert AvalancheL1Middleware__NodeNotFound();
+        }
+         _completeWeightUpdateAndCache(msg.sender, nodeId, messageIndex);
+    }
+
     /**
      * @notice Get the validator per ValidationID.
      * @param validationID The validation ID.
      */
     function _getValidator(bytes32 validationID) internal view returns (Validator memory) {
         return balancerValidatorManager.getValidator(validationID);
-    }
-
-    /** @notice Returns the available stake for an operator
-     * @param operator The operator address
-     * @return The available stake
-     */
-    function getOperatorAvailableStake(address operator) external view returns (uint256) {
-        return _getOperatorAvailableStake(operator);
     }
 
     /**
@@ -1311,46 +1324,5 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                 break; 
             }
         }
-    }
-
-    /**
-     * @notice Returns the current epoch number
-     * @param operator The operator address
-     * @param epoch The epoch number
-     * @return activeNodeIds The list of nodes
-     */
-    function getActiveNodesForEpoch(address operator, uint48 epoch)
-        external
-        view
-        returns (bytes32[] memory activeNodeIds)
-    {
-        uint48 epochStartTs = getEpochStartTs(epoch);
-
-        // iterates over operator enumerable to find active nodes
-        uint256 length = operatorNodes[operator].length();
-        uint256 activeCount;
-
-        // Count how many nodes were active at epochStartTs
-        for (uint256 i = 0; i < length; i++) {
-            (, uint48 enabledTime, uint48 disabledTime) =
-                operatorNodes[operator].atWithTimes(i);
-
-            if (_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                activeCount++;
-            }
-        }
-
-        // Collect them into the result array
-        activeNodeIds = new bytes32[](activeCount);
-        uint256 idx;
-        for (uint256 i = 0; i < length; i++) {
-            (bytes32 nodeId, uint48 enabledTime, uint48 disabledTime) =
-                operatorNodes[operator].atWithTimes(i);
-
-            if (_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                activeNodeIds[idx++] = nodeId;
-            }
-        }
-        return activeNodeIds;
     }
 }
