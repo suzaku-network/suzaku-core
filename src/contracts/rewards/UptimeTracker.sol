@@ -30,22 +30,29 @@ struct ValidatorUptimeInfos {
     uint256 uptimeSeconds;
 }
 
+/**
+ * @title UptimeTracker
+ * @dev Tracks validator uptime and calculates uptime percentages per epoch.
+ * Used to monitor validator activity and operator performance.
+ */
 contract UptimeTracker {
     // need to fetch this value from wherever
     uint48 public immutable EPOCH_DURATION = 4 hours;
 
     AvalancheL1Middleware private l1Middleware;
+
+    // move these to another contract
     uint256 private rewardsPerEpoch;
     uint256 private partOfRewardsForPrimaryAssetClass;
     uint256 private partOfRewardsForSecondaryAssetClass;
 
-    /// @notice validation ID => last uptime checkpoint
+    /// @notice Mapping of validation ID to the last recorded uptime checkpoint.
     mapping(string => LastUptimeCheckpoint) public validatorLastUptimeCheckpoint;
 
-    /// @notice epoch => validation ID => uptime
+    /// @notice Mapping of epoch to validator uptime percentage.
     mapping(uint48 => mapping(string => uint256)) public validatorUptimePerEpoch;
 
-    /// @notice epoch => operator address => uptime
+    /// @notice Mapping of epoch to operator uptime percentage.
     mapping(uint48 => mapping(address => uint256)) public operatorUptimePerEpoch;
 
     constructor(
@@ -54,6 +61,10 @@ contract UptimeTracker {
         l1Middleware = AvalancheL1Middleware(_l1Middleware);
     }
 
+    /**
+     * @notice Sets the initial uptime checkpoint for a validator.
+     * @param validatorUptimeInfos Struct containing validator uptime data.
+     */
     function setInitialCheckpoint(
         ValidatorUptimeInfos memory validatorUptimeInfos
     ) external {
@@ -61,6 +72,11 @@ contract UptimeTracker {
             LastUptimeCheckpoint({remainingUptime: 0, uptime: 0, timestamp: validatorUptimeInfos.startTimestamp});
     }
 
+    /**
+     * @notice Computes and records the validator's uptime for each epoch.
+     * @param validatorUptimeInfos Struct containing validator uptime data.
+     * @param timestamp Current timestamp at which uptime is measured.
+     */
     function calculateValidatorUptimeCoverage(
         ValidatorUptimeInfos memory validatorUptimeInfos,
         uint256 timestamp
@@ -107,25 +123,49 @@ contract UptimeTracker {
         }
     }
 
+    /**
+     * @notice Computes and records an operator’s uptime for a given epoch.
+     * @dev Aggregates uptime from all validators operated by the given operator for a given epoch.
+     * @param operator Address of the operator.
+     * @param epoch Epoch for which uptime is calculated.
+     */
     function calculateOperatorUptimeCoverageAt(address operator, uint48 epoch) external {
         /**
-         * Get operator list of validator
-         * For each validator:
-         *  - get validationID
-         *  - get uptime from validatorUptimePerEpoch mapping
-         * Sum all uptimes
-         * If an uptime is missing revert
-         * Add the uptime sum to the operatorUptimePerEpoch mapping
+         * Fetch operator's validators.
+         * Sum the uptime percentages from `validatorUptimePerEpoch`.
+         * If any validator uptime is missing, revert.
+         * Store aggregated uptime in `operatorUptimePerEpoch`.
          */
     }
 
+    /**
+     * @notice Returns the last uptime checkpoint for a validator.
+     * @param validationID The validator's unique validation ID.
+     * @return Last recorded uptime checkpoint.
+     */
     function getLastUptimeCheckpoint(
         string memory validationID
     ) external view returns (LastUptimeCheckpoint memory) {
         return validatorLastUptimeCheckpoint[validationID];
     }
 
+    /**
+     * @notice Returns a validator's uptime percentage for a specific epoch.
+     * @param validationID The validator's unique validation ID.
+     * @param epoch The epoch number.
+     * @return Uptime percentage for the validator.
+     */
     function getValidatorUptimeAt(string memory validationID, uint48 epoch) external view returns (uint256) {
         return validatorUptimePerEpoch[epoch][validationID];
+    }
+
+    /**
+     * @notice Returns an operator's aggregated uptime percentage for a specific epoch.
+     * @param operator The address of the operator.
+     * @param epoch The epoch number.
+     * @return Uptime percentage for the operator.
+     */
+    function getOperatorUptimeAt(address operator, uint48 epoch) external view returns (uint256) {
+        return operatorUptimePerEpoch[epoch][operator];
     }
 }
