@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Ecosystem
 pragma solidity ^0.8.25;
 
+import {Test, console2} from "forge-std/Test.sol";
+
 import {
     IValidatorManager,
     Validator,
@@ -124,6 +126,11 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
         if (securityModuleWeight[secMod] >= v.weight) {
             securityModuleWeight[secMod] -= v.weight;
         }
+
+        pendingRegistrationMessages[nextMessageIndex] = validationID;
+        nextMessageIndex++;
+        console2.log("validationID", uint256(validationID));
+        console2.log("nextMessageIndex", nextMessageIndex);
     }
 
     function initializeValidatorWeightUpdate(
@@ -169,8 +176,26 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
         revert("resendEndValidatorMessage not implemented in mock");
     }
 
-    function completeEndValidation(uint32 /* messageIndex */) external override {
-        // For testing, do nothing.
+
+    function completeEndValidation(uint32 messageIndex) external override {
+        bytes32 validationID = pendingRegistrationMessages[messageIndex];
+        console2.log("validationID 1", uint256(pendingRegistrationMessages[1]));
+        console2.log("validationID 2", uint256(pendingRegistrationMessages[2]));
+        console2.log("validationID 3", uint256(pendingRegistrationMessages[3]));
+        console2.log("validationID 4", uint256(pendingRegistrationMessages[4]));
+        require(validationID != bytes32(0), "Invalid validationID");
+        console2.log("validationID", uint256(validationID));
+
+        Validator storage validator = validators[validationID];
+        require(validator.status == ValidatorStatus.PendingRemoved, "Validator not PendingRemoved");
+
+        // Mark it ended/completed
+        validator.status = ValidatorStatus.Completed;
+        validator.endedAt = uint64(block.timestamp);
+
+        // Clean up
+        delete pendingRegistrationMessages[messageIndex];
+        delete pendingTermination[validationID];
     }
 
     // --- Additional helper functions ---
