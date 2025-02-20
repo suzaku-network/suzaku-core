@@ -98,9 +98,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     using EnumerableMap for EnumerableMap.Bytes32ToUintMap;
     using MapWithTimeDataBytes32 for EnumerableMap.Bytes32ToUintMap;
 
-    // ─────────────────────────────────────────────────────────────
-    // Events
-    // ─────────────────────────────────────────────────────────────
     event NodeAdded(
         address indexed operator, bytes32 indexed nodeId, bytes blsKey, uint256 stake, bytes32 validationID
     );
@@ -109,9 +106,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     event OperatorHasLeftoverStake(address indexed operator, uint256 leftoverStake);
     event AllNodeWeightsUpdated(address indexed operator, uint256 newStake);
 
-    // ─────────────────────────────────────────────────────────────
-    // Immutable and constant state variables
-    // ─────────────────────────────────────────────────────────────
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable OPERATOR_REGISTRY;
     address public immutable VAULT_REGISTRY;
@@ -125,10 +119,8 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
+    uint256 public constant WEIGHT_SCALE_FACTOR = 1e8;
 
-    // ─────────────────────────────────────────────────────────────
-    // State variables
-    // ─────────────────────────────────────────────────────────────
     BalancerValidatorManager balancerValidatorManager;
     EnumerableSet.UintSet private secondaryAssetClasses;
     EnumerableMap.AddressToUintMap private operators;
@@ -142,13 +134,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(address => mapping(uint48 => bool)) private rebalancedThisEpoch;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeWeightCache;
+    mapping(bytes32 => uint256) public nodePendingWeight;
     mapping(bytes32 => bool) public nodePendingUpdate;
     mapping(uint48 => mapping(bytes32 => bool)) public nodePendingCompletedUpdate;
     mapping(address => uint256) public operatorLockedStake;
-
-    // ─────────────────────────────────────────────────────────────
-    // Constructor
-    // ─────────────────────────────────────────────────────────────
 
     /**
      * @notice Initializes contract settings
@@ -442,9 +431,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
         (uint64 currentSecurityModuleWeight, uint64 securitymoduleMaxWeight) =
             balancerValidatorManager.getSecurityModuleWeights(address(this));
-
-        if (currentSecurityModuleWeight + newWeight > securitymoduleMaxWeight) {
-            uint256 securityModuleCapacity = securitymoduleMaxWeight - currentSecurityModuleWeight;
+            uint256 convertedCurrentSecurityModuleWeight = weightToStake(currentSecurityModuleWeight);
+            uint256 convertedSecuritymoduleMaxWeight = weightToStake(securitymoduleMaxWeight);
+        if (convertedCurrentSecurityModuleWeight + newWeight > convertedSecuritymoduleMaxWeight) {
+            uint256 securityModuleCapacity = convertedSecuritymoduleMaxWeight - convertedCurrentSecurityModuleWeight;
 
             if (securityModuleCapacity < minStake) {
                 revert AvalancheL1Middleware__SecutiryModuleCapacityNotEnough();
@@ -462,7 +452,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             disableOwner: disableOwner
         });
 
-        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(input, uint64(newWeight));
+        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(input, stakeToWeight(newWeight));
 
         updateNodeKey(nodeId, keccak256(blsKey));
         updateNodeValidationID(nodeId, validationID);
@@ -478,6 +468,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         uint48 epoch = getCurrentEpoch();
         nodeWeightCache[epoch][validationID] = 0;
         nodePendingUpdate[validationID] = true;
+        nodePendingWeight[validationID] = newWeight;
 
         emit NodeAdded(operator, nodeId, blsKey, newWeight, validationID);
     }
@@ -580,7 +571,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                 if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
                     continue;
                 }
-                Validator memory validator = _getValidator(valId);
+                Validator memory validator = balancerValidatorManager.getValidator(valId);
                 if (validator.status != ValidatorStatus.Active) {
                     continue;
                 }
@@ -596,7 +587,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
                 if (newWeight >= 0 && newWeight < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
                     newWeight = 0;
-                    console2.log("Disabling node");
                     _initializeEndValidationAndFlag(operator, valId, nodeId);
                 } else {
                     // not release stake until confirmation.
@@ -783,7 +773,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             ) {
                 _enableNode(operator, nodeId, valId);
             } else if (validator.status == ValidatorStatus.Completed) {
-                console2.log("Disabling node", uint256(nodeId));
                 _disableNode(operator, nodeId, valId);
             }
         }
@@ -848,8 +837,9 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
         if (enabledTime == 0 && effectiveEpoch < currentEpoch) {
             operatorNodes[operator].enable(nodeId);
-            operatorLockedStake[operator] -= validator.weight;
-            nodeWeightCache[currentEpoch][valId] = validator.weight;
+            operatorLockedStake[operator] -= nodePendingWeight[valId];
+            nodeWeightCache[currentEpoch][valId] = nodePendingWeight[valId];
+            nodePendingWeight[valId] = 0;
             nodePendingUpdate[valId] = false;
         } else if (enabledTime == 0 && effectiveEpoch == currentEpoch) {
             // if the node was added in the current epoch, calcAndCacheNodeWeightsForOperator will update the cache in the next epoch
@@ -876,6 +866,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             operatorNodes[operator].disable(nodeId);
             nodeWeightCache[currentEpoch][valId] = 0;
             nodePendingUpdate[valId] = false;
+            nodePendingWeight[valId] = 0;
             _removeNodeFromArray(operator, nodeId);
         } else if (enabledTime != 0 && disabledTime == 0 && endEpoch == currentEpoch) {
             // if the node was removed in the current epoch, calcAndCacheNodeWeightsForOperator will update the cache in the next epoch
@@ -897,9 +888,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         uint48 currentEpoch = getCurrentEpoch();
 
         uint256 oldConfirmed = getEffectiveNodeWeight(currentEpoch, valId);
-        uint64 finalWeight = balancerValidatorManager.getValidator(valId).weight;
-        console2.log("oldConfirmed", oldConfirmed);
-        console2.log("finalWeight", finalWeight);
+        uint256 finalWeight = nodePendingWeight[valId];
         if (
             validator.status == ValidatorStatus.Active && enabledTime != 0 && disabledTime == 0
                 && nodePendingUpdate[valId]
@@ -914,6 +903,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             }
             nodeWeightCache[currentEpoch][valId] = finalWeight;
             nodePendingUpdate[valId] = false;
+            nodePendingWeight[valId] = 0;
             nodePendingCompletedUpdate[currentEpoch][valId] = false;
         }
     }
@@ -1013,9 +1003,32 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         } else if (newWeight < cachedWeight) {
             // no lock should happen, it's locked in the cache
         }
-        balancerValidatorManager.initializeValidatorWeightUpdate(validationID, newWeight);
+        balancerValidatorManager.initializeValidatorWeightUpdate(validationID, stakeToWeight(newWeight));
         nodePendingUpdate[validationID] = true;
+        nodePendingWeight[validationID] = newWeight;
         // Does not update nodeWeightCache immediately, it will be updated in _completeWeightUpdateAndCache.
+    }
+
+    /**
+     * @notice Convert a full 256-bit stake amount into a 64-bit weight
+     * @dev Anything < WEIGHT_SCALE_FACTOR becomes 0
+     */
+    function stakeToWeight(
+        uint256 stakeAmount
+    ) public pure returns (uint64) {
+        uint256 weight = stakeAmount / WEIGHT_SCALE_FACTOR;
+        require(weight <= type(uint64).max, "Overflow in stakeToWeight");
+        return uint64(weight);
+    }
+
+    /**
+     * @notice Convert a 64-bit weight back into its 256-bit stake amount
+     */
+    function weightToStake(
+        uint64 weight
+    ) public pure returns (uint256) {
+        // Multiply by the same scale factor to recover the original stake
+        return uint256(weight) * WEIGHT_SCALE_FACTOR;
     }
 
     /**
