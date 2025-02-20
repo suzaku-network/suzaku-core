@@ -648,7 +648,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint64 newWeight = uint64(nodeWeight - 100);
 
         vm.prank(alice);
-        middleware.requestNodeWeightUpdate(nodeId, newWeight);
+        middleware.initializeValidatorWeightUpdateAndLock(nodeId, newWeight);
         assertEq(middleware.nodePendingUpdate(validationID), true, "Should be set on pending");
         uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
         // this shouldn't happen before completition, nor before the next epoch..
@@ -765,7 +765,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint64 newWeight = uint64(nodeWeight - 100);
 
         vm.prank(alice);
-        middleware.requestNodeWeightUpdate(nodeId, newWeight);
+        middleware.initializeValidatorWeightUpdateAndLock(nodeId, newWeight);
         assertEq(middleware.nodePendingUpdate(validationID), true, "Should be set on pending");
         uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
         // this shouldn't happen before completition, nor before the next epoch..
