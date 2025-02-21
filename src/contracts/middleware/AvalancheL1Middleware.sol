@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
+import {Test, console2} from "forge-std/Test.sol";
+
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
@@ -12,7 +14,6 @@ import {IRegistry} from "../../interfaces/common/IRegistry.sol";
 import {IEntity} from "../../interfaces/common/IEntity.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
-import {IBaseSlasher} from "../../interfaces/slasher/IBaseSlasher.sol";
 import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
@@ -25,15 +26,13 @@ import {
     PChainOwner
 } from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 import {ValidatorManager} from "@avalabs/teleporter/validator-manager/ValidatorManager.sol";
-import {IBalancerValidatorManager} from
-    "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
 
 import {SimpleKeyRegistry32} from "./SimpleKeyRegistry32.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
-import {SimpleNodeRegistry32} from "./SimpleNodeRegistry32.sol";
 import {MapWithTimeDataBytes32} from "./libraries/MapWithTimeDataBytes32.sol";
+import {SimpleNodeRegistry32} from "./SimpleNodeRegistry32.sol";
 
 struct AvalancheL1MiddlewareSettings {
     address l1ValidatorManager;
@@ -59,8 +58,8 @@ error AvalancheL1Middleware__CollateralNotInAssetClass();
 error AvalancheL1Middleware__InvalidEpoch();
 error AvalancheL1Middleware__MaxL1LimitZero();
 error AvalancheL1Middleware__NoSlasher();
-error AvalancheL1Middleware__NotOperator();
 error AvalancheL1Middleware__NotVault();
+error AvalancheL1Middleware__NotEnoughSecondaryAssetClasses();
 error AvalancheL1Middleware__NodeNotActive();
 error AvalancheL1Middleware__NotEnoughFreeStake();
 error AvalancheL1Middleware__WeightTooHigh();
@@ -260,13 +259,12 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             revert AvalancheL1Middleware__OperatorAlreadyRegistered();
         }
         if (!IOperatorRegistry(OPERATOR_REGISTRY).isRegistered(operator)) {
-            revert AvalancheL1Middleware__NotOperator();
+            revert AvalancheL1Middleware__OperatorNotRegistered();
         }
         if (!IOptInService(OPERATOR_L1_OPTIN).isOptedIn(operator, L1_VALIDATOR_MANAGER)) {
             revert AvalancheL1Middleware__OperatorNotOptedIn();
         }
 
-        // updateKey(operator, key);
         operators.add(operator);
         operators.enable(operator);
     }
@@ -402,6 +400,9 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered();
         }
+        if (!_requireMinSecondaryAssetClasses(1, operator)) {
+            revert AvalancheL1Middleware__NotEnoughSecondaryAssetClasses();
+        }
 
         uint256 available = _getOperatorAvailableStake(operator);
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
@@ -494,7 +495,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered();
         }
-
         // updates state of node weights cache based on prior actions
         calcAndCacheNodeWeightsForOperator(operator);
 
@@ -508,21 +508,19 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         // substraction of locked stake for pending changes
         newTotalStake = newTotalStake - operatorLockedStake[operator];
 
-        uint256 registeredWeight;
-        bytes32[] storage nodesArr = operatorNodesArray[operator];
-        for (uint256 i = 0; i < nodesArr.length; i++) {
-            bytes32 nodeId = nodesArr[i];
-            bytes32 valId = getCurrentValidationID(nodeId);
-            registeredWeight += getEffectiveNodeWeight(currentEpoch, valId);
-        }
+        uint256 registeredStake = getOperatorUsedWeightCached(operator);
 
-        if (newTotalStake == registeredWeight) {
+        bytes32[] storage nodesArr = operatorNodesArray[operator];
+        if (newTotalStake == registeredStake) {
             return;
-        } else if (newTotalStake > registeredWeight) {
-            uint256 unusedStake = newTotalStake - registeredWeight;
+        } else if (newTotalStake > registeredStake) {
+            uint256 unusedStake = newTotalStake - registeredStake;
             if (nodesArr.length == 0) {
                 emit OperatorHasLeftoverStake(operator, unusedStake);
                 return;
+            }
+            if (!_requireMinSecondaryAssetClasses(0, operator)) {
+                revert AvalancheL1Middleware__NotEnoughSecondaryAssetClasses();
             }
             for (uint256 i = nodesArr.length; i > 0 && unusedStake > 0;) {
                 i--;
@@ -554,7 +552,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                 emit OperatorHasLeftoverStake(operator, unusedStake);
             }
         } else {
-            uint256 overusedStake = registeredWeight - newTotalStake;
+            uint256 overusedStake = registeredStake - newTotalStake;
             for (uint256 i = nodesArr.length; i > 0 && overusedStake > 0;) {
                 i--;
                 bytes32 nodeId = nodesArr[i];
@@ -577,7 +575,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                 uint256 newWeight = previousWeight - stakeToRemove;
                 overusedStake -= stakeToRemove;
 
-                if (newWeight >= 0 && newWeight < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
+                if (
+                    newWeight >= 0 && newWeight < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake
+                        || !_requireMinSecondaryAssetClasses(0, operator)
+                ) {
                     newWeight = 0;
                     _initializeEndValidationAndFlag(operator, valId, nodeId);
                 } else {
@@ -733,31 +734,30 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         for (uint256 i = 0; i < nodesArr.length; i++) {
             bytes32 nodeId = nodesArr[i];
             bytes32 valId = getCurrentValidationID(nodeId);
-            Validator memory validator = balancerValidatorManager.getValidator(valId);
             // If no pending update, carry over previous weight to current epoch
-            if (!nodePendingUpdate[valId]) {
-                nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
-                continue;
-                // atm only updates for the next epoch are done, if there's a new update, it will be checked in the next epoch
-                // can be modified if we review the current epoch later as well
-            } else if (nodeWeightCache[currentEpoch][valId] == 0) {
+            // Should be replaced with checkpoints
+            if (nodeWeightCache[currentEpoch][valId] == 0) {
                 nodeWeightCache[currentEpoch][valId] = nodeWeightCache[previousEpoch][valId];
             }
-            // is this correct in back to back updates?
-            if (!nodePendingCompletedUpdate[previousEpoch][valId] && nodePendingCompletedUpdate[currentEpoch][valId]) {
+            if (
+                !nodePendingUpdate[valId]
+                    || (
+                        !nodePendingCompletedUpdate[previousEpoch][valId] && nodePendingCompletedUpdate[currentEpoch][valId]
+                    )
+            ) {
                 continue;
             }
+            Validator memory validator = balancerValidatorManager.getValidator(valId);
+
             if (
                 validator.status == ValidatorStatus.Active
                     && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId)
-                    && nodePendingCompletedUpdate[previousEpoch][valId]
             ) {
-                _updateNode(operator, nodeId, valId);
-            } else if (
-                validator.status == ValidatorStatus.Active
-                    && !balancerValidatorManager.isValidatorPendingWeightUpdate(valId)
-            ) {
-                _enableNode(operator, nodeId, valId);
+                if (nodePendingCompletedUpdate[previousEpoch][valId]) {
+                    _updateNode(operator, nodeId, valId);
+                } else {
+                    _enableNode(operator, nodeId, valId);
+                }
             } else if (validator.status == ValidatorStatus.Completed) {
                 _disableNode(operator, nodeId, valId);
             }
@@ -790,10 +790,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param nodeId The node ID
      */
     function _removeNode(address operator, bytes32 nodeId) internal {
-        if (!operators.contains(operator)) {
-            revert AvalancheL1Middleware__OperatorNotRegistered();
-        }
-        // check if node is in the operator's map
         _requireRegisteredOperatorAndNode(operator, nodeId);
 
         bytes32 valId = getCurrentValidationID(nodeId);
@@ -994,6 +990,29 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         if (!operatorNodes[operator].contains(nodeId)) {
             revert AvalancheL1Middleware__NodeNotFound();
         }
+    }
+
+    function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {
+        uint48 epoch = getCurrentEpoch();
+        uint256 nodeCount = operatorNodesArray[operator].length; // existing nodes
+
+        uint256 secCount = secondaryAssetClasses.length();
+        if (secCount == 0) {
+            return true;
+        }
+        for (uint256 i = 0; i < secCount; i++) {
+            uint256 classId = secondaryAssetClasses.at(i);
+            uint256 stake = getOperatorStake(operator, epoch, uint96(classId));
+            console2.log("stake", stake);
+            console2.log("nodeCount", nodeCount);
+            console2.log("minValidatorStake", assetClasses[classId].minValidatorStake);
+            // Check ratio vs. class's min stake
+            if (stake / (nodeCount + extraNode) < assetClasses[classId].minValidatorStake) {
+                return false;
+                // revert AvalancheL1Middleware__NotEnoughSecondaryAssetClasses();
+            }
+        }
+        return true;
     }
 
     /**
@@ -1319,20 +1338,18 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     }
 
     /**
-     * @notice Summation of node weights from the nodeWeightCache.
+     * @notice Summation of node stakes from the nodeWeightCache.
      * @param operator The operator address.
-     * @param currentEpoch The current epoch.
-     * @return registeredWeight The sum of node weights.
+     * @return registeredStake The sum of node stakes.
      */
     function getOperatorUsedWeightCached(
-        address operator,
-        uint48 currentEpoch
-    ) public view returns (uint256 registeredWeight) {
+        address operator
+    ) public view returns (uint256 registeredStake) {
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length; i++) {
             bytes32 nodeId = nodesArr[i];
             bytes32 valId = getCurrentValidationID(nodeId);
-            registeredWeight += getEffectiveNodeWeight(currentEpoch, valId);
+            registeredStake += getEffectiveNodeWeight(getCurrentEpoch(), valId);
         }
     }
 
