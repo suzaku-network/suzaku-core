@@ -17,7 +17,9 @@ contract MockAvalancheL1Middleware is Ownable {
         return vaultManager;
     }
 
-    function setVaultManager(address _vaultManager) external {
+    function setVaultManager(
+        address _vaultManager
+    ) external {
         vaultManager = _vaultManager;
     }
-} 
+}
