@@ -65,8 +65,9 @@ contract DeployTestAvalancheL1Middleware is Script {
                 operatorRegistry: address(operatorRegistry),
                 vaultRegistry: address(vaultFactory),
                 operatorL1Optin: address(operatorL1OptIn),
-                epochDuration: 3 hours,
-                slashingWindow: 4 hours
+                epochDuration: 4 hours,
+                slashingWindow: 5 hours,
+                weightUpdateWindow: 3 hours
             }),
             protocolOwnerAddress,
             primaryAsset,
