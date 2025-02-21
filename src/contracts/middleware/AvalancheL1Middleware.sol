@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Test, console2} from "forge-std/Test.sol";
-
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
@@ -399,15 +397,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         PChainOwner calldata remainingBalanceOwner,
         PChainOwner calldata disableOwner,
         uint256 initialWeight // optional
-    ) external {
+    ) external updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS) {
         address operator = msg.sender;
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered();
-        }
-
-        uint48 currentEpoch = getCurrentEpoch();
-        if (!totalStakeCached[currentEpoch][PRIMARY_ASSET_CLASS]) {
-            calcAndCacheStakes(currentEpoch, PRIMARY_ASSET_CLASS);
         }
 
         uint256 available = _getOperatorAvailableStake(operator);
@@ -431,8 +424,8 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
         (uint64 currentSecurityModuleWeight, uint64 securitymoduleMaxWeight) =
             balancerValidatorManager.getSecurityModuleWeights(address(this));
-            uint256 convertedCurrentSecurityModuleWeight = weightToStake(currentSecurityModuleWeight);
-            uint256 convertedSecuritymoduleMaxWeight = weightToStake(securitymoduleMaxWeight);
+        uint256 convertedCurrentSecurityModuleWeight = weightToStake(currentSecurityModuleWeight);
+        uint256 convertedSecuritymoduleMaxWeight = weightToStake(securitymoduleMaxWeight);
         if (convertedCurrentSecurityModuleWeight + newWeight > convertedSecuritymoduleMaxWeight) {
             uint256 securityModuleCapacity = convertedSecuritymoduleMaxWeight - convertedCurrentSecurityModuleWeight;
 
@@ -485,7 +478,10 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param operator The operator address
      * @param limitWeight The maximum weight adjustment (add or remove) allowed per node per call.
      */
-    function updateAllNodeWeights(address operator, uint256 limitWeight) external {
+    function updateAllNodeWeights(
+        address operator,
+        uint256 limitWeight
+    ) external updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS) {
         uint48 currentEpoch = getCurrentEpoch();
         // if (rebalancedThisEpoch[operator][currentEpoch]) {
         //     revert AvalancheL1Middleware__AlreadyRebalanced();
@@ -497,10 +493,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
 
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered();
-        }
-        if (!totalStakeCached[currentEpoch][PRIMARY_ASSET_CLASS]) {
-            // updates state of stake cache based on prior actions
-            calcAndCacheStakes(currentEpoch, PRIMARY_ASSET_CLASS);
         }
 
         // updates state of node weights cache based on prior actions
@@ -631,9 +623,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param messageIndex The message index
      */
     function completeValidatorRegistration(bytes32 nodeId, uint32 messageIndex) external {
-        if (!operatorNodes[msg.sender].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(msg.sender, nodeId);
         _completeValidatorRegistration(msg.sender, nodeId, messageIndex);
     }
 
@@ -643,16 +633,12 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param messageIndex The message index
      */
     function completeNodeWeightUpdate(bytes32 nodeId, uint32 messageIndex) external {
-        if (!operatorNodes[msg.sender].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(msg.sender, nodeId);
         _completeWeightUpdateAndCache(msg.sender, nodeId, messageIndex);
     }
 
     function completeValidatorRemoval(bytes32 nodeId, uint32 messageIndex) external {
-        if (!operatorNodes[msg.sender].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(msg.sender, nodeId);
         _completeValidatorRemoval(msg.sender, nodeId, messageIndex);
     }
 
@@ -808,9 +794,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             revert AvalancheL1Middleware__OperatorNotRegistered();
         }
         // check if node is in the operator's map
-        if (!operatorNodes[operator].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(operator, nodeId);
 
         bytes32 valId = getCurrentValidationID(nodeId);
         _initializeEndValidationAndFlag(operator, valId, nodeId);
@@ -934,9 +918,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
      */
     function _completeValidatorRegistration(address operator, bytes32 nodeId, uint32 messageIndex) internal {
-        if (!operatorNodes[operator].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(operator, nodeId);
         balancerValidatorManager.completeValidatorRegistration(messageIndex);
     }
 
@@ -947,9 +929,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
      */
     function _completeValidatorRemoval(address operator, bytes32 nodeId, uint32 messageIndex) internal {
-        if (!operatorNodes[operator].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(operator, nodeId);
         balancerValidatorManager.completeEndValidation(messageIndex);
     }
 
@@ -962,9 +942,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
      */
     function _completeWeightUpdateAndCache(address operator, bytes32 nodeId, uint32 messageIndex) internal {
-        if (!operatorNodes[operator].contains(nodeId)) {
-            revert AvalancheL1Middleware__NodeNotFound();
-        }
+        _requireRegisteredOperatorAndNode(operator, nodeId);
         bytes32 valId = getCurrentValidationID(nodeId);
 
         if (!balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) {
@@ -1007,6 +985,15 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         nodePendingUpdate[validationID] = true;
         nodePendingWeight[validationID] = newWeight;
         // Does not update nodeWeightCache immediately, it will be updated in _completeWeightUpdateAndCache.
+    }
+
+    function _requireRegisteredOperatorAndNode(address operator, bytes32 nodeId) internal view {
+        if (!operators.contains(operator)) {
+            revert AvalancheL1Middleware__OperatorNotRegistered();
+        }
+        if (!operatorNodes[operator].contains(nodeId)) {
+            revert AvalancheL1Middleware__NodeNotFound();
+        }
     }
 
     /**
@@ -1318,26 +1305,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             }
         }
         return activeNodeIds;
-    }
-
-    /**
-     * @notice Fetches the nodes of an operator
-     * @param operator The operator address
-     * @return nodes An array of node IDs
-     */
-    function getOperatorNodes(
-        address operator
-    ) external view returns (bytes32[] memory nodes) {
-        EnumerableMap.Bytes32ToUintMap storage operatorNodesMapping = operatorNodes[operator];
-
-        uint256 length = EnumerableMap.length(operatorNodesMapping);
-
-        nodes = new bytes32[](length);
-
-        for (uint256 i = 0; i < length; i++) {
-            (bytes32 key,) = EnumerableMap.at(operatorNodesMapping, i);
-            nodes[i] = key;
-        }
     }
 
     /**
