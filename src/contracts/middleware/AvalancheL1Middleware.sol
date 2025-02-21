@@ -41,6 +41,7 @@ struct AvalancheL1MiddlewareSettings {
     address operatorL1Optin;
     uint48 epochDuration;
     uint48 slashingWindow;
+    uint48 weightUpdateWindow;
 }
 
 struct OperatorData {
@@ -82,6 +83,7 @@ error AvalancheL1Middleware__NodeWeightNotCached();
 error AvalancheL1Middleware__SecutiryModuleCapacityNotEnough();
 error AvalancheL1Middleware__WeightUpdatePending();
 error AvalancheL1Middleware__NodeStateNotUpdated();
+error AvalancheL1Middleware__NotInFinalWindowOfEpoch();
 
 /**
  * @title AvalancheL1Middleware
@@ -112,6 +114,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     uint48 public immutable EPOCH_DURATION;
     uint48 public immutable SLASHING_WINDOW;
     uint48 public immutable START_TIME;
+    uint48 public immutable UPDATE_WINDOW;
 
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
@@ -164,6 +167,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
         OPERATOR_L1_OPTIN = settings.operatorL1Optin;
         SLASHING_WINDOW = settings.slashingWindow;
         PRIMARY_ASSET = primaryAsset;
+        UPDATE_WINDOW = settings.weightUpdateWindow;
 
         balancerValidatorManager = BalancerValidatorManager(settings.l1ValidatorManager);
 
@@ -178,6 +182,22 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     modifier updateStakeCache(uint48 epoch, uint96 assetClassId) {
         if (!totalStakeCached[epoch][assetClassId]) {
             calcAndCacheStakes(epoch, assetClassId);
+        }
+        _;
+    }
+
+    /**
+     * @notice Window where a node update can be done manually, before the force update can be applied
+     */
+    modifier onlyDuringFinalWindowOfEpoch() {
+        uint48 currentEpoch = getCurrentEpoch();
+        uint48 epochStartTs = getEpochStartTs(currentEpoch);
+        uint48 timeNow = Time.timestamp();
+
+        // Require: timeNow >= epochEndTs - weightUpdateGracePeriod
+        //          to ensure we're in the last "grace" seconds of the epoch.
+        if (timeNow < epochStartTs + UPDATE_WINDOW || timeNow > epochStartTs + EPOCH_DURATION) {
+            revert AvalancheL1Middleware__NotInFinalWindowOfEpoch();
         }
         _;
     }
@@ -482,7 +502,7 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
     function updateAllNodeWeights(
         address operator,
         uint256 limitWeight
-    ) external updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS) {
+    ) external updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS) onlyDuringFinalWindowOfEpoch() {
         uint48 currentEpoch = getCurrentEpoch();
         // if (rebalancedThisEpoch[operator][currentEpoch]) {
         //     revert AvalancheL1Middleware__AlreadyRebalanced();
