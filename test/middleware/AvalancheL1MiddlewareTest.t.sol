@@ -368,7 +368,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Advance time into the next middleware epoch.
         // uint48 nextEpoch = currentEpoch + 1;
         // uint256 nextEpochStart = middleware.getEpochStartTs(nextEpoch);
-        // uint256 nextEpochStart = middleware.getEpochStartTs(currentEpoch) + middleware.getEpochDuration();
+        // uint256 nextEpochStart = middleware.getEpochStartTs(currentEpoch) + middleware.EPOCH_DURATION();
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + vault.epochDuration();
         vm.warp(newEpochStart); // move just past the start of the next epoch
         console2.log("New VAULT epoch start:", vault.currentEpochStart());
@@ -460,7 +460,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -535,7 +535,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -602,7 +602,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 lockedStake = middleware.operatorLockedStake(alice);
         assertGt(lockedStake, 0, "LockedStake should be positive after adding a node");
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         // Move Middleware Epoch + 1 and check that the node weight is still not updated
         vm.warp(newMiddlewareEpochStart);
@@ -632,7 +632,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(lockedStake, 0, "LockedStake should be positive after adding a node");
 
         // Move to the next epoch
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
 
@@ -708,7 +708,7 @@ contract AvalancheL1MiddlewareTest is Test {
         );
 
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -762,7 +762,7 @@ contract AvalancheL1MiddlewareTest is Test {
         );
         assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be 0 as it's a negative update");
 
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
@@ -845,7 +845,7 @@ contract AvalancheL1MiddlewareTest is Test {
         );
 
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -926,7 +926,7 @@ contract AvalancheL1MiddlewareTest is Test {
         );
         assertEq(middleware.operatorLockedStake(alice), 0, "4 LockedStake should be 0 as it's a negative update");
 
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
@@ -1004,7 +1004,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1029,7 +1029,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.nodePendingUpdate(validationID), true, "Node should be pending update after removal");
 
         // Move to the next epoch
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
 
@@ -1049,7 +1049,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1119,7 +1119,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1144,7 +1144,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.nodePendingUpdate(validationID), true, "Node should be pending update after removal");
 
         // Move to the next epoch
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
 
@@ -1154,7 +1154,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.nodePendingUpdate(validationID), true, "Node should be pending update after removal");
 
         // Move to the next epoch
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
 
@@ -1164,7 +1164,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.nodePendingUpdate(validationID), true, "Node should be pending update after removal");
 
         // Move to the next epoch
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeWeightsForOperator(alice);
@@ -1180,7 +1180,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1270,7 +1270,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1292,7 +1292,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1317,7 +1317,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.nodePendingUpdate(validationID), true, "Node should be pending update after removal");
 
         // Move to the next epoch
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
 
@@ -1337,7 +1337,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1429,7 +1429,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
@@ -1451,7 +1451,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
-        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.getEpochDuration() + 1;
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
 
         vm.warp(newMiddlewareEpochStart);
 
@@ -1976,7 +1976,7 @@ contract AvalancheL1MiddlewareTest is Test {
     // function _moveToNextEpochAndCalc(address operator, uint256 numberOfEpochs) internal {
     //     for (uint256 i = 0; i < numberOfEpochs; i++) {
     //         uint256 newMiddlewareEpochStart =
-    //             middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.getEpochDuration() + 1;
+    //             middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
     //         vm.warp(newMiddlewareEpochStart);
     //         middleware.calcAndCacheNodeWeightsForOperator(operator);
     //         console2.log("Current middleware epoch:", middleware.getCurrentEpoch());

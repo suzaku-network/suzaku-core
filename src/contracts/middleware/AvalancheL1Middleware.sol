@@ -893,14 +893,11 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
             validator.status == ValidatorStatus.Active && enabledTime != 0 && disabledTime == 0
                 && nodePendingUpdate[valId]
         ) {
-            if (finalWeight < oldConfirmed) {
-                // no lock should happen, it's locked in the cache
-                // uint256 delta = oldConfirmed - finalWeight;
-                // operatorLockedStake[operator] -= delta;
-            } else if (finalWeight > oldConfirmed) {
+            if (finalWeight > oldConfirmed) {
                 uint256 delta = finalWeight - oldConfirmed;
                 operatorLockedStake[operator] -= delta;
             }
+            // If finalWeight < oldConfirmed, no lock should happen, it's locked in the cache
             nodeWeightCache[currentEpoch][valId] = finalWeight;
             nodePendingUpdate[valId] = false;
             nodePendingWeight[valId] = 0;
@@ -994,9 +991,8 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
                 revert AvalancheL1Middleware__NotEnoughFreeStake();
             }
             operatorLockedStake[operator] += delta;
-        } else if (newWeight < cachedWeight) {
-            // no lock should happen, it's locked in the cache
         }
+        // if newWeight < cachedWeight, no lock should happen, it's locked in the cache
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, stakeToWeight(newWeight));
         nodePendingUpdate[validationID] = true;
         nodePendingWeight[validationID] = newWeight;
@@ -1164,10 +1160,6 @@ contract AvalancheL1Middleware is SimpleNodeRegistry32, Ownable, AssetClassRegis
      */
     function getCurrentEpoch() public view returns (uint48 epoch) {
         return getEpochAtTs(Time.timestamp());
-    }
-
-    function getEpochDuration() public view returns (uint48) {
-        return EPOCH_DURATION;
     }
 
     /**
