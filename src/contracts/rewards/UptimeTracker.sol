@@ -5,30 +5,13 @@ pragma solidity 0.8.25;
 
 import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 
-/**
- * Calculate the uptime for each validator DONE
- * Aggregate uptime for the operators
- * Define rewards given for each asset class
- * Claimable rewards in one token (but can issue another erc20 if wanted)
- *
- */
 struct LastUptimeCheckpoint {
     uint256 remainingUptime;
     uint256 uptime;
     uint256 timestamp;
 }
 
-struct ValidatorUptimeInfos {
-    string validationID;
-    string nodeID;
-    uint256 weight;
-    uint256 startTimestamp;
-    bool isActive;
-    bool isL1Validator;
-    bool isConnected;
-    uint256 uptimePercentage;
-    uint256 uptimeSeconds;
-}
+error UptimeTracker__ValidatorUptimeNotRecorded(uint48 epoch, bytes32 validator);
 
 /**
  * @title UptimeTracker
@@ -36,53 +19,65 @@ struct ValidatorUptimeInfos {
  * Used to monitor validator activity and operator performance.
  */
 contract UptimeTracker {
-    // need to fetch this value from wherever
-    uint48 public immutable EPOCH_DURATION = 4 hours;
+    /**
+     * @notice Emitted when a validator's uptime is recorded.
+     * @param validationID Unique ID of the validator's validation period.
+     * @param uptime Recorded uptime (in seconds) since the last proof.
+     * @param numberOfEpochs Number of epochs covered by this uptime.
+     * @param firstEpoch First epoch included in this uptime calculation.
+     */
+    event ValidatorUptimeComputed(
+        bytes32 indexed validationID, uint256 indexed uptime, uint256 indexed numberOfEpochs, uint48 firstEpoch
+    );
 
+    /**
+     * @notice Emitted when an operator's uptime is calculated.
+     * @param operator Operator's address.
+     * @param uptime Average uptime (in seconds) of the operator's validators.
+     * @param epoch Epoch for which uptime was recorded.
+     */
+    event OperatorUptimeComputed(address indexed operator, uint256 indexed uptime, uint48 indexed epoch);
+
+    uint48 private epochDuration;
     AvalancheL1Middleware private l1Middleware;
 
-    // move these to another contract
-    uint256 private rewardsPerEpoch;
-    uint256 private partOfRewardsForPrimaryAssetClass;
-    uint256 private partOfRewardsForSecondaryAssetClass;
-
     /// @notice Mapping of validation ID to the last recorded uptime checkpoint.
-    mapping(string => LastUptimeCheckpoint) public validatorLastUptimeCheckpoint;
+    mapping(bytes32 => LastUptimeCheckpoint) public validatorLastUptimeCheckpoint;
 
-    /// @notice Mapping of epoch to validator uptime percentage.
-    mapping(uint48 => mapping(string => uint256)) public validatorUptimePerEpoch;
+    /// @notice Mapping of epoch to validator uptime (in seconds).
+    mapping(uint48 => mapping(bytes32 => uint256)) public validatorUptimePerEpoch;
 
-    /// @notice Mapping of epoch to operator uptime percentage.
+    /// @notice Mapping of epoch to validator uptime recorded.
+    mapping(uint48 => mapping(bytes32 => bool)) public isUptimeSet;
+
+    /// @notice Mapping of epoch to operator uptime (in seconds).
     mapping(uint48 => mapping(address => uint256)) public operatorUptimePerEpoch;
 
     constructor(
         address _l1Middleware
     ) {
         l1Middleware = AvalancheL1Middleware(_l1Middleware);
+        epochDuration = l1Middleware.EPOCH_DURATION();
     }
 
     /**
      * @notice Sets the initial uptime checkpoint for a validator.
-     * @param validatorUptimeInfos Struct containing validator uptime data.
+     * @param validationID ID of the validation period of a validator.
+     * @param timestamp Timestamp at which the validator has activated its validation period.
      */
-    function setInitialCheckpoint(
-        ValidatorUptimeInfos memory validatorUptimeInfos
-    ) external {
-        validatorLastUptimeCheckpoint[validatorUptimeInfos.validationID] =
-            LastUptimeCheckpoint({remainingUptime: 0, uptime: 0, timestamp: validatorUptimeInfos.startTimestamp});
+    function setInitialCheckpoint(bytes32 validationID, uint256 timestamp) external {
+        validatorLastUptimeCheckpoint[validationID] =
+            LastUptimeCheckpoint({remainingUptime: 0, uptime: 0, timestamp: timestamp});
     }
 
     /**
      * @notice Computes and records the validator's uptime for each epoch.
-     * @param validatorUptimeInfos Struct containing validator uptime data.
+     * @param validationID ID of the validation period of a validator.
+     * @param uptime Current uptime recorded.
      * @param timestamp Current timestamp at which uptime is measured.
      */
-    function calculateValidatorUptimeCoverage(
-        ValidatorUptimeInfos memory validatorUptimeInfos,
-        uint256 timestamp
-    ) external {
-        LastUptimeCheckpoint storage lastUptimeCheckpoint =
-            validatorLastUptimeCheckpoint[validatorUptimeInfos.validationID];
+    function calculateValidatorUptimeCoverage(bytes32 validationID, uint256 uptime, uint256 timestamp) external {
+        LastUptimeCheckpoint storage lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
 
         uint48 lastUptimeEpoch = l1Middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
         uint256 lastUptimeEpochStart = l1Middleware.getEpochStartTs(lastUptimeEpoch);
@@ -90,37 +85,36 @@ contract UptimeTracker {
         uint48 currentEpoch = l1Middleware.getEpochAtTs(uint48(timestamp));
         uint256 currentEpochStart = l1Middleware.getEpochStartTs(currentEpoch);
 
-        uint256 totalUptime =
-            lastUptimeCheckpoint.remainingUptime + (validatorUptimeInfos.uptimeSeconds - lastUptimeCheckpoint.uptime);
+        uint256 totalUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.uptime);
         uint256 timeBetweenUptime = currentEpochStart - lastUptimeEpochStart;
-        uint256 numberOfEpochs = timeBetweenUptime / EPOCH_DURATION;
+        uint256 numberOfEpochs = timeBetweenUptime / epochDuration;
 
-        uint256 uptimePercentage;
+        uint256 uptimeToDistribute = totalUptime;
 
-        if (totalUptime > timeBetweenUptime) {
-            validatorLastUptimeCheckpoint[validatorUptimeInfos.validationID] = LastUptimeCheckpoint({
-                remainingUptime: totalUptime - timeBetweenUptime,
-                uptime: validatorUptimeInfos.uptimeSeconds,
+        if (uptimeToDistribute > timeBetweenUptime) {
+            validatorLastUptimeCheckpoint[validationID] = LastUptimeCheckpoint({
+                remainingUptime: uptimeToDistribute - timeBetweenUptime,
+                uptime: uptime,
                 timestamp: currentEpochStart
             });
-            uptimePercentage = 100;
         } else {
-            validatorLastUptimeCheckpoint[validatorUptimeInfos.validationID] = LastUptimeCheckpoint({
-                remainingUptime: 0,
-                uptime: validatorUptimeInfos.uptimeSeconds,
-                timestamp: currentEpochStart
-            });
-            uptimePercentage = (totalUptime * 100) / timeBetweenUptime;
+            validatorLastUptimeCheckpoint[validationID] =
+                LastUptimeCheckpoint({remainingUptime: 0, uptime: uptime, timestamp: currentEpochStart});
         }
 
         if (numberOfEpochs > 1) {
+            uint256 uptimePerEpoch = uptimeToDistribute / numberOfEpochs;
             for (uint48 i = 0; i < numberOfEpochs; i++) {
                 uint48 epoch = lastUptimeEpoch + i;
-                validatorUptimePerEpoch[epoch][validatorUptimeInfos.validationID] = uptimePercentage;
+                validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch;
+                isUptimeSet[epoch][validationID] = true;
             }
         } else if (numberOfEpochs == 1) {
-            validatorUptimePerEpoch[lastUptimeEpoch][validatorUptimeInfos.validationID] = uptimePercentage;
+            validatorUptimePerEpoch[lastUptimeEpoch][validationID] = uptimeToDistribute;
+            isUptimeSet[lastUptimeEpoch][validationID] = true;
         }
+
+        emit ValidatorUptimeComputed(validationID, uptimeToDistribute, numberOfEpochs, lastUptimeEpoch);
     }
 
     /**
@@ -130,12 +124,21 @@ contract UptimeTracker {
      * @param epoch Epoch for which uptime is calculated.
      */
     function calculateOperatorUptimeCoverageAt(address operator, uint48 epoch) external {
-        /**
-         * Fetch operator's validators.
-         * Sum the uptime percentages from `validatorUptimePerEpoch`.
-         * If any validator uptime is missing, revert.
-         * Store aggregated uptime in `operatorUptimePerEpoch`.
-         */
+        bytes32[] memory operatorNodes = l1Middleware.getActiveNodesForEpoch(operator, epoch);
+        uint256 numberOfValidators = operatorNodes.length;
+        uint256 sumValidatorsUptime = 0;
+
+        for (uint256 i = 0; i < numberOfValidators; i++) {
+            if (isUptimeSet[epoch][operatorNodes[i]] == false) {
+                revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, operatorNodes[i]);
+            }
+            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][operatorNodes[i]];
+            sumValidatorsUptime += uptimeValidator;
+        }
+
+        operatorUptimePerEpoch[epoch][operator] = sumValidatorsUptime / numberOfValidators;
+
+        emit OperatorUptimeComputed(operator, sumValidatorsUptime / numberOfValidators, epoch);
     }
 
     /**
@@ -144,28 +147,8 @@ contract UptimeTracker {
      * @return Last recorded uptime checkpoint.
      */
     function getLastUptimeCheckpoint(
-        string memory validationID
+        bytes32 validationID
     ) external view returns (LastUptimeCheckpoint memory) {
         return validatorLastUptimeCheckpoint[validationID];
-    }
-
-    /**
-     * @notice Returns a validator's uptime percentage for a specific epoch.
-     * @param validationID The validator's unique validation ID.
-     * @param epoch The epoch number.
-     * @return Uptime percentage for the validator.
-     */
-    function getValidatorUptimeAt(string memory validationID, uint48 epoch) external view returns (uint256) {
-        return validatorUptimePerEpoch[epoch][validationID];
-    }
-
-    /**
-     * @notice Returns an operator's aggregated uptime percentage for a specific epoch.
-     * @param operator The address of the operator.
-     * @param epoch The epoch number.
-     * @return Uptime percentage for the operator.
-     */
-    function getOperatorUptimeAt(address operator, uint48 epoch) external view returns (uint256) {
-        return operatorUptimePerEpoch[epoch][operator];
     }
 }
