@@ -13,6 +13,7 @@ import {
     AvalancheL1Middleware,
     AvalancheL1MiddlewareSettings
 } from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
 import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
@@ -75,6 +76,7 @@ contract AvalancheL1MiddlewareTest is Test {
     VaultTokenized internal vault;
     L1RestakeDelegator internal delegator;
     AvalancheL1Middleware internal middleware;
+    MiddlewareVaultManager internal vaultManager;
     Token internal collateral;
     MockBalancerValidatorManager internal mockValidatorManager;
 
@@ -227,10 +229,16 @@ contract AvalancheL1MiddlewareTest is Test {
             middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
         );
 
+
+        vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
         // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
         // middleware.activateSecondaryAssetClass(0);
 
+        // Set the vault manager in the middleware
+        middleware.setVaultManager(address(vaultManager));
+
         middleware.transferOwnership(validatorManagerAddress);
+        vaultManager.transferOwnership(validatorManagerAddress);
 
         // middleware = new AvalancheL1Middleware();
         uint64 maxWeight = 18 ether;
@@ -253,15 +261,15 @@ contract AvalancheL1MiddlewareTest is Test {
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
 
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         vm.startPrank(validatorManagerAddress); // Check if this should change
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
     }
 
     function test_RegisterOperator() public {
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
         _registerOperator(alice, "metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
 
@@ -276,10 +284,10 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 maxVaultL1Limit = 2000 ether;
         // middleware.addAssetToClass(1, address(collateral));
 
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         vm.startPrank(validatorManagerAddress);
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         _grantDepositorWhitelistRole(bob, alice);
@@ -301,10 +309,10 @@ contract AvalancheL1MiddlewareTest is Test {
 
     function test_AddNodeFailsWithNoStake() public {
         // Register L1 and vault but do not deposit any stake.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
         vm.startPrank(validatorManagerAddress);
         // Register vault (L1 limit can later be set if needed)
-        middleware.registerVault(address(vault), 1, 2000 ether);
+        vaultManager.registerVault(address(vault), 1, 2000 ether);
         vm.stopPrank();
 
         // Register the operator in the OperatorRegistry and opt in on L1.
@@ -332,11 +340,11 @@ contract AvalancheL1MiddlewareTest is Test {
 
     function test_AddNodeWithStakeAndTimeAdvance() public {
         // Register L1 and vault, then deposit stake.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         console2.log("L1Limit set to", maxVaultL1Limit);
         console2.log("L1Limit set actually", delegator.l1Limit(validatorManagerAddress, assetClassId));
         // console2.log("L1Limit set actually", delegator.maxL1Limit[validatorManagerAddress][assetClassId]);
@@ -406,13 +414,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_AddNodeSimple() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
@@ -478,13 +486,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_AddNodeSecondaryAsset() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // uint96 secondaryAssetClassId = 2;
@@ -553,13 +561,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_AddNodeLateCompletition() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
@@ -649,9 +657,9 @@ contract AvalancheL1MiddlewareTest is Test {
     function test_CompleteNodeWeightUpdate() public {
         uint96 assetClassId = 1;
         // Register L1 and the vault first.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
         vm.prank(validatorManagerAddress);
-        middleware.registerVault(address(vault), 1, 20 ether);
+        vaultManager.registerVault(address(vault), 1, 20 ether);
 
         _registerOperator(alice, "alice metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
@@ -786,9 +794,9 @@ contract AvalancheL1MiddlewareTest is Test {
     function test_CompleteLateNodeWeightUpdate() public {
         uint96 assetClassId = 1;
         // Register L1 and the vault first.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
         vm.prank(validatorManagerAddress);
-        middleware.registerVault(address(vault), 1, 20 ether);
+        vaultManager.registerVault(address(vault), 1, 20 ether);
 
         _registerOperator(alice, "alice metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
@@ -950,13 +958,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_RemoveNodeSimple() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
@@ -1065,13 +1073,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_RemoveNodeLate() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
@@ -1196,13 +1204,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_multipleNodes() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
@@ -1353,13 +1361,13 @@ contract AvalancheL1MiddlewareTest is Test {
     /// @notice Test that an operator can add a node.
     function test_forceUpdate() public {
         // Register L1 and vault, then register the operator on the registry.
-        _registerL1(validatorManagerAddress, address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
         vm.startPrank(validatorManagerAddress);
         // Register the vault first so that L1 limit can be set later.
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
@@ -1531,7 +1539,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     // Register L1 and vault first.
     //     _registerL1(validatorManagerAddress, address(middleware));
     //     vm.startPrank(validatorManagerAddress);
-    //     middleware.registerVault(address(vault), 1, 2000 ether);
+    //     vaultManager.registerVault(address(vault), 1, 2000 ether);
     //     vm.stopPrank();
 
     //     _registerOperator(alice, "alice metadata");
@@ -1578,7 +1586,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     // 1) Register L1 + Vault
     //     _registerL1(validatorManagerAddress, address(middleware));
     //     vm.startPrank(validatorManagerAddress);
-    //     middleware.registerVault(address(vault), 1, 5 ether);
+    //     vaultManager.registerVault(address(vault), 1, 5 ether);
     //     vm.stopPrank();
 
     //     // 2) Register operator
@@ -1710,7 +1718,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     // 1) Prepare vault and operator
     //     _registerL1(validatorManagerAddress, address(middleware));
     //     vm.startPrank(validatorManagerAddress);
-    //     middleware.registerVault(address(vault), 1, 3000 ether);
+    //     vaultManager.registerVault(address(vault), 1, 3000 ether);
     //     vm.stopPrank();
 
     //     _registerOperator(alice, "opAlice");
@@ -1787,7 +1795,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     // 1) Register L1 + Vault
     //     _registerL1(validatorManagerAddress, address(middleware));
     //     vm.startPrank(validatorManagerAddress);
-    //     middleware.registerVault(address(vault), 1, 10000 ether);
+    //     vaultManager.registerVault(address(vault), 1, 10000 ether);
     //     vm.stopPrank();
 
     //     // 2) Register 2 operators: alice + charlie
