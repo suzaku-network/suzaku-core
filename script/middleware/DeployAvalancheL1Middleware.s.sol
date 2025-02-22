@@ -17,6 +17,7 @@ import {
     AvalancheL1Middleware,
     AvalancheL1MiddlewareSettings
 } from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
 
 /**
  * @dev Deploy a test Avalanche L1 Middleware
@@ -74,6 +75,8 @@ contract DeployTestAvalancheL1Middleware is Script {
             primaryAssetMaxStake,
             primaryAssetMinStake
         );
+
+        MiddlewareVaultManager vaultManager = new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress);
 
         vm.stopBroadcast();
 
