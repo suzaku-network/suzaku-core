@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "../../src/contracts/middleware/AssetClassRegistry.sol";
 
-error AssetClassRegistry__AssetIsPrimaryAsset();
+error AssetClassRegistry__AssetIsPrimarytAssetClass(uint256 assetClassId);
 
 contract MockAssetClassRegistry is AssetClassRegistry {
     address public primaryAsset;
@@ -14,7 +14,7 @@ contract MockAssetClassRegistry is AssetClassRegistry {
 
     function removeAssetFromClass(uint256 assetClassId, address asset) external override {
         if (assetClassId == 1 && asset == primaryAsset) {
-            revert AssetClassRegistry__AssetIsPrimaryAsset();
+            revert AssetClassRegistry__AssetIsPrimarytAssetClass(assetClassId);
         }
         super._removeAssetFromClass(assetClassId, asset);
     }

@@ -60,7 +60,7 @@ contract AssetClassRegistryTest is Test {
 
     function test_RevertOnRemovePrimaryAssetFromClass1() public {
         // Trying to remove the default asset (tokenA) from class #1 must revert
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetIsPrimaryAsset.selector);
+        vm.expectRevert(abi.encodeWithSelector(IAssetClassRegistry.AssetClassRegistry__AssetIsPrimarytAssetClass.selector, 1));
         assetClassRegistry.removeAssetFromClass(1, tokenA);
     }
 

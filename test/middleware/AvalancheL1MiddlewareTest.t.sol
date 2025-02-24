@@ -50,6 +50,7 @@ import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol"
 import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
+import {IAvalancheL1Middleware} from "../../src/interfaces/middleware/IAvalancheL1Middleware.sol";
 
 contract AvalancheL1MiddlewareTest is Test {
     address internal owner;
@@ -334,7 +335,7 @@ contract AvalancheL1MiddlewareTest is Test {
         PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
 
         vm.prank(alice);
-        vm.expectRevert(bytes4(keccak256("AvalancheL1Middleware__NotEnoughFreeStake()")));
+        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, 0));
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
     }
 
@@ -1490,9 +1491,9 @@ contract AvalancheL1MiddlewareTest is Test {
         // Move to the middleware  epoch
         _moveToNextEpochAndCalc(alice, 1);
         // Try updateAllNodeWeights => expect revert (we're *not* in the final hour yet)
-        vm.expectRevert(bytes4(keccak256("AvalancheL1Middleware__NotInFinalWindowOfEpoch()")));
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotInFinalWindowOfEpoch.selector, Time.timestamp(), middleware.getEpochStartTs(currentEpoch), middleware.EPOCH_DURATION(), middleware.UPDATE_WINDOW()));
         middleware.updateAllNodeWeights(alice, 0);
-
         // Move to the final hour of the epoch
         _warpToLastHourOfCurrentEpoch();
         middleware.updateAllNodeWeights(alice, 0);

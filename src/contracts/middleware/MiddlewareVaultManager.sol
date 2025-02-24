@@ -33,7 +33,7 @@ import {BalancerValidatorManager} from
 import {SimpleKeyRegistry32} from "./SimpleKeyRegistry32.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
 import {MapWithTimeDataBytes32} from "./libraries/MapWithTimeDataBytes32.sol";
-import {SimpleNodeRegistry32} from "./SimpleNodeRegistry32.sol";
+import {NodeRegistry32} from "./NodeRegistry32.sol";
 import {AvalancheL1Middleware} from "./AvalancheL1Middleware.sol";
 
 contract MiddlewareVaultManager is Ownable {
@@ -51,7 +51,7 @@ contract MiddlewareVaultManager is Ownable {
 
     error AvalancheL1Middleware__VaultAlreadyRegistered();
     error AvalancheL1Middleware__VaultEpochTooShort();
-    error AvalancheL1Middleware__NotVault();
+    error AvalancheL1Middleware__NotVault(address vault);
     error AvalancheL1Middleware__WrongVaultAssetClass();
     error AvalancheL1Middleware__ZeroVaultMaxL1Limit();
     error AvalancheL1Middleware__VaultGracePeriodNotPassed();
@@ -100,7 +100,7 @@ contract MiddlewareVaultManager is Ownable {
      */
     function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault();
+            revert AvalancheL1Middleware__NotVault(vault);
         }
         if (vaultToAssetClass[vault] != assetClassId) {
             revert AvalancheL1Middleware__WrongVaultAssetClass();
@@ -123,7 +123,7 @@ contract MiddlewareVaultManager is Ownable {
         address vault
     ) external onlyOwner {
         if (!vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault();
+            revert AvalancheL1Middleware__NotVault(vault);
         }
 
         (, uint48 disabledTime) = vaults.getTimes(vault);
@@ -145,14 +145,14 @@ contract MiddlewareVaultManager is Ownable {
      */
     function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
-            revert AvalancheL1Middleware__NotVault();
+            revert AvalancheL1Middleware__NotVault(vault);
         }
         if (!middleware.isActiveAssetClass(assetClassId)) {
-            revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive();
+            revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive(assetClassId);
         }
         address vaultCollateral = IVaultTokenized(vault).collateral();
         if (!middleware.isAssetInClass(assetClassId, vaultCollateral)) {
-            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInAssetClass();
+            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInAssetClass(vaultCollateral, assetClassId);
         }
         address delegator = IVaultTokenized(vault).delegator();
         BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), assetClassId, amount);

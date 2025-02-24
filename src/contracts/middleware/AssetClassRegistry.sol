@@ -123,7 +123,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
         uint256 assetClassId
     ) internal {
         if (assetClassId == 1) {
-            revert AssetClassRegistry__AssetIsPrimarytAssetClass();
+            revert AssetClassRegistry__AssetIsPrimarytAssetClass(assetClassId);
         }
 
         if (!assetClassIds.contains(assetClassId)) {
