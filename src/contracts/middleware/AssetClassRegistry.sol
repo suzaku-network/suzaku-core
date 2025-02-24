@@ -38,12 +38,16 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function removeAssetClass(uint256 assetClassId) external virtual {
+    function removeAssetClass(
+        uint256 assetClassId
+    ) external virtual {
         _removeAssetClass(assetClassId);
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function getClassAssets(uint256 assetClassId) external view returns (address[] memory) {
+    function getClassAssets(
+        uint256 assetClassId
+    ) external view returns (address[] memory) {
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
@@ -51,11 +55,9 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
     }
 
     // @inheritdoc IAssetClassRegistry
-    function getClassStakingRequirements(uint256 assetClassId)
-        external
-        view
-        returns (uint256 minStake, uint256 maxStake)
-    {
+    function getClassStakingRequirements(
+        uint256 assetClassId
+    ) external view returns (uint256 minStake, uint256 maxStake) {
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
@@ -117,7 +119,9 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
         emit AssetRemoved(assetClassId, asset);
     }
 
-    function _removeAssetClass(uint256 assetClassId) internal {
+    function _removeAssetClass(
+        uint256 assetClassId
+    ) internal {
         if (assetClassId == 1) {
             revert AssetClassRegistry__AssetIsPrimarytAssetClass();
         }
@@ -134,5 +138,12 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
         delete assetClasses[assetClassId];
 
         emit AssetClassRemoved(assetClassId);
+    }
+    
+    function isAssetInClass(uint256 assetClassId, address asset) external view returns (bool) {
+        if (!assetClassIds.contains(assetClassId)) {
+            revert AssetClassRegistry__AssetClassNotFound();
+        }
+        return assetClasses[assetClassId].assets.contains(asset);
     }
 }
