@@ -4,7 +4,7 @@ pragma solidity 0.8.25;
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
-abstract contract SimpleNodeRegistry32 {
+abstract contract NodeRegistry32 {
     using Checkpoints for Checkpoints.Trace208;
 
     error DuplicateNodeKey();
