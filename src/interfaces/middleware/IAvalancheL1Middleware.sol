@@ -23,7 +23,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__AlreadyRebalanced(address operator, uint48 epoch);
     error AvalancheL1Middleware__WeightUpdateNotPending(bytes32 validationId);
     error AvalancheL1Middleware__CollateralNotInAssetClass(address collateral, uint96 assetClassId);
-    error AvalancheL1Middleware__InvalidEpoch(uint48 epoch, uint48 epochStartTs);
+    error AvalancheL1Middleware__EpochError(uint48 epochStartTs);
     error AvalancheL1Middleware__MaxL1LimitZero();
     error AvalancheL1Middleware__NoSlasher();
     error AvalancheL1Middleware__NotEnoughFreeStakeSecondaryAssetClasses();
@@ -37,12 +37,11 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__OperatorNotRegistered(address operator);
     error AvalancheL1Middleware__SlashingWindowTooShort(uint48 slashingWindow, uint48 epochDuration);
     error AvalancheL1Middleware__TooBigSlashAmount();
-    error AvalancheL1Middleware__TooOldEpoch(uint48 epochStartTs);
     error AvalancheL1Middleware__NodeNotFound(bytes32 nodeId);
     error AvalancheL1Middleware__SecurityModuleCapacityNotEnough(uint256 securityModuleCapacity, uint256 minStake);
     error AvalancheL1Middleware__WeightUpdatePending(bytes32 validationID);
     error AvalancheL1Middleware__NodeStateNotUpdated(bytes32 validationID);
-    error AvalancheL1Middleware__NotInFinalWindowOfEpoch(uint48 timeNow, uint48 epochStartTs, uint48 epochDuration, uint48 updateWindow);
+    error AvalancheL1Middleware__NotEpochUpdatePeriod(uint48 timeNow, uint48 epochUpdatePeriod);
     error AvalancheL1Middleware__NotImplemented();
 
     // Events
