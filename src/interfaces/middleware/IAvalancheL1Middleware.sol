@@ -17,73 +17,65 @@ import {
  */
 interface IAvalancheL1Middleware {
     // Errors
-    error AvalancheL1Middleware__ActiveSecondaryAssetCLass();
-    error AvalancheL1Middleware__AssetClassNotActive();
-    error AvalancheL1Middleware__AssetIsPrimaryAsset();
-    error AvalancheL1Middleware__AssetStillInUse();
-    error AvalancheL1Middleware__AlreadyRebalanced();
-    error AvalancheL1Middleware__WeightUpdateNotPending();
-    error AvalancheL1Middleware__CollateralNotInAssetClass();
-    error AvalancheL1Middleware__InvalidEpoch();
+    error AvalancheL1Middleware__ActiveSecondaryAssetCLass(uint256 assetClassId);
+    error AvalancheL1Middleware__AssetClassNotActive(uint256 assetClassId);
+    error AvalancheL1Middleware__AssetStillInUse(uint256 assetClassId);
+    error AvalancheL1Middleware__AlreadyRebalanced(address operator, uint48 epoch);
+    error AvalancheL1Middleware__WeightUpdateNotPending(bytes32 validationId);
+    error AvalancheL1Middleware__CollateralNotInAssetClass(address collateral, uint96 assetClassId);
+    error AvalancheL1Middleware__InvalidEpoch(uint48 epoch, uint48 epochStartTs);
     error AvalancheL1Middleware__MaxL1LimitZero();
     error AvalancheL1Middleware__NoSlasher();
-    error AvalancheL1Middleware__NotVault();
-    error AvalancheL1Middleware__NotEnoughSecondaryAssetClasses();
+    error AvalancheL1Middleware__NotEnoughFreeStakeSecondaryAssetClasses();
     error AvalancheL1Middleware__NodeNotActive();
-    error AvalancheL1Middleware__NotEnoughFreeStake();
-    error AvalancheL1Middleware__WeightTooHigh();
-    error AvalancheL1Middleware__WeightTooLow();
-    error AvalancheL1Middleware__OperatorGracePeriodNotPassed();
-    error AvalancheL1Middleware__OperatorAlreadyRegistered();
-    error AvalancheL1Middleware__OperatorNotOptedIn();
-    error AvalancheL1Middleware__OperatorNotRegistered();
-    error AvalancheL1Middleware__SlashingWindowTooShort();
+    error AvalancheL1Middleware__NotEnoughFreeStake(uint256 newWeight);
+    error AvalancheL1Middleware__WeightTooHigh(uint256 newWeight, uint256 maxWeight);
+    error AvalancheL1Middleware__WeightTooLow(uint256 newWeight, uint256 minWeight);
+    error AvalancheL1Middleware__OperatorGracePeriodNotPassed(uint48 disabledTime, uint48 slashingWindow);
+    error AvalancheL1Middleware__OperatorAlreadyRegistered(address operator);
+    error AvalancheL1Middleware__OperatorNotOptedIn(address operator, address l1ValidatorManager);
+    error AvalancheL1Middleware__OperatorNotRegistered(address operator);
+    error AvalancheL1Middleware__SlashingWindowTooShort(uint48 slashingWindow, uint48 epochDuration);
     error AvalancheL1Middleware__TooBigSlashAmount();
-    error AvalancheL1Middleware__TooOldEpoch();
-    error AvalancheL1Middleware__UnknownSlasherType();
-    error AvalancheL1Middleware__VaultAlreadyRegistered();
-    error AvalancheL1Middleware__VaultEpochTooShort();
-    error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-    error AvalancheL1Middleware__WrongVaultAssetClass();
-    error AvalancheL1Middleware__ZeroVaultMaxL1Limit();
-    error AvalancheL1Middleware__NodeNotFound();
-    error AvalancheL1Middleware__NodeWeightNotCached();
-    error AvalancheL1Middleware__SecutiryModuleCapacityNotEnough();
-    error AvalancheL1Middleware__WeightUpdatePending();
-    error AvalancheL1Middleware__NodeStateNotUpdated();
-    error AvalancheL1Middleware__NotInFinalWindowOfEpoch();
+    error AvalancheL1Middleware__TooOldEpoch(uint48 epochStartTs);
+    error AvalancheL1Middleware__NodeNotFound(bytes32 nodeId);
+    error AvalancheL1Middleware__SecurityModuleCapacityNotEnough(uint256 securityModuleCapacity, uint256 minStake);
+    error AvalancheL1Middleware__WeightUpdatePending(bytes32 validationID);
+    error AvalancheL1Middleware__NodeStateNotUpdated(bytes32 validationID);
+    error AvalancheL1Middleware__NotInFinalWindowOfEpoch(uint48 timeNow, uint48 epochStartTs, uint48 epochDuration, uint48 updateWindow);
+    error AvalancheL1Middleware__NotImplemented();
 
     // Events
     /**
      * @notice Emitted when a node is added
      * @param operator The operator who added the node
      * @param nodeId The ID of the node
-     * @param blsKey The BLS key of the node
      * @param stake The stake assigned to the node
      * @param validationID The validation identifier from BalancerValidatorManager
      */
     event NodeAdded(
         address indexed operator,
         bytes32 indexed nodeId,
-        bytes blsKey,
         uint256 stake,
-        bytes32 validationID
+        bytes32 indexed validationID
     );
 
     /**
      * @notice Emitted when a node is removed
      * @param operator The operator who removed the node
      * @param nodeId The ID of the node
+     * @param validationID The validation identifier from BalancerValidatorManager
      */
-    event NodeRemoved(address indexed operator, bytes32 indexed nodeId);
+    event NodeRemoved(address indexed operator, bytes32 indexed nodeId, bytes32 indexed validationID);
 
     /**
      * @notice Emitted when a single node's weight is updated
      * @param operator The operator who owns the node
      * @param nodeId The ID of the node
      * @param newStake The new weight/stake of the node
+     * @param validationID The validation identifier from BalancerValidatorManager
      */
-    event NodeWeightUpdated(address indexed operator, bytes32 indexed nodeId, uint256 newStake);
+    event NodeWeightUpdated(address indexed operator, bytes32 indexed nodeId, uint256 newStake, bytes32 indexed validationID);
 
     /**
      * @notice Emitted when the operator has leftover stake after rebalancing
@@ -112,7 +104,6 @@ interface IAvalancheL1Middleware {
     function OPERATOR_REGISTRY() external view returns (address);
     function VAULT_REGISTRY() external view returns (address);
     function OPERATOR_L1_OPTIN() external view returns (address);
-    function OWNER() external view returns (address);
     function PRIMARY_ASSET() external view returns (address);
     function EPOCH_DURATION() external view returns (uint48);
     function SLASHING_WINDOW() external view returns (uint48);
@@ -291,12 +282,9 @@ interface IAvalancheL1Middleware {
     function getTotalStake(uint48 epoch, uint96 assetClassId) external view returns (uint256);
 
     /**
-     * @notice Returns operator data (stake and key) for an epoch
-     * @param epoch The epoch number
-     * @param assetClassId The asset class ID
-     * @return operatorsData An array of OperatorData (stake and key)
+     * @notice Returns all operators
      */
-    function getOperatorSet(uint48 epoch, uint96 assetClassId) external view returns (OperatorData[] memory);
+    function getAllOperators() external view returns (address[] memory);
 
     /**
      * @notice Returns the cached stake for a given node in the specified epoch, based on its Validation ID.
@@ -327,15 +315,4 @@ interface IAvalancheL1Middleware {
      * @return registeredStake The sum of node stakes.
      */
     function getOperatorUsedWeightCached(address operator) external view returns (uint256);
-
-    /**
-     * @notice Convert a full 256-bit stake amount into a 64-bit weight
-     * @dev Anything < WEIGHT_SCALE_FACTOR becomes 0
-     */
-    function stakeToWeight(uint256 stakeAmount) external pure returns (uint64);
-
-    /**
-     * @notice Convert a 64-bit weight back into its 256-bit stake amount
-     */
-    function weightToStake(uint64 weight) external pure returns (uint256);
 }

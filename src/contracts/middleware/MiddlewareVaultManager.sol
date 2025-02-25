@@ -1,42 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Test, console2} from "forge-std/Test.sol";
-
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
-import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {AssetClassRegistry} from "./AssetClassRegistry.sol";
 
+import {IMiddlewareVaultManager} from "../../interfaces/middleware/IMiddlewareVaultManager.sol";
 import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
-import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
 import {IRegistry} from "../../interfaces/common/IRegistry.sol";
 import {IEntity} from "../../interfaces/common/IEntity.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
-import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
 
-import {
-    IValidatorManager,
-    Validator,
-    ValidatorStatus,
-    ValidatorRegistrationInput,
-    PChainOwner
-} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {ValidatorManager} from "@avalabs/teleporter/validator-manager/ValidatorManager.sol";
-import {BalancerValidatorManager} from
-    "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
-
-import {SimpleKeyRegistry32} from "./SimpleKeyRegistry32.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
-import {MapWithTimeDataBytes32} from "./libraries/MapWithTimeDataBytes32.sol";
-import {NodeRegistry32} from "./NodeRegistry32.sol";
 import {AvalancheL1Middleware} from "./AvalancheL1Middleware.sol";
 
-contract MiddlewareVaultManager is Ownable {
+contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
 
@@ -48,14 +29,6 @@ contract MiddlewareVaultManager is Ownable {
 
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
-
-    error AvalancheL1Middleware__VaultAlreadyRegistered();
-    error AvalancheL1Middleware__VaultEpochTooShort();
-    error AvalancheL1Middleware__NotVault(address vault);
-    error AvalancheL1Middleware__WrongVaultAssetClass();
-    error AvalancheL1Middleware__ZeroVaultMaxL1Limit();
-    error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-    error AvalancheL1Middleware__UnknownSlasherType();
 
     constructor(address vaultRegistry, address owner, address middlewareAddress) Ownable(owner) {
         VAULT_REGISTRY = vaultRegistry;
