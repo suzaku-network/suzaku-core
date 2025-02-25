@@ -138,9 +138,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         uint48 currentEpoch = getCurrentEpoch();
         uint48 epochStartTs = getEpochStartTs(currentEpoch);
         uint48 timeNow = Time.timestamp();
+        uint48 epochUpdatePeriod = epochStartTs + UPDATE_WINDOW;
 
-        if (timeNow < epochStartTs + UPDATE_WINDOW || timeNow > epochStartTs + EPOCH_DURATION) {
-            revert AvalancheL1Middleware__NotInFinalWindowOfEpoch(timeNow, epochStartTs, EPOCH_DURATION, UPDATE_WINDOW);
+        if (timeNow < epochUpdatePeriod || timeNow > epochStartTs + EPOCH_DURATION) {
+            revert AvalancheL1Middleware__NotEpochUpdatePeriod(timeNow, epochUpdatePeriod);
         }
         _;
     }
@@ -528,10 +529,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
 
         // Check for too-old epoch: note that if Time.timestamp() < SLASHING_WINDOW this subtraction underflows.
         if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
-            revert AvalancheL1Middleware__TooOldEpoch(epochStartTs);
+            revert AvalancheL1Middleware__EpochError(epochStartTs);
         }
         if (epochStartTs > Time.timestamp()) {
-            revert AvalancheL1Middleware__InvalidEpoch(epoch, epochStartTs);
+            revert AvalancheL1Middleware__EpochError(epochStartTs);
         }
 
         for (uint256 i; i < operators.length(); ++i) {
@@ -1050,10 +1051,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
 
         // for epoch older than SLASHING_WINDOW total stake can be invalidated (use cache)
         if (epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
-            revert AvalancheL1Middleware__TooOldEpoch(epochStartTs);
+            revert AvalancheL1Middleware__EpochError(epochStartTs);
         }
         if (epochStartTs > Time.timestamp()) {
-            revert AvalancheL1Middleware__InvalidEpoch(epoch, epochStartTs);
+            revert AvalancheL1Middleware__EpochError(epochStartTs);
         }
 
         for (uint256 i; i < operators.length(); ++i) {
