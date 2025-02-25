@@ -1,23 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Test, console2} from "forge-std/Test.sol";
-
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {AssetClassRegistry} from "./AssetClassRegistry.sol";
-import {MiddlewareVaultManager} from "./MiddlewareVaultManager.sol";
-
-import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
-import {IRegistry} from "../../interfaces/common/IRegistry.sol";
-import {IEntity} from "../../interfaces/common/IEntity.sol";
-import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
-import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
-import {IOptInService} from "../../interfaces/service/IOptInService.sol";
-import {ISlasher} from "../../interfaces/slasher/ISlasher.sol";
-import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
 
 import {
     IValidatorManager,
@@ -30,12 +17,19 @@ import {ValidatorManager} from "@avalabs/teleporter/validator-manager/ValidatorM
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
 
-import {SimpleKeyRegistry32} from "./SimpleKeyRegistry32.sol";
+import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
+import {IRegistry} from "../../interfaces/common/IRegistry.sol";
+import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
+import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
+import {IOptInService} from "../../interfaces/service/IOptInService.sol";
+
+import {AssetClassRegistry} from "./AssetClassRegistry.sol";
+import {MiddlewareVaultManager} from "./MiddlewareVaultManager.sol";
 import {NodeRegistry32} from "./NodeRegistry32.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
 import {MapWithTimeDataBytes32} from "./libraries/MapWithTimeDataBytes32.sol";
 import {StakeConversion} from "./libraries/StakeConversion.sol";
-import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
+import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
 
 struct AvalancheL1MiddlewareSettings {
     address l1ValidatorManager;
@@ -63,7 +57,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
     address public immutable OPERATOR_REGISTRY;
     address public immutable VAULT_REGISTRY;
     address public immutable OPERATOR_L1_OPTIN;
-    address public immutable OWNER;
     address public immutable PRIMARY_ASSET;
     address public immutable BALANCER_VALIDATOR_MANAGER;
     uint48 public immutable EPOCH_DURATION;
@@ -71,9 +64,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
     uint48 public immutable START_TIME;
     uint48 public immutable UPDATE_WINDOW;
 
-
-    uint48 private constant INSTANT_SLASHER_TYPE = 0;
-    uint48 private constant VETO_SLASHER_TYPE = 1;
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
     uint256 public constant WEIGHT_SCALE_FACTOR = 1e8;
 
@@ -117,7 +107,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         START_TIME = Time.timestamp();
         EPOCH_DURATION = settings.epochDuration;
         L1_VALIDATOR_MANAGER = settings.l1ValidatorManager;
-        OWNER = owner;
         OPERATOR_REGISTRY = settings.operatorRegistry;
         VAULT_REGISTRY = settings.vaultRegistry;
         OPERATOR_L1_OPTIN = settings.operatorL1Optin;
@@ -126,6 +115,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         PRIMARY_ASSET = primaryAsset;
         UPDATE_WINDOW = settings.weightUpdateWindow;
 
+        Ownable(owner);
         _addAssetClass(PRIMARY_ASSET_CLASS, primaryAssetMinStake, primaryAssetMaxStake, PRIMARY_ASSET);
     }
 
@@ -339,7 +329,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
 
         bytes32 validationID = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).initializeValidatorRegistration(input, StakeConversion.stakeToWeight(newWeight));
 
-        updateNodeKey(nodeId, keccak256(blsKey));
         updateNodeValidationID(nodeId, validationID);
 
         // Track node in our time-based map and dynamic array.
@@ -705,15 +694,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
      * @param nodeId The node ID.
      */
     function _removeNodeFromArray(address operator, bytes32 nodeId) internal {
-        bytes32[] storage arr = operatorNodesArray[operator];
+        bytes32[] storage nodesArr = operatorNodesArray[operator];
         // Find the node index by looping (O(n)), then swap+pop
-        for (uint256 i = 0; i < arr.length; i++) {
-            if (arr[i] == nodeId) {
-                uint256 lastIndex = arr.length - 1;
+        for (uint256 i = 0; i < nodesArr.length; i++) {
+            if (nodesArr[i] == nodeId) {
+                uint256 lastIndex = nodesArr.length - 1;
                 if (i != lastIndex) {
-                    arr[i] = arr[lastIndex];
+                    nodesArr[i] = nodesArr[lastIndex];
                 }
-                arr.pop();
+                nodesArr.pop();
                 break;
             }
         }
@@ -802,9 +791,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         for (uint256 i = 0; i < secCount; i++) {
             uint256 classId = secondaryAssetClasses.at(i);
             uint256 stake = getOperatorStake(operator, epoch, uint96(classId));
-            console2.log("stake", stake);
-            console2.log("nodeCount", nodeCount);
-            console2.log("minValidatorStake", assetClasses[classId].minValidatorStake);
             // Check ratio vs. class's min stake, could add an emit here to debug
             if (stake / (nodeCount + extraNode) < assetClasses[classId].minValidatorStake) {
                 return false;
