@@ -955,29 +955,23 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         uint48 epoch
     ) external view returns (bytes32[] memory activeNodeIds) {
         uint48 epochStartTs = getEpochStartTs(epoch);
-
-        // iterates over operator enumerable to find active nodes
         uint256 length = operatorNodes[operator].length();
+
+        // Store candidates in a temporary array
+        bytes32[] memory tempNodeIds = new bytes32[](length);
         uint256 activeCount;
 
-        // Count how many nodes were active at epochStartTs
         for (uint256 i = 0; i < length; i++) {
-            (, uint48 enabledTime, uint48 disabledTime) = operatorNodes[operator].atWithTimes(i);
-
+            (bytes32 nodeId, uint48 enabledTime, uint48 disabledTime) = operatorNodes[operator].atWithTimes(i);
             if (_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                activeCount++;
+                tempNodeIds[activeCount++] = nodeId;
             }
         }
 
-        // Collect them into the result array
+        // Filter to active nodes
         activeNodeIds = new bytes32[](activeCount);
-        uint256 idx;
-        for (uint256 i = 0; i < length; i++) {
-            (bytes32 nodeId, uint48 enabledTime, uint48 disabledTime) = operatorNodes[operator].atWithTimes(i);
-
-            if (_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                activeNodeIds[idx++] = nodeId;
-            }
+        for (uint256 i = 0; i < activeCount; i++) {
+            activeNodeIds[i] = tempNodeIds[i];
         }
         return activeNodeIds;
     }
