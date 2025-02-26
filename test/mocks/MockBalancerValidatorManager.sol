@@ -39,6 +39,9 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
     mapping(uint32 => bytes32) public pendingRegistrationMessages;
     uint32 public nextMessageIndex;
 
+    // mapping from nodeID => validationID ---
+    mapping(bytes => bytes32) public _registeredValidators; // <-- ADD
+
     // --- IValidatorManager stubs for functions not needed by middleware ---
     function completeValidatorRegistration(uint32 messageIndex) external override {
         // Retrieve the pending registration message (simulated via messageIndex)
@@ -116,6 +119,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
         // Simulate storing a pending registration message linked to a messageIndex
         pendingRegistrationMessages[nextMessageIndex] = validationID;
         nextMessageIndex++;
+        _registeredValidators[registrationInput.nodeID] = validationID; // <-- ADD
     }
 
     function initializeEndValidation(bytes32 validationID) external override {
@@ -213,5 +217,9 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
         require(validator.status == ValidatorStatus.PendingAdded, "Validator must be PendingAdded");
         validator.status = ValidatorStatus.Active;
         validator.startedAt = uint64(block.timestamp);
+    }
+
+    function registeredValidators(bytes calldata nodeID) public view returns (bytes32) {
+        return _registeredValidators[nodeID];
     }
 }

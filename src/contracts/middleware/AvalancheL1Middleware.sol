@@ -25,7 +25,6 @@ import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 
 import {AssetClassRegistry} from "./AssetClassRegistry.sol";
 import {MiddlewareVaultManager} from "./MiddlewareVaultManager.sol";
-import {NodeRegistry32} from "./NodeRegistry32.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
 import {MapWithTimeDataBytes32} from "./libraries/MapWithTimeDataBytes32.sol";
 import {StakeConversion} from "./libraries/StakeConversion.sol";
@@ -45,7 +44,7 @@ struct AvalancheL1MiddlewareSettings {
  * @title AvalancheL1Middleware
  * @notice Manages operator registration, vault registration, stake accounting, and slashing for Avalanche L1
  */
-contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownable, AssetClassRegistry {
+contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassRegistry {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.UintSet;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -99,7 +98,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         address primaryAsset,
         uint256 primaryAssetMaxStake,
         uint256 primaryAssetMinStake
-    ) NodeRegistry32() Ownable(owner) {
+    ) Ownable(owner) {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
         }
@@ -330,8 +329,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
 
         bytes32 validationID = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).initializeValidatorRegistration(input, StakeConversion.stakeToWeight(newWeight));
 
-        updateNodeValidationID(nodeId, validationID);
-
         // Track node in our time-based map and dynamic array.
         operatorNodes[operator].add(nodeId);
         operatorNodesArray[operator].push(nodeId);
@@ -400,7 +397,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
             for (uint256 i = nodesArr.length; i > 0 && unusedStake > 0;) {
                 i--;
                 bytes32 nodeId = nodesArr[i];
-                bytes32 valID = getCurrentValidationID(nodeId);
+                bytes32 valID = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
                 Validator memory validator = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).getValidator(valID);
                 if (
                     validator.status == ValidatorStatus.Active
@@ -431,7 +428,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
             for (uint256 i = nodesArr.length; i > 0 && overusedStake > 0;) {
                 i--;
                 bytes32 nodeId = nodesArr[i];
-                bytes32 valId = getCurrentValidationID(nodeId);
+                bytes32 valId = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
 
                 if (BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).isValidatorPendingWeightUpdate(valId)) {
                     continue;
@@ -486,7 +483,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         if (newWeight < minStake) {
             revert AvalancheL1Middleware__WeightTooLow(newWeight, minStake);
         }
-        bytes32 valId = getCurrentValidationID(nodeId);
+        bytes32 valId = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
         // updates weight up, down it dosn't yet.
         _initializeValidatorWeightUpdateAndLock(msg.sender, valId, newWeight);
     }
@@ -561,7 +558,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length; i++) {
             bytes32 nodeId = nodesArr[i];
-            bytes32 valId = getCurrentValidationID(nodeId);
+            bytes32 valId = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
             // If no pending update, carry over previous weight to current epoch
             // Should be replaced with checkpoints
             if (nodeWeightCache[currentEpoch][valId] == 0) {
@@ -597,7 +594,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
      * @param nodeId The node ID
      */
     function _removeNode(address operator, bytes32 nodeId) internal onlyRegisteredOperatorNode(operator, nodeId) {
-        bytes32 valId = getCurrentValidationID(nodeId);
+        bytes32 valId = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
         _initializeEndValidationAndFlag(operator, valId, nodeId);
     }
 
@@ -738,7 +735,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
      * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
      */
     function _completeWeightUpdateAndCache(address operator, bytes32 nodeId, uint32 messageIndex) internal onlyRegisteredOperatorNode(operator, nodeId) {
-        bytes32 valId = getCurrentValidationID(nodeId);
+        bytes32 valId = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
 
         if (!BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).isValidatorPendingWeightUpdate(valId)) {
             revert AvalancheL1Middleware__WeightUpdateNotPending(valId);
@@ -1003,7 +1000,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, NodeRegistry32, Ownabl
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length; i++) {
             bytes32 nodeId = nodesArr[i];
-            bytes32 valId = getCurrentValidationID(nodeId);
+            bytes32 valId = BalancerValidatorManager(BALANCER_VALIDATOR_MANAGER).registeredValidators(abi.encodePacked(nodeId));
             registeredStake += getEffectiveNodeWeight(getCurrentEpoch(), valId);
         }
     }
