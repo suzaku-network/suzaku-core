@@ -97,18 +97,6 @@ interface IAvalancheL1Middleware {
         uint256 stake;
         bytes32 key;
     }
-
-    // Public state variable getters
-    function L1_VALIDATOR_MANAGER() external view returns (address);
-    function OPERATOR_REGISTRY() external view returns (address);
-    function VAULT_REGISTRY() external view returns (address);
-    function OPERATOR_L1_OPTIN() external view returns (address);
-    function PRIMARY_ASSET() external view returns (address);
-    function EPOCH_DURATION() external view returns (uint48);
-    function SLASHING_WINDOW() external view returns (uint48);
-    function START_TIME() external view returns (uint48);
-    function UPDATE_WINDOW() external view returns (uint48);
-
     // External functions
     /**
      * @notice Activates a secondary asset class
