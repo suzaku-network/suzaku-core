@@ -175,10 +175,11 @@ interface IAvalancheL1Middleware {
 
     /**
      * @notice Finalize a pending validator registration
+     * @param operator The operator address
      * @param nodeId The node ID
      * @param messageIndex The message index
      */
-    function completeValidatorRegistration(bytes32 nodeId, uint32 messageIndex) external;
+    function completeValidatorRegistration(address operator, bytes32 nodeId, uint32 messageIndex) external;
 
     /**
      * @notice Finalize a pending weight update
@@ -210,12 +211,6 @@ interface IAvalancheL1Middleware {
      * @return totalStake The total stake calculated and cached
      */
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) external returns (uint256);
-
-    /**
-     * @notice Caches manager-based weight for each node of `operator` in epoch `currentEpoch`.
-     * @param operator The operator address
-     */
-    function calcAndCacheNodeWeightsForOperator(address operator) external;
 
     /**
      * @notice Fetches the primary and secondary asset classes
