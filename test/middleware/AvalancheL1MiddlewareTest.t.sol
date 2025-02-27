@@ -761,7 +761,6 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
         assertEq(updatedNodeWeight, newWeight, "Node weight should be updated");
         assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be still 0");
-        assertEq(middleware.nodePendingCompletedUpdate(epoch, validationID), false, "Should be set on false");
     }
 
     function test_CompleteLateNodeWeightUpdate() public {
@@ -904,7 +903,6 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
         assertEq(updatedNodeWeight, newWeight, "Node weight should be updated");
         assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be still 0");
-        assertEq(middleware.nodePendingCompletedUpdate(epoch, validationID), false, "Should be set on false");
     }
 
     /// @notice Test that an operator can add a node.
@@ -1152,6 +1150,87 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
         assertEq(middleware.nodePendingRemoval(validationID), false, "Node should not be pending update after removal");
     }
+
+    function test_RemoveNodeLateMultipleEpochs() public {
+        // 1) Setup: register L1, register vault & operator, deposit some stake, etc.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        vm.prank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), 1, 2000 ether);
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        vm.prank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 deposit, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, 1, deposit);
+        _setOperatorL1Shares(bob, validatorManagerAddress, 1, alice, mintedShares);
+
+        // 2) Advance to a new epoch
+        uint256 nextEpoch = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(nextEpoch);
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        // 3) Add node
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"ABCD";
+        address[] memory owners = new address[](1);
+        owners[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 1 days), ownerStruct, ownerStruct, 0);
+
+        // 4) Warp multiple epochs WITHOUT calling calcAndCacheNodeWeightsForAllOperators
+        //    (simulate "late" or "batched" updates)
+        for (uint256 i; i < 3; i++) {
+            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) 
+                + middleware.EPOCH_DURATION() 
+                + 1;
+            vm.warp(warpTo);
+        }
+
+        // 5) Now remove the node (still no caching calls yet)
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // 6) Warp several more epochs without calling calc
+        for (uint256 i; i < 2; i++) {
+            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) 
+                + middleware.EPOCH_DURATION() 
+                + 1;
+            vm.warp(warpTo);
+        }
+
+        // 7) Finally call calcAndCacheNodeWeightsForAllOperators
+        //    This should resolve all those “batched” changes: node weight => 0, node marked pending removal
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        epoch = middleware.getCurrentEpoch();
+
+        bytes32 validationId = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationId);
+        assertEq(nodeWeight, 0, "Node weight must be zero after late removal update");
+        assertTrue(middleware.nodePendingRemoval(validationId), "Node is pending removal until completeValidatorRemoval");
+
+        // 8) Complete the removal
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(nodeId, 0); // messageIndex as needed
+
+        // 9) Warp 1 more epoch and calc again => node array should drop to zero length
+        uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(warpTo);
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // 10) Confirm node is fully cleared
+        assertEq(middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationId), 0);
+        assertFalse(middleware.nodePendingRemoval(validationId), "Node fully removed");
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "Operator should have zero nodes now");
+    }
+
 
     /// @notice Test that an operator can add a node.
     function test_multipleNodes() public {
@@ -1421,13 +1500,13 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move to the middleware  epoch
         _moveToNextEpochAndCalc(alice, 1);
-        // Try updateAllNodeWeights => expect revert (we're *not* in the final hour yet)
+        // Try forceUpdateNodes => expect revert (we're *not* in the final hour yet)
         uint48 currentEpoch = middleware.getCurrentEpoch();
         vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEpochUpdatePeriod.selector, Time.timestamp(), middleware.getEpochStartTs(currentEpoch) + middleware.UPDATE_WINDOW()));
-        middleware.updateAllNodeWeights(alice, 0);
+        middleware.forceUpdateNodes(alice, 0);
         // Move to the final hour of the epoch
         _warpToLastHourOfCurrentEpoch();
-        middleware.updateAllNodeWeights(alice, 0);
+        middleware.forceUpdateNodes(alice, 0);
 
         vm.prank(alice);
         middleware.completeValidatorRemoval(nodeId2, 2);
@@ -1435,11 +1514,11 @@ contract AvalancheL1MiddlewareTest is Test {
         _moveToNextEpochAndCalc(alice, 1);
         epoch = middleware.getCurrentEpoch();
         uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
-        console2.log("Operator stake after partial withdraw & updateAllNodeWeights:", updatedStake);
+        console2.log("Operator stake after partial withdraw & forceUpdateNodes:", updatedStake);
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
-        console2.log("Node weight 1 after partial withdraw & updateAllNodeWeights:", nodeWeight);
-        console2.log("Node weight 2 after partial withdraw & updateAllNodeWeights:", nodeWeight2);
+        console2.log("Node weight 1 after partial withdraw & forceUpdateNodes:", nodeWeight);
+        console2.log("Node weight 2 after partial withdraw & forceUpdateNodes:", nodeWeight2);
 
         // Move forward another vault epoch so the user can claim
         _moveToNextEpochAndCalc(alice, 2);
@@ -1450,20 +1529,20 @@ contract AvalancheL1MiddlewareTest is Test {
 
         _moveToNextEpochAndCalc(alice, 1);
 
-        // Now call updateAllNodeWeights to recalc node weights based on lower stake
+        // Now call forceUpdateNodes to recalc node weights based on lower stake
         vm.prank(alice);
-        // middleware.updateAllNodeWeights(alice, 0);
+        // middleware.forceUpdateNodes(alice, 0);
 
         // At this point you can add checks/logs to verify the operator’s node weights
         // reflect a smaller total stake. Something like:
         middleware.calcAndCacheNodeWeightsForAllOperators();
         epoch = middleware.getCurrentEpoch();
         updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
-        console2.log("Operator stake after partial withdraw & updateAllNodeWeights:", updatedStake);
+        console2.log("Operator stake after partial withdraw & forceUpdateNodes:", updatedStake);
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
-        console2.log("Node weight 1 after partial withdraw & updateAllNodeWeights:", nodeWeight);
-        console2.log("Node weight 2 after partial withdraw & updateAllNodeWeights:", nodeWeight2);
+        console2.log("Node weight 1 after partial withdraw & forceUpdateNodes:", nodeWeight);
+        console2.log("Node weight 2 after partial withdraw & forceUpdateNodes:", nodeWeight2);
     }
 
     // function test_ForceRemoveNode() public {
@@ -1511,7 +1590,7 @@ contract AvalancheL1MiddlewareTest is Test {
     // }
 
     // /**
-    //  * @dev Demonstrates multiple nodes for a single operator, calling updateAllNodeWeights,
+    //  * @dev Demonstrates multiple nodes for a single operator, calling forceUpdateNodes,
     //  *      then adjusting stake to see how weights re-balance.
     //  */
     // function test_MultipleNodesUpdateAllWeights() public {
@@ -1592,7 +1671,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     vault.withdraw(alice, half); // remove 1000
     //     // In the next epoch, total stake for alice should drop drastically.
 
-    //     // 9) Advance to next epoch => then call updateAllNodeWeights
+    //     // 9) Advance to next epoch => then call forceUpdateNodes
     //     uint256 secondEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
     //     vm.warp(secondEpochStart);
     //     uint48 newEpoch = middleware.getCurrentEpoch();
@@ -1601,7 +1680,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     // triggers a rebalancing of node weights
     //     vm.prank(alice);
     //     // This uses the internal logic to see if some node must be ended or weight lowered
-    //     middleware.updateAllNodeWeights(alice, 0);
+    //     middleware.forceUpdateNodes(alice, 0);
 
     //     // Suppose node2 is the one that got rebalanced to a lower stake
     //     // We'll do a final "confirm" step so the nodeWeightCache actually sees the new weight
@@ -1918,7 +1997,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //         uint256 newMiddlewareEpochStart =
     //             middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
     //         vm.warp(newMiddlewareEpochStart);
-    //         middleware.calcAndCacheNodeWeightsForOperator(operator);
+    //         middleware.calcAndCacheNodeWeightsForAllOperators();
     //         console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
     //         console2.log("Current vault epoch:", vault.currentEpoch());
     //     }
@@ -1934,7 +2013,7 @@ contract AvalancheL1MiddlewareTest is Test {
             vm.warp(nextEpochStartTs + 1);
 
             // 3. Do any housekeeping
-            middleware.calcAndCacheNodeWeightsForOperator(operator);
+            middleware.calcAndCacheNodeWeightsForAllOperators();
 
             console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
             console2.log("Current vault epoch:", vault.currentEpoch());
