@@ -164,7 +164,7 @@ interface IAvalancheL1Middleware {
      * @param operator The operator address
      * @param limitWeight The maximum weight adjustment (add or remove) allowed per node per call.
      */
-    function updateAllNodeWeights(address operator, uint256 limitWeight) external;
+    function forceUpdateNodes(address operator, uint256 limitWeight) external;
 
     /**
      * @notice Update the weight of a validator.
@@ -211,6 +211,11 @@ interface IAvalancheL1Middleware {
      * @return totalStake The total stake calculated and cached
      */
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) external returns (uint256);
+
+    /**
+     * @notice Calculates and caches node weights for all operators retroactively for all epochs
+     */
+    function calcAndCacheNodeWeightsForAllOperators() external;
 
     /**
      * @notice Fetches the primary and secondary asset classes
