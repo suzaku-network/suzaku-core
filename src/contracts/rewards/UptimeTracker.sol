@@ -4,7 +4,7 @@
 pragma solidity 0.8.25;
 
 import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
-import {IUptimeTracker} from "../../interfaces/rewards/IUptimeTracker.sol";
+import {IUptimeTracker, LastUptimeCheckpoint} from "../../interfaces/rewards/IUptimeTracker.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
 import {Validator} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
@@ -44,16 +44,13 @@ contract UptimeTracker is IUptimeTracker {
      */
     function computeValidatorUptime(bytes32 validationID, uint256 uptime) external {
         LastUptimeCheckpoint storage lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
-        uint256 currentTimestamp = block.timestamp;
 
         // No timestamp means no initial checkpoint
-        // So set one and return
         if (lastUptimeCheckpoint.timestamp == 0) {
             // Get validator details
             Validator memory validator = validatorManager.getValidator(validationID);
             validatorLastUptimeCheckpoint[validationID] =
                 LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startedAt});
-            return;
         }
 
         // Get last checkpoint epoch start
@@ -61,48 +58,39 @@ contract UptimeTracker is IUptimeTracker {
         uint256 lastUptimeEpochStart = l1Middleware.getEpochStartTs(lastUptimeEpoch);
 
         // Get current epoch start
-        uint48 currentEpoch = l1Middleware.getEpochAtTs(uint48(currentTimestamp));
+        uint48 currentEpoch = l1Middleware.getEpochAtTs(uint48(block.timestamp));
         uint256 currentEpochStart = l1Middleware.getEpochStartTs(currentEpoch);
 
-        // Calculate the total recorded uptime since the last checkpoint
-        uint256 totalRecordedUptime =
-            lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
-        // Calculate the total elapsed time between the last recorded epoch and the current epoch
-        uint256 totalElapsedTime = currentEpochStart - lastUptimeEpochStart;
+        // Calculate the recorded uptime since the last checkpoint
+        uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
+        // Calculate the elapsed time between the last recorded epoch and the current epoch
+        uint256 elapsedTime = currentEpochStart - lastUptimeEpochStart;
         // Determine how many full epochs have passed
-        uint256 epochsElapsed = totalElapsedTime / epochDuration;
+        uint256 elapsedEpochs = elapsedTime / epochDuration;
 
         // The uptime to distribute across the elapsed epochs
-        uint256 uptimeToDistribute = totalRecordedUptime;
+        uint256 uptimeToDistribute = recordedUptime;
 
-        // If the recorded uptime is greater than the elapsed time, carry over the excess uptime
-        if (uptimeToDistribute > totalElapsedTime) {
-            validatorLastUptimeCheckpoint[validationID] = LastUptimeCheckpoint({
-                remainingUptime: uptimeToDistribute - totalElapsedTime, // Store the leftover uptime for future epochs
-                attributedUptime: uptime, // Update the last recorded uptime
-                timestamp: currentEpochStart // Move the checkpoint forward
-            });
-        } else {
-            // If all uptime fits within the elapsed time, reset the remaining uptime
-            validatorLastUptimeCheckpoint[validationID] =
-                LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: uptime, timestamp: currentEpochStart});
-        }
+        uint256 remainingUptime = uptimeToDistribute > elapsedTime ? uptimeToDistribute - elapsedTime : 0;
+
+        // If the recorded uptime is greater than the elapsed time, carry over the excess uptime else reset it
+        validatorLastUptimeCheckpoint[validationID] = LastUptimeCheckpoint({
+            remainingUptime: remainingUptime, // Store the leftover uptime for future epochs if any
+            attributedUptime: uptime, // Update the last recorded uptime
+            timestamp: currentEpochStart // Move the checkpoint forward
+        });
 
         // Distribute the recorded uptime across multiple epochs
-        if (epochsElapsed > 1) {
-            uint256 uptimePerEpoch = uptimeToDistribute / epochsElapsed;
-            for (uint48 i = 0; i < epochsElapsed; i++) {
+        if (elapsedEpochs >= 1) {
+            uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
+            for (uint48 i = 0; i < elapsedEpochs; i++) {
                 uint48 epoch = lastUptimeEpoch + i;
                 validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch; // Assign uptime to each epoch
                 isUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
             }
-        } else if (epochsElapsed == 1) {
-            // If only one epoch has passed, assign all uptime to it
-            validatorUptimePerEpoch[lastUptimeEpoch][validationID] = uptimeToDistribute;
-            isUptimeSet[lastUptimeEpoch][validationID] = true;
         }
 
-        emit ValidatorUptimeComputed(validationID, lastUptimeEpoch, uptimeToDistribute, epochsElapsed);
+        emit ValidatorUptimeComputed(validationID, lastUptimeEpoch, uptimeToDistribute, elapsedEpochs);
     }
 
     /**
