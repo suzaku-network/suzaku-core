@@ -469,8 +469,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             revert AvalancheL1Middleware__WeightTooLow(newWeight, minStake);
         }
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
-        
-        // updates weight up, down it dosn't yet.
+
         _initializeValidatorWeightUpdateAndLock(msg.sender, validationID, newWeight);
     }
 
