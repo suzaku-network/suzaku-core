@@ -190,10 +190,9 @@ interface IAvalancheL1Middleware {
 
     /**
      * @notice Finalize a pending validator removal
-     * @param nodeId The node ID
      * @param messageIndex The message index
      */
-    function completeValidatorRemoval(bytes32 nodeId, uint32 messageIndex) external;
+    function completeValidatorRemoval(uint32 messageIndex) external;
 
     /**
      * @notice Slashes an operator's stake
