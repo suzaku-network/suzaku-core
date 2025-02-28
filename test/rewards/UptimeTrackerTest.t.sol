@@ -65,6 +65,21 @@ contract UptimeTrackerTest is Test {
         uptimeTracker.computeValidatorUptime(VALIDATION_ID, 3 hours);
     }
 
+    function testFuzz_ComputeValidatorUptime(uint256 warpTime, uint256 uptime) public initializeValidator {
+        // Ensure warpTime and uptime are within reasonable bounds
+        warpTime = bound(warpTime, 1, 72 hours); // Limit between 1 second and 72 hours
+        uptime = bound(uptime, 0, warpTime); // Ensure uptime is not greater than warp time
+
+        vm.warp(warpTime);
+        uptimeTracker.computeValidatorUptime(VALIDATION_ID, uptime);
+
+        // Retrieve the recorded uptime
+        uint256 recordedUptime = uptimeTracker.validatorUptimePerEpoch(1, VALIDATION_ID);
+
+        // Ensure recorded uptime does not exceed the uptime provided
+        assertLe(recordedUptime, uptime);
+    }
+
     function test_ComputeUptimeOperator() public initializeValidators {
         bytes32[] memory operatorActiveNodes = middleware.getActiveNodesForEpoch(operator, 1);
         for (uint256 i = 0; i < operatorActiveNodes.length; i++) {
@@ -98,5 +113,27 @@ contract UptimeTrackerTest is Test {
         vm.expectEmit(true, true, false, false, address(uptimeTracker));
         emit OperatorUptimeComputed(operator, 1, 3000);
         uptimeTracker.computeOperatorUptimeAt(operator, 1);
+    }
+
+    function testFuzz_ComputeOperatorUptime(
+        uint256 maxUptime
+    ) public initializeValidators {
+        maxUptime = bound(maxUptime, 1, 10 hours); // Cap max uptime to 10 hours
+
+        bytes32[] memory operatorActiveNodes = middleware.getActiveNodesForEpoch(operator, 1);
+
+        for (uint256 i = 0; i < operatorActiveNodes.length; i++) {
+            uint256 uptime = bound((i + 1) * 1000, 0, maxUptime);
+            vm.warp(9 hours);
+            uptimeTracker.computeValidatorUptime(operatorActiveNodes[i], uptime);
+        }
+
+        uptimeTracker.computeOperatorUptimeAt(operator, 1);
+
+        uint256 operatorUptime = uptimeTracker.operatorUptimePerEpoch(1, operator);
+
+        // Ensure uptime is within an expected range
+        assertGe(operatorUptime, 0);
+        assertLe(operatorUptime, maxUptime);
     }
 }
