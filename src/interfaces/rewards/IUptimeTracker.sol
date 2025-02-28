@@ -3,13 +3,13 @@
 
 pragma solidity 0.8.25;
 
-interface IUptimeTracker {
-    struct LastUptimeCheckpoint {
-        uint256 remainingUptime;
-        uint256 attributedUptime;
-        uint256 timestamp;
-    }
+struct LastUptimeCheckpoint {
+    uint256 remainingUptime;
+    uint256 attributedUptime;
+    uint256 timestamp;
+}
 
+interface IUptimeTracker {
     error UptimeTracker__ValidatorUptimeNotRecorded(uint48 epoch, bytes32 validator);
 
     /**
