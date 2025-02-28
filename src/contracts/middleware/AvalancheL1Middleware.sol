@@ -48,7 +48,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     using EnumerableSet for EnumerableSet.UintSet;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
     using EnumerableMap for EnumerableMap.Bytes32ToUintMap;
-    // using MapWithTimeDataBytes32 for EnumerableMap.Bytes32ToUintMap;
     using EnumerableSet for EnumerableSet.Bytes32Set;
 
     address public immutable L1_VALIDATOR_MANAGER;
@@ -304,28 +303,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         uint256 available = _getOperatorAvailableStake(operator);
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
-
         uint256 newWeight = (weight != 0) ? weight : available;
 
         if (newWeight < minStake || newWeight > available) {
             revert AvalancheL1Middleware__NotEnoughFreeStake(newWeight);
         }
         newWeight = (newWeight > maxStake) ? maxStake : newWeight;
-
-        (uint64 currentSecurityModuleWeight, uint64 securityModuleMaxWeight) =
-            balancerValidatorManager.getSecurityModuleWeights(address(this));
-        uint256 convertedCurrentSecurityModuleWeight = StakeConversion.weightToStake(currentSecurityModuleWeight);
-        uint256 convertedSecurityModuleMaxWeight = StakeConversion.weightToStake(securityModuleMaxWeight);
-        if (convertedCurrentSecurityModuleWeight + newWeight > convertedSecurityModuleMaxWeight) {
-            uint256 securityModuleCapacity = convertedSecurityModuleMaxWeight - convertedCurrentSecurityModuleWeight;
-
-            if (securityModuleCapacity < minStake) {
-                revert AvalancheL1Middleware__SecurityModuleCapacityNotEnough(securityModuleCapacity, minStake);
-            }
-            if (newWeight > securityModuleCapacity) {
-                newWeight = securityModuleCapacity;
-            }
-        }
 
         ValidatorRegistrationInput memory input = ValidatorRegistrationInput({
             nodeID: abi.encodePacked(nodeId),
@@ -379,15 +362,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         }
 
         // Calculate the new total stake for the operator and compare it to the registered stake
-        uint256 newTotalStake = operatorStakeCache[currentEpoch][PRIMARY_ASSET_CLASS][operator];
-        (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
-        uint256 convertedSecurityModuleMaxWeight = StakeConversion.weightToStake(securityModuleMaxWeight);
-        if (newTotalStake > convertedSecurityModuleMaxWeight) {
-            newTotalStake = convertedSecurityModuleMaxWeight;
-        }
-
-        // Subtract locked stake for pending changes
-        newTotalStake = newTotalStake - operatorLockedStake[operator];
+        uint256 newTotalStake = _getOperatorAvailableStake(operator);
 
         uint256 registeredStake = getOperatorUsedWeightCached(operator);
 
@@ -494,6 +469,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             revert AvalancheL1Middleware__WeightTooLow(newWeight, minStake);
         }
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        
         // updates weight up, down it dosn't yet.
         _initializeValidatorWeightUpdateAndLock(msg.sender, validationID, newWeight);
     }
@@ -503,7 +479,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      */
     function completeValidatorRegistration(address operator, bytes32 nodeId, uint32 messageIndex) external updateGlobalNodeWeightsOncePerEpoch {
         _completeValidatorRegistration(operator, nodeId, messageIndex);
-        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
     }
 
     /**
@@ -720,7 +695,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     ) internal {
         uint48 currentEpoch = getCurrentEpoch();
         uint256 cachedWeight = getEffectiveNodeWeight(currentEpoch, validationID);
-        // Shouldn't be pending at this stage
+
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
@@ -728,10 +703,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, StakeConversion.stakeToWeight(newWeight));
         if (newWeight > cachedWeight) {
             delta = newWeight - cachedWeight;
-            // check if it's done
-            // if (delta > _getOperatorAvailableStake(operator)) {
-            //     revert AvalancheL1Middleware__NotEnoughFreeStake(newWeight);
-            // }
+            if (delta > _getOperatorAvailableStake(operator)) {
+                revert AvalancheL1Middleware__NotEnoughFreeStake(newWeight);
+            }
         }
         operatorLockedStake[operator] += delta;
         nodePendingUpdate[validationID] = true;
@@ -995,11 +969,18 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      * @param operator The operator address
      * @return The available stake
      */
-    function _getOperatorAvailableStake(
-        address operator
-    ) internal view returns (uint256) {
+    function _getOperatorAvailableStake(address operator) internal view returns (uint256) {
         uint48 epoch = getCurrentEpoch();
         uint256 totalStake = getOperatorStake(operator, epoch, PRIMARY_ASSET_CLASS);
+
+        // Enforce max security module weight
+        (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
+        uint256 convertedSecurityModuleMaxWeight = StakeConversion.weightToStake(securityModuleMaxWeight);
+        if (totalStake > convertedSecurityModuleMaxWeight) {
+            totalStake = convertedSecurityModuleMaxWeight;
+        }
+
+        // Subtract locked stake
         return totalStake - operatorLockedStake[operator];
     }
 
