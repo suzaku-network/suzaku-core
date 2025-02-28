@@ -51,6 +51,9 @@ contract UptimeTracker is IUptimeTracker {
             Validator memory validator = validatorManager.getValidator(validationID);
             validatorLastUptimeCheckpoint[validationID] =
                 LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startedAt});
+
+            // Refresh the reference to the updated struct
+            lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
         }
 
         // Get last checkpoint epoch start
