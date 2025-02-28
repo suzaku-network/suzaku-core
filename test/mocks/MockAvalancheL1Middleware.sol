@@ -4,6 +4,8 @@ pragma solidity 0.8.25;
 
 contract MockAvalancheL1Middleware {
     uint48 public constant EPOCH_DURATION = 4 hours;
+    address public immutable BALANCER_VALIDATOR_MANAGER;
+
     bytes32[] VALIDATION_ID_ARRAY = [
         keccak256(abi.encode("Validator1")),
         keccak256(abi.encode("Validator2")),
@@ -11,6 +13,12 @@ contract MockAvalancheL1Middleware {
         keccak256(abi.encode("Validator4")),
         keccak256(abi.encode("Validator5"))
     ];
+
+    constructor(
+        address validatorManager_
+    ) {
+        BALANCER_VALIDATOR_MANAGER = validatorManager_;
+    }
 
     /// @notice Returns the mock epoch at a given timestamp.
     function getEpochAtTs(
