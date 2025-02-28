@@ -998,7 +998,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Confirm the removal
         vm.prank(alice);
-        middleware.completeValidatorRemoval(nodeId, 1);
+        middleware.completeValidatorRemoval(1);
 
         // middleware.calcAndCacheNodeWeightsForAllOperators();
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
@@ -1128,7 +1128,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Confirm the removal
         vm.prank(alice);
-        middleware.completeValidatorRemoval(nodeId, 1);
+        middleware.completeValidatorRemoval(1);
 
         // middleware.calcAndCacheNodeWeightsForAllOperators();
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
@@ -1217,7 +1217,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // 8) Complete the removal
         vm.prank(alice);
-        middleware.completeValidatorRemoval(nodeId, 0); // messageIndex as needed
+        middleware.completeValidatorRemoval(0); // messageIndex as needed
 
         // 9) Warp 1 more epoch and calc again => node array should drop to zero length
         uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
@@ -1357,7 +1357,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Confirm the removal
         vm.prank(alice);
-        middleware.completeValidatorRemoval(nodeId1, 2);
+        middleware.completeValidatorRemoval(2);
 
         // middleware.calcAndCacheNodeWeightsForAllOperators();
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
@@ -1509,7 +1509,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.forceUpdateNodes(alice, 0);
 
         vm.prank(alice);
-        middleware.completeValidatorRemoval(nodeId2, 2);
+        middleware.completeValidatorRemoval(2);
 
         _moveToNextEpochAndCalc(alice, 1);
         epoch = middleware.getCurrentEpoch();

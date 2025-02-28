@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Test, console2} from "forge-std/Test.sol";
-
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
@@ -28,7 +26,6 @@ import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {AssetClassRegistry} from "./AssetClassRegistry.sol";
 import {MiddlewareVaultManager} from "./MiddlewareVaultManager.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
-import {MapWithTimeDataBytes32} from "./libraries/MapWithTimeDataBytes32.sol";
 import {StakeConversion} from "./libraries/StakeConversion.sol";
 import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
 
@@ -49,10 +46,10 @@ struct AvalancheL1MiddlewareSettings {
 contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassRegistry {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.UintSet;
-    using EnumerableSet for EnumerableSet.AddressSet;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
     using EnumerableMap for EnumerableMap.Bytes32ToUintMap;
-    using MapWithTimeDataBytes32 for EnumerableMap.Bytes32ToUintMap;
+    // using MapWithTimeDataBytes32 for EnumerableMap.Bytes32ToUintMap;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
 
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable OPERATOR_REGISTRY;
@@ -75,7 +72,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
     BalancerValidatorManager public balancerValidatorManager;
 
-    mapping(address => EnumerableMap.Bytes32ToUintMap) private operatorNodes;
     mapping(address => mapping(uint48 => bool)) public rebalancedThisEpoch;
     mapping(uint48 => mapping(uint96 => uint256)) public totalStakeCache;
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
@@ -83,10 +79,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     mapping(address => bytes32[]) public operatorNodesArray;
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeWeightCache;
-    mapping(bytes32 => uint256) public nodePendingWeight;
     mapping(bytes32 => bool) public nodePendingUpdate;
     mapping(bytes32 => bool) public nodePendingRemoval;
     mapping(address => uint256) public operatorLockedStake;
+    mapping(address => EnumerableSet.Bytes32Set) private operatorNodes;
 
     /**
      * @notice Initializes contract settings
@@ -517,8 +513,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         _completeWeightUpdateAndCache(msg.sender, nodeId, messageIndex);
     }
 
-    function completeValidatorRemoval(bytes32 nodeId, uint32 messageIndex) external onlyRegisteredOperatorNode(msg.sender, nodeId) updateGlobalNodeWeightsOncePerEpoch {
-        _completeValidatorRemoval(msg.sender, nodeId, messageIndex);
+    function completeValidatorRemoval(uint32 messageIndex) external updateGlobalNodeWeightsOncePerEpoch {
+        _completeValidatorRemoval(messageIndex);
     }
 
     /**
@@ -614,7 +610,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
             Validator memory v = balancerValidatorManager.getValidator(valID);
 
-            // If ended & completed by `epoch`, remove node from array
+            // If ended & completed by the current epoch, remove node from array
             if (
                 v.status == ValidatorStatus.Completed
                 && getEpochAtTs(uint48(v.endedAt)) < getCurrentEpoch()
@@ -628,6 +624,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
                 nodePendingUpdate[valID] = false;
                 operatorLockedStake[operator] = 0;
             }
+
+            if (nodeWeightCache[epoch][valID] == 0 && nodeWeightCache[prevEpoch][valID] != 0) {
+            operatorNodes[operator].remove(nodeId);
+            }   
         }
     }
 
@@ -646,8 +646,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         uint48 nextEpoch = getCurrentEpoch() + 1;
         nodeWeightCache[nextEpoch][validationID] = 0;
         nodePendingRemoval[validationID] = true;
-        // operatorNodes[operator].disable(nodeId);
-        // operatorNodes[operator].disable(nodeId); // have to check node removal next epoch
+
         emit NodeRemoved(operator, nodeId, validationID);
     }
 
@@ -656,7 +655,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      * @param nodeId The node ID.
      */
     function _removeNodeFromArray(address operator, bytes32 nodeId) internal {
-        console2.log("Here we are 4");
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         // Find the node index by looping (O(n)), then swap+pop
         uint256 length = nodesArr.length;
@@ -684,11 +682,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
     /**
      * @notice Completes a validator's removal.
-     * @param operator The operator who owns the validator
-     * @param nodeId The unique ID of the validator whose removal is being finalized
      * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
      */
-    function _completeValidatorRemoval(address operator, bytes32 nodeId, uint32 messageIndex) internal onlyRegisteredOperatorNode(operator, nodeId) {
+    function _completeValidatorRemoval(uint32 messageIndex) internal {
         balancerValidatorManager.completeEndValidation(messageIndex);
     }
 
