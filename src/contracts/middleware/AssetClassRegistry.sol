@@ -139,7 +139,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
 
         emit AssetClassRemoved(assetClassId);
     }
-    
+
     function isAssetInClass(uint256 assetClassId, address asset) external view returns (bool) {
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
