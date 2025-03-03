@@ -125,7 +125,9 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         }
         address vaultCollateral = IVaultTokenized(vault).collateral();
         if (!middleware.isAssetInClass(assetClassId, vaultCollateral)) {
-            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInAssetClass(vaultCollateral, assetClassId);
+            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInAssetClass(
+                vaultCollateral, assetClassId
+            );
         }
         address delegator = IVaultTokenized(vault).delegator();
         BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), assetClassId, amount);
@@ -146,7 +148,9 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         address slasher = IVaultTokenized(vault).slasher();
         uint256 slasherType = IEntity(slasher).TYPE();
         if (slasherType == INSTANT_SLASHER_TYPE) {
-            ISlasher(slasher).slash(middleware.L1_VALIDATOR_MANAGER(), assetClass, operator, amount, timestamp, new bytes(0));
+            ISlasher(slasher).slash(
+                middleware.L1_VALIDATOR_MANAGER(), assetClass, operator, amount, timestamp, new bytes(0)
+            );
         } else if (slasherType == VETO_SLASHER_TYPE) {
             IVetoSlasher(slasher).requestSlash(
                 middleware.L1_VALIDATOR_MANAGER(), assetClass, operator, amount, timestamp, new bytes(0)
@@ -156,8 +160,14 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         }
     }
 
-    function slashVault(uint256 totalOperatorStake, uint256 amount, uint96 assetClassId, address operator, uint48 epochStartTs) external {
-                // Simple pro-rata slash
+    function slashVault(
+        uint256 totalOperatorStake,
+        uint256 amount,
+        uint96 assetClassId,
+        address operator,
+        uint48 epochStartTs
+    ) external {
+        // Simple pro-rata slash
         for (uint256 i; i < vaults.length(); ++i) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
@@ -183,16 +193,19 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         return vaults.length();
     }
 
-    function getVaultAtWithTimes(uint256 index) external view returns (address vault, uint48 enabledTime, uint48 disabledTime) {
+    function getVaultAtWithTimes(
+        uint256 index
+    ) external view returns (address vault, uint48 enabledTime, uint48 disabledTime) {
         return vaults.atWithTimes(index);
     }
 
-    function getVaultAssetClass(address vault) external view returns (uint96) {
+    function getVaultAssetClass(
+        address vault
+    ) external view returns (uint96) {
         return vaultToAssetClass[vault];
     }
 
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
         return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
     }
-
 }
