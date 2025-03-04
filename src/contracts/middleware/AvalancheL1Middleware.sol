@@ -588,7 +588,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     function _calcAndCacheNodeWeightsForOperatorAtEpoch(address operator, uint48 epoch) internal {
         uint48 prevEpoch = (epoch == 0) ? 0 : epoch - 1;
         bytes32[] storage nodeArray = operatorNodesArray[operator];
-        for (uint256 i; i < nodeArray.length; i++) {
+        for (uint256 i = nodeArray.length; i > 0; ) {
+            i--;
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
 
@@ -600,10 +601,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
                 continue;
             }
 
-            Validator memory v = balancerValidatorManager.getValidator(valID);
-
-            // If ended & completed by the current epoch, remove node from array
-            if (v.status == ValidatorStatus.Completed && getEpochAtTs(uint48(v.endedAt)) < getCurrentEpoch()) {
+            if (nodePendingRemoval[valID] && nodeWeightCache[epoch][valID] == 0 && nodeWeightCache[prevEpoch][valID] != 0) {
                 _removeNodeFromArray(operator, nodeId);
                 nodePendingRemoval[valID] = false;
             }
@@ -612,10 +610,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             if (nodePendingUpdate[valID]) {
                 nodePendingUpdate[valID] = false;
                 operatorLockedStake[operator] = 0;
-            }
-
-            if (nodeWeightCache[epoch][valID] == 0 && nodeWeightCache[prevEpoch][valID] != 0) {
-                operatorNodes[operator].remove(nodeId);
             }
         }
     }
@@ -922,31 +916,27 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         uint48 epoch
     ) external view returns (bytes32[] memory activeNodeIds) {
         uint48 epochStartTs = getEpochStartTs(epoch);
-        // Store candidates in a temporary array
 
-        bytes32[] storage nodesArr = operatorNodesArray[operator];
-        uint256 length = nodesArr.length;
-        bytes32[] memory tempNodeIds = new bytes32[](length);
+        // Gather all nodes from the never-removed set
+        bytes32[] memory allNodeIds = operatorNodes[operator].values();
+
+        bytes32[] memory temp = new bytes32[](allNodeIds.length);
         uint256 activeCount;
 
-        for (uint256 i = 0; i < length; i++) {
-            bytes32 nodeId = nodesArr[i];
+        for (uint256 i = 0; i < allNodeIds.length; i++) {
+            bytes32 nodeId = allNodeIds[i];
             bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
             Validator memory validator = balancerValidatorManager.getValidator(validationID);
-            uint48 startedAt = uint48(validator.startedAt);
-            uint48 endedAt = uint48(validator.endedAt);
 
-            if (_wasActiveAt(startedAt, endedAt, epochStartTs)) {
-                tempNodeIds[activeCount++] = nodeId;
+            if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
+                temp[activeCount++] = nodeId;
             }
         }
 
-        // Filter to active nodes
         activeNodeIds = new bytes32[](activeCount);
-        for (uint256 i = 0; i < activeCount; i++) {
-            activeNodeIds[i] = tempNodeIds[i];
+        for (uint256 j = 0; j < activeCount; j++) {
+            activeNodeIds[j] = temp[j];
         }
-        return activeNodeIds;
     }
 
     /**

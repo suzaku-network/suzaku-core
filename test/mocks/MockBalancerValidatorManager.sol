@@ -130,7 +130,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
         if (securityModuleWeight[secMod] >= v.weight) {
             securityModuleWeight[secMod] -= v.weight;
         }
-
+        v.endedAt = uint64(block.timestamp);
         pendingRegistrationMessages[nextMessageIndex] = validationID;
         nextMessageIndex++;
         console2.log("validationID", uint256(validationID));
@@ -195,7 +195,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
 
         // Mark it ended/completed
         validator.status = ValidatorStatus.Completed;
-        validator.endedAt = uint64(block.timestamp);
+        // validator.endedAt = uint64(block.timestamp);
 
         // Clean up
         delete pendingRegistrationMessages[messageIndex];
