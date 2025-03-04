@@ -1381,7 +1381,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Alice deposits
         _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
-        uint256 l1Limit = 50_000 ether;
+        uint256 l1Limit = 1500 ether;
         _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
@@ -1558,7 +1558,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 200_000_000_002_000);
-        uint256 l1Limit = 5000 ether;
+        uint256 l1Limit = 1500 ether;
         _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
         console2.log("Deposited amount:", depositedAmount);
         console2.log("Minted shares:", mintedShares);
@@ -1814,7 +1814,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // so that newly deposited amounts are 'active'.
         _moveToNextEpochAndCalc(alice, 3);
 
-        // Move to last part of the epoch
+        // Move to last part of the
         _warpToLastHourOfCurrentEpoch();
 
         // Now this will correctly see the increased stake

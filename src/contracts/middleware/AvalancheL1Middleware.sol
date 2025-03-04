@@ -66,7 +66,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
     MiddlewareVaultManager vaultManager;
     EnumerableMap.AddressToUintMap private operators;
-    EnumerableMap.AddressToUintMap private vaults;
     EnumerableSet.UintSet private secondaryAssetClasses;
 
     BalancerValidatorManager public balancerValidatorManager;
@@ -741,8 +740,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      * @return bool True if in use by any vault
      */
     function _isUsedAsset(uint256 assetClassId, address asset) internal view returns (bool) {
-        for (uint256 i; i < vaults.length(); ++i) {
-            (address vault,) = vaults.at(i);
+        for (uint256 i; i < vaultManager.getVaultCount(); ++i) {
+            (address vault, , ) = vaultManager.getVaultAtWithTimes(i);
             if (vaultToAssetClass[vault] == assetClassId && IVaultTokenized(vault).collateral() == asset) {
                 return true;
             }
@@ -758,8 +757,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     function _isUsedAssetClass(
         uint256 assetClassId
     ) internal view returns (bool) {
-        for (uint256 i; i < vaults.length(); ++i) {
-            (address vault,) = vaults.at(i);
+        for (uint256 i; i < vaultManager.getVaultCount(); ++i) {
+            (address vault, , ) = vaultManager.getVaultAtWithTimes(i);
             if (vaultToAssetClass[vault] == assetClassId) {
                 return true;
             }
