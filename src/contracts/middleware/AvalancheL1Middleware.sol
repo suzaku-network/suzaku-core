@@ -369,31 +369,25 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
         // Calculate the new total stake for the operator and compare it to the registered stake
         uint256 newTotalStake = _getOperatorAvailableStake(operator);
-
         uint256 registeredStake = getOperatorUsedWeightCached(operator);
 
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         uint256 length = nodesArr.length;
 
+        // If nothing changed, do nothing
         if (newTotalStake == registeredStake) {
             return;
         }
 
-        bool isAdding = (newTotalStake > registeredStake);
-        uint256 diff = isAdding ? (newTotalStake - registeredStake) : (registeredStake - newTotalStake);
-
-        // For adding stake, handle empty array / secondary asset checks
-        if (isAdding) {
-            if (length == 0) {
-                emit OperatorHasLeftoverStake(operator, diff);
-                return;
-            }
-            if (!_requireMinSecondaryAssetClasses(0, operator)) {
-                revert AvalancheL1Middleware__NotEnoughFreeStakeSecondaryAssetClasses();
-            }
+        if (newTotalStake > registeredStake) {
+            uint256 diff = newTotalStake - registeredStake;
+            emit OperatorHasLeftoverStake(operator, diff);
+            emit AllNodeWeightsUpdated(operator, newTotalStake);
+            return;
         }
+        // We only handle the scenario newTotalStake < registeredStake, when removing stake
+        uint256 diff = registeredStake - newTotalStake;
 
-        // Single loop for either adding or removing
         for (uint256 i = length; i > 0 && diff > 0;) {
             i--;
             bytes32 nodeId = nodesArr[i];
@@ -407,52 +401,31 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             }
 
             uint256 previousWeight = getEffectiveNodeWeight(currentEpoch, valID);
-            if (isAdding) {
-                // Add stake
-                uint256 capacity = previousWeight < assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake
-                    ? assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake - previousWeight
-                    : 0;
-                if (capacity == 0) {
-                    continue;
-                }
-                uint256 stakeToAdd = diff < capacity ? diff : capacity;
-                if (limitWeight > 0 && stakeToAdd > limitWeight) {
-                    stakeToAdd = limitWeight;
-                }
-                uint64 newWeight = StakeConversion.stakeToWeight(previousWeight + stakeToAdd);
-                diff -= stakeToAdd;
-                _initializeValidatorWeightUpdateAndLock(operator, valID, newWeight);
-                emit NodeWeightUpdated(operator, nodeId, newWeight, valID);
-            } else {
-                // Remove stake
-                if (previousWeight == 0) {
-                    continue;
-                }
-                uint256 stakeToRemove = diff < previousWeight ? diff : previousWeight;
-                if (limitWeight > 0 && stakeToRemove > limitWeight) {
-                    stakeToRemove = limitWeight;
-                }
-                uint256 newWeight = previousWeight - stakeToRemove;
-                diff -= stakeToRemove;
 
-                if (
-                    (newWeight < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake)
-                        || !_requireMinSecondaryAssetClasses(0, operator)
-                ) {
-                    newWeight = 0;
-                    _initializeEndValidationAndFlag(operator, valID, nodeId);
-                } else {
-                    _initializeValidatorWeightUpdateAndLock(operator, valID, StakeConversion.stakeToWeight(newWeight));
-                    emit NodeWeightUpdated(operator, nodeId, newWeight, valID);
-                }
+            // Remove stake
+            if (previousWeight == 0) {
+                continue;
+            }
+            uint256 stakeToRemove = diff < previousWeight ? diff : previousWeight;
+            if (limitWeight > 0 && stakeToRemove > limitWeight) {
+                stakeToRemove = limitWeight;
+            }
+            uint256 newWeight = previousWeight - stakeToRemove;
+            diff -= stakeToRemove;
+
+            if (
+                (newWeight < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake)
+                    || !_requireMinSecondaryAssetClasses(0, operator)
+            ) {
+                newWeight = 0;
+                _initializeEndValidationAndFlag(operator, valID, nodeId);
+            } else {
+                _initializeValidatorWeightUpdateAndLock(operator, valID, StakeConversion.stakeToWeight(newWeight));
+                emit NodeWeightUpdated(operator, nodeId, newWeight, valID);
             }
         }
 
-        // If there’s leftover after distributing (only relevant when adding)
-        if (diff > 0 && isAdding) {
-            emit OperatorHasLeftoverStake(operator, diff);
-        }
-
+        // Finally emit updated stake
         emit AllNodeWeightsUpdated(operator, newTotalStake);
     }
 

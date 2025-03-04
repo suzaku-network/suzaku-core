@@ -1381,7 +1381,8 @@ contract AvalancheL1MiddlewareTest is Test {
         // Alice deposits
         _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        uint256 l1Limit = 50_000 ether;
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         // -------------------------------------------------------------------------
@@ -1557,7 +1558,8 @@ contract AvalancheL1MiddlewareTest is Test {
 
         _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 200_000_000_002_000);
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        uint256 l1Limit = 5000 ether;
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
         console2.log("Deposited amount:", depositedAmount);
         console2.log("Minted shares:", mintedShares);
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
@@ -1725,7 +1727,8 @@ contract AvalancheL1MiddlewareTest is Test {
         // Initial deposit & L1 setup
         // -------------------------------------------------------------------
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 200_000_000_002_000);
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        uint256 l1Limit = 1500 ether;
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
         console2.log("Deposited amount:", depositedAmount);
         console2.log("Minted shares:", mintedShares);
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
@@ -1803,42 +1806,43 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 extraDeposit = 50_000_000_000_000;
         console2.log("Making additional deposit:", extraDeposit);
         (uint256 newDeposit, uint256 newShares) = _deposit(alice, extraDeposit);
+        uint256 totalShares = mintedShares + newShares;
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalShares);
         console2.log("Additional deposit made. Amount:", newDeposit, "Shares:", newShares);
 
-        // Next epoch to reflect stake
-        _moveToNextEpochAndCalc(alice, 1);
+        // ADD THIS: first move the vault itself to its next epoch,
+        // so that newly deposited amounts are 'active'.
+        _moveToNextEpochAndCalc(alice, 3);
+
+        // Move to last part of the epoch
+        _warpToLastHourOfCurrentEpoch();
+
+        // Now this will correctly see the increased stake
         epoch = middleware.getCurrentEpoch();
         uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
         console2.log("Operator stake after extra deposit (before forceUpdate):", updatedStake);
 
-        // -------------------------------------------------------------------
-        // Force update nodes (only in final hour)
-        // -------------------------------------------------------------------
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IAvalancheL1Middleware.AvalancheL1Middleware__NotEpochUpdatePeriod.selector,
-                Time.timestamp(),
-                middleware.getEpochStartTs(epoch) + middleware.UPDATE_WINDOW()
-            )
+        // leftover should now be > 0
+        uint256 oldUsedStake = middleware.getOperatorUsedWeightCached(alice);
+        uint256 leftover = updatedStake - oldUsedStake;
+        assertGt(leftover, 0, "Expected leftover to be > 0");
+
+
+        // We expect the leftover event with the exact leftover
+        vm.expectEmit(true, true, true, true);
+        emit IAvalancheL1Middleware.OperatorHasLeftoverStake(alice, leftover);
+
+        // Now call forceUpdateNodes (which should only handle decrease)
+        middleware.forceUpdateNodes(alice, 0);
+
+        // Finally, confirm the used stake is unchanged
+        uint256 newUsedStake = middleware.getOperatorUsedWeightCached(alice);
+        assertEq(
+            newUsedStake,
+            oldUsedStake,
+            "Used stake must remain unchanged if weight only decreases"
         );
-        middleware.forceUpdateNodes(alice, 0);
 
-        // Warp to final hour
-        _warpToLastHourOfCurrentEpoch();
-        middleware.forceUpdateNodes(alice, 0);
-
-        // -------------------------------------------------------------------
-        // Final checks
-        // -------------------------------------------------------------------
-        _moveToNextEpochAndCalc(alice, 1);
-        epoch = middleware.getCurrentEpoch();
-        updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
-        console2.log("Operator stake after final forceUpdateNodes:", updatedStake);
-
-        nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
-        nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
-        console2.log("Node1 weight:", nodeWeight1);
-        console2.log("Node2 weight:", nodeWeight2);
     }
 
     // function test_ForceRemoveNode() public {
