@@ -172,11 +172,11 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
     }
 
     // --- Additional IValidatorManager function stubs ---
-    function initializeValidatorSet(ConversionData calldata /* conversionData */, uint32 /* messageIndex */) external override {
+    function initializeValidatorSet(ConversionData calldata /* conversionData */, uint32 /* messageIndex */) external pure override {
         revert("initializeValidatorSet not implemented in mock");
     }
 
-    function resendEndValidatorMessage(bytes32 /* validationID */) external override {
+    function resendEndValidatorMessage(bytes32 /* validationID */) external pure override {
         revert("resendEndValidatorMessage not implemented in mock");
     }
 

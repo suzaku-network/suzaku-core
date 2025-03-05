@@ -371,6 +371,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         // Calculate the new total stake for the operator and compare it to the registered stake
         uint256 newTotalStake = _getOperatorAvailableStake(operator);
         uint256 registeredStake = getOperatorUsedWeightCached(operator);
+        uint256 leftoverStake;
 
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         uint256 length = nodesArr.length;
@@ -381,15 +382,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         }
 
         if (newTotalStake > registeredStake) {
-            uint256 diff = newTotalStake - registeredStake;
-            emit OperatorHasLeftoverStake(operator, diff);
+            leftoverStake = newTotalStake - registeredStake;
+            emit OperatorHasLeftoverStake(operator, leftoverStake);
             emit AllNodeWeightsUpdated(operator, newTotalStake);
             return;
         }
         // We only handle the scenario newTotalStake < registeredStake, when removing stake
-        uint256 diff = registeredStake - newTotalStake;
+        leftoverStake = registeredStake - newTotalStake;
 
-        for (uint256 i = length; i > 0 && diff > 0;) {
+        for (uint256 i = length; i > 0 && leftoverStake > 0;) {
             i--;
             bytes32 nodeId = nodesArr[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
@@ -407,12 +408,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             if (previousWeight == 0) {
                 continue;
             }
-            uint256 stakeToRemove = diff < previousWeight ? diff : previousWeight;
+            uint256 stakeToRemove = leftoverStake < previousWeight ? leftoverStake : previousWeight;
             if (limitWeight > 0 && stakeToRemove > limitWeight) {
                 stakeToRemove = limitWeight;
             }
             uint256 newWeight = previousWeight - stakeToRemove;
-            diff -= stakeToRemove;
+            leftoverStake -= stakeToRemove;
 
             if (
                 (newWeight < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake)
@@ -488,8 +489,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      */
     function slash(
         uint48 epoch,
-        address operator,
-        uint256 amount,
+        address /* operator */,
+        uint256 /* amount */,
         uint96 assetClassId
     ) public onlyOwner updateStakeCache(epoch, assetClassId) updateGlobalNodeWeightsOncePerEpoch {
         revert AvalancheL1Middleware__NotImplemented();

@@ -98,24 +98,16 @@ contract AvalancheL1MiddlewareTest is Test {
         operatorRegistry = new OperatorRegistry();
 
         MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
-        (
-            uint256 proxyAdminOwnerKey,
-            uint256 protocolOwnerKey,
-            bytes32 subnetID,
-            uint64 churnPeriodSeconds,
-            uint8 maximumChurnPercentage,
-            address primaryAsset,
-            uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake
-        ) = helperConfig.activeNetworkConfig();
-        address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
-        address protocolOwnerAddress = vm.addr(protocolOwnerKey);
+        (,,,,, address primaryAsset, uint256 primaryAssetMaxStake, uint256 primaryAssetMinStake) =
+            helperConfig.activeNetworkConfig();
+        // address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
+        // address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
-        ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
-            subnetID: subnetID,
-            churnPeriodSeconds: churnPeriodSeconds,
-            maximumChurnPercentage: maximumChurnPercentage
-        });
+        // ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
+        //     subnetID: subnetID,
+        //     churnPeriodSeconds: churnPeriodSeconds,
+        //     maximumChurnPercentage: maximumChurnPercentage
+        // });
 
         mockValidatorManager = new MockBalancerValidatorManager();
         validatorManagerAddress = address(mockValidatorManager);
@@ -1172,11 +1164,11 @@ contract AvalancheL1MiddlewareTest is Test {
 
         vm.prank(alice);
         middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 1 days), ownerStruct, ownerStruct, 0);
-
+        uint256 warpTo;
         // 4) Warp multiple epochs WITHOUT calling calcAndCacheNodeWeightsForAllOperators
         //    (simulate "late" or "batched" updates)
         for (uint256 i; i < 3; i++) {
-            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+            warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
             vm.warp(warpTo);
         }
 
@@ -1186,7 +1178,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // 6) Warp several more epochs without calling calc
         for (uint256 i; i < 2; i++) {
-            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+            warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
             vm.warp(warpTo);
         }
         bytes32 validationId = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
@@ -1213,7 +1205,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.completeValidatorRemoval(0); // messageIndex as needed
 
         // 9) Warp 1 more epoch and calc again => node array should drop to zero length
-        uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+        warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
         vm.warp(warpTo);
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
@@ -1394,6 +1386,7 @@ contract AvalancheL1MiddlewareTest is Test {
         _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
         uint256 l1Limit = 1500 ether;
+        console2.log("Deposited amount", depositedAmount);
         _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
@@ -1658,19 +1651,19 @@ contract AvalancheL1MiddlewareTest is Test {
         // Check that the node weight is still not updated in the middleware until next epoch.
         assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
 
-        _moveToNextEpochAndCalc(alice, 1);
+        _moveToNextEpochAndCalc(1);
 
         // Move forward to next vault epoch so that a withdrawal is scheduled into the next epoch
         // uint48 nextVaultEpoch = vault.currentEpochStart() + vault.epochDuration() + 1;
         // vm.warp(nextVaultEpoch);
-        _moveToNextEpochAndCalc(alice, 2);
+        _moveToNextEpochAndCalc(2);
         uint256 withdrawAmount = 50_000_000_000_000;
         // (just an example portion of what was deposited)
         _withdraw(alice, withdrawAmount);
         console2.log("Withdrawn from vault:", withdrawAmount);
 
         // Move to the middleware  epoch
-        _moveToNextEpochAndCalc(alice, 1);
+        _moveToNextEpochAndCalc(1);
         // Try forceUpdateNodes => expect revert (we're *not* in the final hour yet)
         uint48 currentEpoch = middleware.getCurrentEpoch();
         vm.expectRevert(
@@ -1688,7 +1681,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(alice);
         middleware.completeValidatorRemoval(2);
 
-        _moveToNextEpochAndCalc(alice, 1);
+        _moveToNextEpochAndCalc(1);
         epoch = middleware.getCurrentEpoch();
         uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
         console2.log("Operator stake after partial withdraw & forceUpdateNodes:", updatedStake);
@@ -1698,13 +1691,13 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Node weight 2 after partial withdraw & forceUpdateNodes:", nodeWeight2);
 
         // Move forward another vault epoch so the user can claim
-        _moveToNextEpochAndCalc(alice, 2);
+        _moveToNextEpochAndCalc(2);
         console2.log("previous epoch:", vault.currentEpoch() - 1);
         uint256 claimEpoch = vault.currentEpoch() - 1;
         uint256 claimed = _claim(alice, claimEpoch);
         console2.log("Claimed after partial withdraw from vault:", claimed);
 
-        _moveToNextEpochAndCalc(alice, 1);
+        _moveToNextEpochAndCalc(1);
 
         // Now call forceUpdateNodes to recalc node weights based on lower stake
         vm.prank(alice);
@@ -1833,7 +1826,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // ADD THIS: first move the vault itself to its next epoch,
         // so that newly deposited amounts are 'active'.
-        _moveToNextEpochAndCalc(alice, 3);
+        _moveToNextEpochAndCalc(3);
 
         // Move to last part of the
         _warpToLastHourOfCurrentEpoch();
@@ -2318,7 +2311,9 @@ contract AvalancheL1MiddlewareTest is Test {
     //     }
     // }
 
-    function _moveToNextEpochAndCalc(address operator, uint256 numberOfEpochs) internal {
+    function _moveToNextEpochAndCalc(
+        uint256 numberOfEpochs
+    ) internal {
         for (uint256 i = 0; i < numberOfEpochs; i++) {
             // 1. Figure out what the *next* epoch index would be
             uint48 nextEpochIndex = middleware.getCurrentEpoch() + 1;

@@ -82,7 +82,7 @@ contract L1RestakeDelegatorTest is Test {
             bytes32 subnetID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
-            address primaryAsset,
+            ,
             uint256 primaryAssetMaxStake,
             uint256 primaryAssetMinStake
         ) = helperConfig.activeNetworkConfig();
