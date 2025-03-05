@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 import {IBaseSlasher} from "./IBaseSlasher.sol";
@@ -41,7 +43,13 @@ interface ISlasher is IBaseSlasher {
      * @param slashedAmount virtual amount of the collateral slashed
      * @param captureTimestamp time point when the stake was captured
      */
-    event Slash(address indexed l1, uint96 indexed assetClass, address indexed operator, uint256 slashedAmount, uint48 captureTimestamp);
+    event Slash(
+        address indexed l1,
+        uint96 indexed assetClass,
+        address indexed operator,
+        uint256 slashedAmount,
+        uint48 captureTimestamp
+    );
 
     /**
      * @notice Perform a slash using a subnetwork for a particular operator by a given amount using hints.

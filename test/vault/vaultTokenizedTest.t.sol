@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -68,7 +70,6 @@ contract VaultTokenizedTest is Test {
     Token collateral;
     MockFeeOnTransferToken feeOnTransferCollateral;
 
-
     // VaultTokenized vault;
     // FullRestakeDelegator delegator;
     // Slasher slasher;
@@ -90,17 +91,19 @@ contract VaultTokenizedTest is Test {
         feeOnTransferCollateral = new MockFeeOnTransferToken("FeeOnTransferToken");
 
         // Whitelist L1RestakeDelegator implementation for type = 0
-        address l1RestakeDelegatorImpl = address(new L1RestakeDelegator(
-            address(l1Registry),
-            address(vaultFactory),
-            address(0), // operatorVaultOptInService
-            address(0), // operatorL1OptInService
-            address(delegatorFactory),
-            delegatorFactory.totalTypes() // ensures correct TYPE indexing
-        ));
+        address l1RestakeDelegatorImpl = address(
+            new L1RestakeDelegator(
+                address(l1Registry),
+                address(vaultFactory),
+                address(0), // operatorVaultOptInService
+                address(0), // operatorL1OptInService
+                address(delegatorFactory),
+                delegatorFactory.totalTypes() // ensures correct TYPE indexing
+            )
+        );
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
     }
-    
+
     function test_Create2(
         address burner,
         uint48 epochDuration,
@@ -567,7 +570,6 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.isInitialized(), false);
     }
 
-
     function test_SetDelegatorRevertDelegatorAlreadyInitialized() public {
         uint64 lastVersion = vaultFactory.lastVersion();
 
@@ -746,7 +748,6 @@ contract VaultTokenizedTest is Test {
         vm.expectRevert(IVaultTokenized.Vault__InvalidDelegator.selector);
         vault.setDelegator(address(delegator));
     }
-
 
     // function test_SetDelegator() public {
     //     uint64 lastVersion = vaultFactory.lastVersion();
@@ -3070,7 +3071,6 @@ contract VaultTokenizedTest is Test {
 
         return VaultTokenized(vaultAddress);
     }
-
 
     // function _getVaultAndDelegatorAndSlasher(
     //     uint48 epochDuration

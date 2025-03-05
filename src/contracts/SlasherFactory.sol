@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
-import { IEntity } from "../interfaces/common/IEntity.sol";
-import { Clones } from "@openzeppelin/contracts/proxy/Clones.sol";
-import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { ERC165 } from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {IEntity} from "../interfaces/common/IEntity.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
-
-import { ISlasherFactory } from "../interfaces/ISlasherFactory.sol";
+import {ISlasherFactory} from "../interfaces/ISlasherFactory.sol";
 
 contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -23,8 +24,10 @@ contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
 
     EnumerableSet.AddressSet private _whitelistedImplementations;
     EnumerableSet.AddressSet private _entities;
-    
-    modifier checkType(uint64 type_) {
+
+    modifier checkType(
+        uint64 type_
+    ) {
         if (type_ >= totalTypes()) {
             revert SlasherFactory__InvalidType();
         }
@@ -45,14 +48,18 @@ contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
     /**
      * @inheritdoc ISlasherFactory
      */
-    function implementation(uint64 type_) public view returns (address) {
+    function implementation(
+        uint64 type_
+    ) public view returns (address) {
         return _whitelistedImplementations.at(type_);
     }
 
     /**
      * @inheritdoc ISlasherFactory
      */
-    function whitelist(address implementation_) external onlyOwner {
+    function whitelist(
+        address implementation_
+    ) external onlyOwner {
         // Check if the implementation supports the IEntity interface via ERC165
         if (!implementation_.supportsInterface(type(IEntity).interfaceId)) {
             revert SlasherFactory__InvalidImplementation();
@@ -71,7 +78,9 @@ contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
     /**
      * @inheritdoc ISlasherFactory
      */
-    function blacklist(uint64 type_) external onlyOwner checkType(type_) {
+    function blacklist(
+        uint64 type_
+    ) external onlyOwner checkType(type_) {
         if (blacklisted[type_]) {
             revert SlasherFactory__AlreadyBlacklisted();
         }
@@ -91,7 +100,6 @@ contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
 
         IEntity(entity_).initialize(data);
     }
-
 
     function _addSlasherEntity(
         address entity_
@@ -134,7 +142,9 @@ contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
         }
     }
 
-    function supportsInterface(bytes4 interfaceId) public view override(ERC165, ISlasherFactory) returns (bool) {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override(ERC165, ISlasherFactory) returns (bool) {
         return interfaceId == type(ISlasherFactory).interfaceId || super.supportsInterface(interfaceId);
     }
 }

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
-import { ERC165Checker } from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import { ERC165 } from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 import {IBaseDelegator} from "../../interfaces/delegator/IBaseDelegator.sol";
 import {IDelegatorHook} from "../../interfaces/delegator/IDelegatorHook.sol";
@@ -17,12 +19,7 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-abstract contract BaseDelegator is
-    AccessControlUpgradeable,
-    ReentrancyGuardUpgradeable,
-    IBaseDelegator,
-    ERC165
-{
+abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IBaseDelegator, ERC165 {
     using ERC165Checker for address;
 
     /**
@@ -127,12 +124,12 @@ abstract contract BaseDelegator is
 
         if (
             stake_ == 0
-            || !IOptInService(OPERATOR_VAULT_OPT_IN_SERVICE).isOptedInAt(
-                operator, vault, timestamp, stakeBaseHints.operatorVaultOptInHint
-            )
-            || !IOptInService(OPERATOR_L1_OPT_IN_SERVICE).isOptedInAt(
-                operator, l1, timestamp, stakeBaseHints.operatorL1OptInHint
-            )
+                || !IOptInService(OPERATOR_VAULT_OPT_IN_SERVICE).isOptedInAt(
+                    operator, vault, timestamp, stakeBaseHints.operatorVaultOptInHint
+                )
+                || !IOptInService(OPERATOR_L1_OPT_IN_SERVICE).isOptedInAt(
+                    operator, l1, timestamp, stakeBaseHints.operatorL1OptInHint
+                )
         ) {
             return 0;
         }
@@ -146,7 +143,7 @@ abstract contract BaseDelegator is
     function stake(address l1, uint96 assetClass, address operator) external view returns (uint256) {
         if (
             !IOptInService(OPERATOR_VAULT_OPT_IN_SERVICE).isOptedIn(operator, vault)
-            || !IOptInService(OPERATOR_L1_OPT_IN_SERVICE).isOptedIn(operator, l1)
+                || !IOptInService(OPERATOR_L1_OPT_IN_SERVICE).isOptedIn(operator, l1)
         ) {
             return 0;
         }
@@ -164,11 +161,11 @@ abstract contract BaseDelegator is
 
         IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
 
-        if (maxL1Limit[l1][ assetClass] == amount) {
+        if (maxL1Limit[l1][assetClass] == amount) {
             revert BaseDelegator__AlreadySet();
         }
 
-        maxL1Limit[l1][ assetClass] = amount;
+        maxL1Limit[l1][assetClass] = amount;
 
         _setMaxL1Limit(l1, assetClass, amount);
 
@@ -264,19 +261,15 @@ abstract contract BaseDelegator is
         bytes memory hints
     ) internal view virtual returns (uint256, bytes memory) {}
 
-    function _stake(
-        address l1,
-        uint96 assetClass,
-        address operator
-    ) internal view virtual returns (uint256) {}
+    function _stake(address l1, uint96 assetClass, address operator) internal view virtual returns (uint256) {}
 
     function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual {}
 
     function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory) {}
 
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, AccessControlUpgradeable) returns (bool) {
-        return
-            interfaceId == type(IEntity).interfaceId ||
-            super.supportsInterface(interfaceId);
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view virtual override(ERC165, AccessControlUpgradeable) returns (bool) {
+        return interfaceId == type(IEntity).interfaceId || super.supportsInterface(interfaceId);
     }
 }

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.25;
 
 import {Script, console2} from "forge-std/Script.sol";
@@ -130,7 +132,9 @@ contract HelperConfig is Script {
         networkConfigs[chainId] = config;
     }
 
-    function getConfigByChainId(uint256 chainId) public view returns (NetworkConfig memory) {
+    function getConfigByChainId(
+        uint256 chainId
+    ) public view returns (NetworkConfig memory) {
         if (networkConfigs[chainId].generalConfig.owner != address(0)) {
             return networkConfigs[chainId];
         } else {

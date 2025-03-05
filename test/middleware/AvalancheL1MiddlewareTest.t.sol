@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -13,6 +15,7 @@ import {
     AvalancheL1Middleware,
     AvalancheL1MiddlewareSettings
 } from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
 import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
@@ -24,6 +27,24 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {MiddlewareHelperConfig} from "../../script/middleware/MiddlewareHelperConfig.s.sol";
+import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
+
+import {DeployBalancerValidatorManager} from "../../script/validator-manager/DeployBalancerValidatorManager.s.sol";
+import {HelperConfig} from "../../script/validator-manager/HelperConfig.s.sol";
+import {BalancerValidatorManager} from
+    "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
+import {ACP77WarpMessengerTestMock} from "@suzaku/contracts-library/contracts/mocks/ACP77WarpMessengerTestMock.sol";
+import {IBalancerValidatorManager} from
+    "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
+import {IWarpMessenger} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
+import {
+    ConversionData,
+    InitialValidator,
+    PChainOwner,
+    Validator,
+    ValidatorRegistrationInput,
+    ValidatorStatus
+} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 
@@ -31,16 +52,21 @@ import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol"
 import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
+import {IAvalancheL1Middleware} from "../../src/interfaces/middleware/IAvalancheL1Middleware.sol";
 
 contract AvalancheL1MiddlewareTest is Test {
     address internal owner;
-    address internal alice;
     address internal validatorManagerAddress;
+    address internal alice;
     uint256 internal alicePrivateKey;
     address internal bob;
     uint256 internal bobPrivateKey;
+    address internal charlie;
+    uint256 internal charliePrivateKey;
     address internal tokenA;
     address internal tokenB;
+    address internal l1;
+    uint256 internal l1PrivateKey;
 
     // Factories & Registries
     VaultFactory internal vaultFactory;
@@ -53,12 +79,15 @@ contract AvalancheL1MiddlewareTest is Test {
     VaultTokenized internal vault;
     L1RestakeDelegator internal delegator;
     AvalancheL1Middleware internal middleware;
+    MiddlewareVaultManager internal vaultManager;
     Token internal collateral;
+    MockBalancerValidatorManager internal mockValidatorManager;
 
     function setUp() public {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
+        (l1, l1PrivateKey) = makeAddrAndKey("l1");
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
 
@@ -69,27 +98,21 @@ contract AvalancheL1MiddlewareTest is Test {
         operatorRegistry = new OperatorRegistry();
 
         MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
-        (
-            uint256 proxyAdminOwnerKey,
-            uint256 protocolOwnerKey,
-            bytes32 subnetID,
-            uint64 churnPeriodSeconds,
-            uint8 maximumChurnPercentage,
-            address primaryAsset,
-            uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake
-        ) = helperConfig.activeNetworkConfig();
-        address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
-        address protocolOwnerAddress = vm.addr(protocolOwnerKey);
+        (,,,,, address primaryAsset, uint256 primaryAssetMaxStake, uint256 primaryAssetMinStake) =
+            helperConfig.activeNetworkConfig();
+        // address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
+        // address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
-        ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
-            subnetID: subnetID,
-            churnPeriodSeconds: churnPeriodSeconds,
-            maximumChurnPercentage: maximumChurnPercentage
-        });
+        // ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
+        //     subnetID: subnetID,
+        //     churnPeriodSeconds: churnPeriodSeconds,
+        //     maximumChurnPercentage: maximumChurnPercentage
+        // });
 
-        validatorManagerAddress =
-            _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
+        mockValidatorManager = new MockBalancerValidatorManager();
+        validatorManagerAddress = address(mockValidatorManager);
+        // validatorManagerAddress =
+        //     _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
 
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
@@ -124,12 +147,16 @@ contract AvalancheL1MiddlewareTest is Test {
         collateral = new Token("MockCollateral");
         primaryAsset = address(collateral);
 
+        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
+        blockTimestamp = blockTimestamp + 1_720_700_948;
+        vm.warp(blockTimestamp);
+
         // Deploy vaultTokenized
-        uint48 epochDuration = 1 days;
+        uint48 epochDuration = 8 hours;
         uint64 lastVersion = vaultFactory.lastVersion();
         address vaultAddress = vaultFactory.create(
             lastVersion,
-            alice,
+            bob,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -138,11 +165,11 @@ contract AvalancheL1MiddlewareTest is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: alice,
-                    depositWhitelistSetRoleHolder: alice,
-                    depositorWhitelistRoleHolder: alice,
-                    isDepositLimitSetRoleHolder: alice,
-                    depositLimitSetRoleHolder: alice,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
                     name: "Test",
                     symbol: "TEST"
                 })
@@ -155,9 +182,9 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Deploy delegator
         address[] memory l1LimitSetRoleHolders = new address[](1);
-        l1LimitSetRoleHolders[0] = alice;
+        l1LimitSetRoleHolders[0] = bob;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
-        operatorL1SharesSetRoleHolders[0] = alice;
+        operatorL1SharesSetRoleHolders[0] = bob;
 
         address delegatorAddress = delegatorFactory.create(
             0,
@@ -166,9 +193,9 @@ contract AvalancheL1MiddlewareTest is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: alice,
+                            defaultAdminRoleHolder: bob,
                             hook: address(0),
-                            hookSetRoleHolder: alice
+                            hookSetRoleHolder: bob
                         }),
                         l1LimitSetRoleHolders: l1LimitSetRoleHolders,
                         operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
@@ -184,27 +211,38 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Deploy the middleware
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
-            l1ValidatorManager: address(validatorManagerAddress),
+            l1ValidatorManager: validatorManagerAddress,
             operatorRegistry: address(operatorRegistry),
             vaultRegistry: address(vaultFactory),
             operatorL1Optin: address(operatorL1OptInService),
-            epochDuration: 3 hours,
-            slashingWindow: 4 hours
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            weightUpdateWindow: 3 hours
         });
 
         middleware = new AvalancheL1Middleware(
             middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
         );
 
+        vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
         // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
         // middleware.activateSecondaryAssetClass(0);
 
-        middleware.transferOwnership(address(validatorManagerAddress));
+        // Set the vault manager in the middleware
+        middleware.setVaultManager(address(vaultManager));
+
+        middleware.transferOwnership(validatorManagerAddress);
+        vaultManager.transferOwnership(validatorManagerAddress);
+
+        // middleware = new AvalancheL1Middleware();
+        uint64 maxWeight = 18 ether;
+        mockValidatorManager.setupSecurityModule(address(middleware), maxWeight);
     }
 
     function test_ConstructorValues() public view {
-        assertEq(middleware.SLASHING_WINDOW(), 4 hours);
-        assertEq(middleware.EPOCH_DURATION(), 3 hours);
+        assertEq(middleware.SLASHING_WINDOW(), 5 hours);
+        assertEq(middleware.EPOCH_DURATION(), 4 hours);
+        assertEq(middleware.UPDATE_WINDOW(), 3 hours);
 
         // Check that START_TIME is close to block.timestamp
         uint256 blockTime = block.timestamp;
@@ -217,21 +255,21 @@ contract AvalancheL1MiddlewareTest is Test {
         uint96 assetClassId = 1;
         uint256 maxVaultL1Limit = 2000 ether;
 
-        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
-        vm.startPrank(address(validatorManagerAddress)); // Check if this should change
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.startPrank(validatorManagerAddress); // Check if this should change
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
     }
 
     function test_RegisterOperator() public {
-        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
         _registerOperator(alice, "metadata");
         _optInOperatorL1(alice, validatorManagerAddress);
 
-        vm.startPrank(address(validatorManagerAddress));
+        vm.startPrank(validatorManagerAddress);
 
-        middleware.registerOperator(alice, keccak256("myPubKey"));
+        middleware.registerOperator(alice);
         vm.stopPrank();
     }
 
@@ -240,46 +278,1937 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 maxVaultL1Limit = 2000 ether;
         // middleware.addAssetToClass(1, address(collateral));
 
-        _registerL1(address(validatorManagerAddress), address(middleware));
+        _registerL1(validatorManagerAddress, address(vaultManager));
 
-        vm.startPrank(address(validatorManagerAddress));
-        middleware.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.startPrank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
-        _grantDepositorWhitelistRole(alice, alice);
+        _grantDepositorWhitelistRole(bob, alice);
         (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
 
-        _setL1Limit(alice, middleware.L1_VALIDATOR_MANAGER(), assetClassId, depositedAmount);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
 
-        _registerOperator(bob, "bob metadata");
-        _optInOperatorVault(bob);
-        _optInOperatorL1(bob, validatorManagerAddress);
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorVault(alice);
+        _optInOperatorL1(alice, validatorManagerAddress);
 
-        vm.startPrank(alice);
-        delegator.setOperatorL1Shares(middleware.L1_VALIDATOR_MANAGER(), assetClassId, bob, mintedShares);
-        vm.stopPrank();
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
 
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 stakeBob = middleware.getOperatorStake(bob, epoch, assetClassId);
-        console2.log("Bob stake:", stakeBob);
-        assertGt(stakeBob, 0, "Bob's stake should be > 0 now");
+        uint256 stakeAlice = middleware.getOperatorStake(alice, epoch, assetClassId);
+        console2.log("Alice stake:", stakeAlice);
+        assertGt(stakeAlice, 0, "Bob's stake should be > 0 now");
     }
 
-    // Internal helpers
+    function test_AddNodeFailsWithNoStake() public {
+        // Register L1 and vault but do not deposit any stake.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        vm.startPrank(validatorManagerAddress);
+        // Register vault (L1 limit can later be set if needed)
+        vaultManager.registerVault(address(vault), 1, 2000 ether);
+        vm.stopPrank();
+
+        // Register the operator in the OperatorRegistry and opt in on L1.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        // Do NOT deposit any funds for alice.
+        // Try to add a node—this should revert because there is no free stake.
+        bytes32 nodeId = bytes32("nodeNoStake");
+        bytes memory blsKey = hex"deadbeef";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory owners = new address[](1);
+        owners[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, 0)
+        );
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+    }
+
+    function test_AddNodeWithStakeAndTimeAdvance() public {
+        // Register L1 and vault, then deposit stake.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        console2.log("L1Limit set to", maxVaultL1Limit);
+        console2.log("L1Limit set actually", delegator.l1Limit(validatorManagerAddress, assetClassId));
+        // console2.log("L1Limit set actually", delegator.maxL1Limit[validatorManagerAddress][assetClassId]);
+        console2.log("Current VAULT epoch start:", vault.currentEpochStart());
+
+        vm.stopPrank();
+
+        // Register and opt in the operator.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        // Deposit funds into the vault (the user deposits stake).
+        _grantDepositorWhitelistRole(bob, alice);
+        // _grantL1LimiteRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        // Capture the current epoch and time
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        uint256 operatorStake = middleware.getOperatorStake(alice, currentEpoch, assetClassId);
+        console2.log("Operator stake after deposit (epoch", currentEpoch, "):", operatorStake);
+        assertGt(operatorStake, 0, "Operator stake should be higher than 0 in the current epoch"); // It should be 0, but it's updated immediately.
+
+        // Advance time into the next middleware epoch.
+        // uint48 nextEpoch = currentEpoch + 1;
+        // uint256 nextEpochStart = middleware.getEpochStartTs(nextEpoch);
+        // uint256 nextEpochStart = middleware.getEpochStartTs(currentEpoch) + middleware.EPOCH_DURATION();
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + vault.epochDuration();
+        vm.warp(newEpochStart); // move just past the start of the next epoch
+        console2.log("New VAULT epoch start:", vault.currentEpochStart());
+        console2.log("New VAULT epoch:", vault.currentEpoch());
+        console2.log("Vault stake:", vault.totalStake());
+        // Now, recalc stakes for the new epoch.
+        uint48 newEpoch = middleware.getCurrentEpoch();
+        console2.log("New MIDDLEWARE epoch:", newEpoch);
+        middleware.calcAndCacheStakes(newEpoch, assetClassId);
+        console2.log("New epoch:", newEpoch);
+        uint256 newStake = middleware.getOperatorStake(alice, newEpoch, assetClassId);
+        console2.log("Operator stake in new epoch:", newStake);
+        assertGe(newStake, operatorStake, "Operator stake in new epoch should reflect the deposit");
+
+        // Add a node.
+        bytes32 nodeId = bytes32("nodeWithStake");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory owners = new address[](1);
+        owners[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        currentEpoch = middleware.getCurrentEpoch();
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(currentEpoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_AddNodeSimple() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+        // new test to check if inactive until next epoch
+        // uint256 lockedStake = middleware.operatorLockedStake(alice);
+        // assertGt(lockedStake, 0, "LockedStake should be positive after adding a node");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+        // lockedStake = middleware.operatorLockedStake(alice);
+        // assertEq(lockedStake, 0, "LockedStake should be 0 after node weight is confirmed");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_AddNodeSecondaryAsset() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // uint96 secondaryAssetClassId = 2;
+        // uint256
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_AddNodeLateCompletition() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // uint96 secondaryAssetClassId = 2;
+        // uint256
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        // Move Middleware Epoch + 1 and check that the node weight is still not updated
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Should be zero until confirmed in the balancer
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        // Complete the node registration, won't be enabled until next epoch
+        vm.startPrank(alice);
+
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        vm.stopPrank();
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        vm.prank(alice);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+    }
+
+    function test_CompleteNodeWeightUpdate() public {
+        uint96 assetClassId = 1;
+        // Register L1 and the vault first.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        vm.prank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), 1, 20 ether);
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+        vm.prank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 10 ether);
+        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32 nodeId = bytes32("node2");
+        bytes memory blsKey = hex"5678";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // Add node
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Node should be in the array");
+
+        // Should be registered in next epoch
+        vm.prank(alice);
+        // middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        epoch = middleware.getCurrentEpoch();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+
+        // Check that the node weight is now positive and that operatorLockedStake was updated.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+
+        // Reduce weight by 100
+        uint64 newWeight = uint64(nodeWeight - 100);
+
+        vm.prank(alice);
+        middleware.initializeValidatorWeightUpdateAndLock(nodeId, newWeight);
+        assertEq(middleware.nodePendingUpdate(validationID), true, "Should be set on pending");
+        uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        // this shouldn't happen before completition, nor before the next epoch..
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(
+            middleware.operatorLockedStake(alice),
+            0,
+            "LockedStake should be 0 after updating a node, since it was a reduction and not addition"
+        );
+
+        vm.prank(alice);
+        middleware.completeNodeWeightUpdate(nodeId, 0);
+        console2.log("Node weight:", nodeWeight);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // Weight updated this actually should only be done by the next epoch?
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", updatedNodeWeight);
+        console2.log("New weight:", newWeight);
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be 0 as it's a negative update");
+
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be 0 as it's a negative update");
+
+        vm.prank(alice);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        epoch = middleware.getCurrentEpoch();
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        epoch = middleware.getCurrentEpoch();
+        assertEq(updatedNodeWeight, newWeight, "Node weight should be updated");
+        assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be still 0");
+    }
+
+    function test_CompleteLateNodeWeightUpdate() public {
+        uint96 assetClassId = 1;
+        // Register L1 and the vault first.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        vm.prank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), 1, 20 ether);
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+        vm.prank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 10 ether);
+        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32 nodeId = bytes32("node2");
+        bytes memory blsKey = hex"5678";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // Add node
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Node should be in the array");
+
+        // Should be registered in next epoch
+        vm.prank(alice);
+        // middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // Check that the node weight is now positive and that operatorLockedStake was updated.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+
+        // Reduce weight by 100
+        uint64 newWeight = uint64(nodeWeight - 100);
+
+        vm.prank(alice);
+        middleware.initializeValidatorWeightUpdateAndLock(nodeId, newWeight);
+        assertEq(middleware.nodePendingUpdate(validationID), true, "Should be set on pending");
+        uint256 updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        // this shouldn't happen before completition, nor before the next epoch..
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(
+            middleware.operatorLockedStake(alice),
+            0,
+            "LockedStake should be 0 after updating a node, since it was a reduction and not addition"
+        );
+
+        vm.warp(newMiddlewareEpochStart);
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "1 LockedStake should be 0 as it's a negative update");
+
+        vm.warp(newMiddlewareEpochStart);
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "2 LockedStake should be 0 as it's a negative update");
+        vm.prank(alice);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "3 LockedStake should be 0 as it's a negative update");
+
+        vm.prank(alice);
+        middleware.completeNodeWeightUpdate(nodeId, 0);
+        console2.log("Node weight:", nodeWeight);
+        // fails as it wasn't launched in EACH round, and therefor cached weight is not updated
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // Weight updated this actually should only be done by the next epoch?
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", updatedNodeWeight);
+        console2.log("New weight:", newWeight);
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "4 LockedStake should be 0 as it's a negative update");
+
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(
+            updatedNodeWeight - newWeight,
+            100,
+            "Node weight should be still not updated to the new value and bigger than new weight"
+        );
+        assertEq(middleware.operatorLockedStake(alice), 0, "5 LockedStake should be 0 as it's a negative update");
+
+        vm.prank(alice);
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        epoch = middleware.getCurrentEpoch();
+        updatedNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        epoch = middleware.getCurrentEpoch();
+        assertEq(updatedNodeWeight, newWeight, "Node weight should be updated");
+        assertEq(middleware.operatorLockedStake(alice), 0, "LockedStake should be still 0");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_RemoveNodeSimple() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "1 node should be in the array");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+
+        // Remove the node
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // Check that the node weight is still up until next epoch and nodePendingUpdate is set
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive in epoch of initializeEnd");
+        assertEq(middleware.nodePendingUpdate(validationID), false, "Node should be pending update after removal");
+        assertEq(
+            middleware.getOperatorNodesLength(alice),
+            1,
+            "1 node should be in the aray until completed and calc is called"
+        );
+
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Arry should be 1 next epoch if no function is called");
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(nodeWeight, 0, "Node actual weight must be 0 after initializeEnd epoch");
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "Arry should be 0 next epoch if any function is called");
+        assertEq(middleware.nodePendingUpdate(validationID), false, "Node should not be pending update after removal");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_RemoveNodeLate() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "1 node should be in the aray after cal");
+
+        // Remove the node
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // Check that the node weight is still up until next epoch and nodePendingUpdate is set
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive in epoch of initializeEnd");
+        assertEq(middleware.nodePendingRemoval(validationID), true, "Node should be pending update after removal");
+
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
+        assertEq(
+            middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal"
+        );
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "0 node should be in the aray until once calc is called");
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
+        assertEq(
+            middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal"
+        );
+
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // Confirm the removal
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(1);
+
+        // middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
+        assertEq(
+            middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal"
+        );
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "Arry should be 0 next epoch if any function is called");
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "0 node should be in the aray");
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is now zero and that operatorLockedStake was updated.
+        assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
+        assertEq(middleware.nodePendingRemoval(validationID), false, "Node should not be pending update after removal");
+    }
+
+    function test_RemoveNodeLateMultipleEpochs() public {
+        // 1) Setup: register L1, register vault & operator, deposit some stake, etc.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        vm.prank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), 1, 2000 ether);
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        vm.prank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 deposit, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, 1, deposit);
+        _setOperatorL1Shares(bob, validatorManagerAddress, 1, alice, mintedShares);
+
+        // 2) Advance to a new epoch
+        uint256 nextEpoch = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(nextEpoch);
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        // 3) Add node
+        bytes32 nodeId = bytes32("node1");
+        bytes memory blsKey = hex"ABCD";
+        address[] memory owners = new address[](1);
+        owners[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 1 days), ownerStruct, ownerStruct, 0);
+        uint256 warpTo;
+        // 4) Warp multiple epochs WITHOUT calling calcAndCacheNodeWeightsForAllOperators
+        //    (simulate "late" or "batched" updates)
+        for (uint256 i; i < 3; i++) {
+            warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+            vm.warp(warpTo);
+        }
+
+        // 5) Now remove the node (still no caching calls yet)
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // 6) Warp several more epochs without calling calc
+        for (uint256 i; i < 2; i++) {
+            warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+            vm.warp(warpTo);
+        }
+        bytes32 validationId = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationId);
+        assertGt(nodeWeight, 0, "Node weight must be positive before anything is called");
+        assertTrue(middleware.nodePendingRemoval(validationId), "Node is pending removal until calc is called");
+        assertEq(
+            middleware.getOperatorNodesLength(alice),
+            1,
+            "Operator should have 1 nodes before calcAndCacheNodeWeightsForAllOperators is called"
+        );
+
+        // 7) Finally call calcAndCacheNodeWeightsForAllOperators
+        //    This should resolve all those “batched” changes: node weight => 0, node marked pending removal
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        epoch = middleware.getCurrentEpoch();
+
+        nodeWeight = middleware.nodeWeightCache(epoch, validationId);
+        assertEq(nodeWeight, 0, "Node weight must be zero after late removal update");
+        assertFalse(middleware.nodePendingRemoval(validationId), "Node is pending removal until calc is called");
+
+        // 8) Complete the removal
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(0); // messageIndex as needed
+
+        // 9) Warp 1 more epoch and calc again => node array should drop to zero length
+        warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(warpTo);
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // 10) Confirm node is fully cleared
+        assertEq(middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationId), 0);
+        assertFalse(middleware.nodePendingRemoval(validationId), "Node fully removed");
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "Operator should have zero nodes now");
+    }
+
+    /// @notice Test that an operator can add a node.
+    function test_multipleNodes() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositedAmount);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId1 = bytes32("node1");
+        bytes memory blsKey1 = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 4 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct1 = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // Get min stake
+        uint256 iniitialStake = 100_000_000_000_000 + 1000;
+        vm.prank(alice);
+        middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
+
+        // Add a node.
+        bytes32 nodeId2 = bytes32("node2");
+        bytes memory blsKey2 = hex"1235";
+        registrationExpiry = uint64(block.timestamp + 4 days);
+        ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct2 = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight2, 0, "Node actual weight must be positive immediately");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId1, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId2, 1);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID2);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        // Remove the node
+        vm.prank(alice);
+        middleware.removeNode(nodeId1);
+
+        // Check that the node weight is still up until next epoch and nodePendingUpdate is set
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive until next epoch");
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // Move to the next epoch
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        assertEq(nodeWeight, 0, "Node 1 should be 0 in next epoch after initialized");
+
+        // Confirm the removal
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(2);
+
+        // middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID2);
+        assertGt(nodeWeight, 0, "Node 2 actual weight must be positive after confirmation");
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is now zero and that operatorLockedStake was updated.
+        assertEq(nodeWeight, 0, "Node  1actual weight must be zero after removal");
+        assertEq(middleware.nodePendingUpdate(validationID), false, "Node should not be pending update after removal");
+    }
+
+    function test_HistoricalQueries_multiNodes() public {
+        // -------------------------------------------------------------------------
+        // Setup: Register L1, vault, operator
+        // -------------------------------------------------------------------------
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Register operator in middleware
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        // Alice deposits
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+        uint256 l1Limit = 1500 ether;
+        console2.log("Deposited amount", depositedAmount);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        // -------------------------------------------------------------------------
+        // Move to epoch1, record it in epoch1Var
+        // -------------------------------------------------------------------------
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+
+        uint48 epoch1 = middleware.getCurrentEpoch();
+        // We want to confirm that there's some stake at epoch1
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch1, assetClassId);
+        assertGt(totalStake, 0);
+
+        // -------------------------------------------------------------------------
+        // Add nodeId1 in epoch1
+        // -------------------------------------------------------------------------
+        bytes32 nodeId1 = bytes32("node1");
+        bytes memory blsKey1 = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 4 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct1 = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        uint256 iniitialStake = 100_000_000_000_000 + 1000;
+        vm.prank(alice);
+        middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
+
+        // The node is "added", but not fully "registered" yet (completeValidatorRegistration is pending).
+        // Force a global weight update so nodeWeightCache is consistent for queries in the same epoch.
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // -------------------------------------------------------------------------
+        // Confirm the node registration for nodeId1
+        // -------------------------------------------------------------------------
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId1, 0);
+
+        // At this point, nodeId1 is fully active, but to see it in the next epoch's "active node" query,
+        // we need to roll over to a new epoch.
+        // However, we can still do a historical check for "epoch1" if we want to see if it was counted.
+
+        // -------------------------------------------------------------------------
+        // Move to epoch2, record it
+        // -------------------------------------------------------------------------
+        uint48 epoch1End = middleware.getEpochStartTs(epoch1) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(epoch1End);
+
+        uint48 epoch2 = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // -------------------------------------------------------------------------
+        // Add nodeId2 in epoch2
+        // -------------------------------------------------------------------------
+        bytes32 nodeId2 = bytes32("node2");
+        bytes memory blsKey2 = hex"1235";
+        registrationExpiry = uint64(block.timestamp + 4 days);
+
+        address[] memory ownerArr2 = new address[](1);
+        ownerArr2[0] = alice;
+        PChainOwner memory ownerStruct2 = PChainOwner({threshold: 1, addresses: ownerArr2});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
+
+        // Force weight update again in epoch2
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId2, 1);
+
+        // -------------------------------------------------------------------------
+        // Move to epoch3, record it
+        // -------------------------------------------------------------------------
+        uint48 epoch2End = middleware.getEpochStartTs(epoch2) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(epoch2End);
+
+        uint48 epoch3 = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // -------------------------------------------------------------------------
+        // Remove nodeId1 in epoch3
+        // -------------------------------------------------------------------------
+        vm.prank(alice);
+        middleware.removeNode(nodeId1);
+
+        // Force weight update so node1 is recognized as removed in the next epoch
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // -------------------------------------------------------------------------
+        // Move to epoch4, record it
+        // -------------------------------------------------------------------------
+        uint48 epoch3End = middleware.getEpochStartTs(epoch3) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(epoch3End);
+
+        uint48 epoch4 = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+
+        // Confirm nodeId1 removal
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(2);
+
+        // -------------------------------------------------------------------------
+        // Now let's test `getActiveNodesForEpoch` for epochs 1 -> 4
+        // -------------------------------------------------------------------------
+
+        // epoch1: Only nodeId1 was added (nodeId2 didn't exist yet).
+        //         But note that nodeId1 was added in the same epoch1 after the warp.
+        {
+            bytes32[] memory epoch1Nodes = middleware.getActiveNodesForEpoch(alice, epoch1);
+            // Depending on your exact logic, nodeId1 might show up only if we consider it 'active'
+            // immediately upon add. Typically you'd see it appear if you only check startedAt <= epoch1StartTs
+            // so let's just assert it is present if the system logic counts it "active."
+            // If your logic doesn't show nodeId1 in epoch1, you'd expect empty.
+            console2.log("Active nodes in epoch1 length", epoch1Nodes.length);
+            if (epoch1Nodes.length > 0) {
+                assertEq(epoch1Nodes[0], nodeId1, "Only nodeId1 should appear in epoch1 if it was recognized as active");
+            }
+        }
+
+        // epoch2: nodeId1 was continuing, nodeId2 was added *during* epoch2,
+        //         but not necessarily active until next epoch unless your logic
+        //         states it is active as soon as it is fully registered.
+        {
+            bytes32[] memory epoch2Nodes = middleware.getActiveNodesForEpoch(alice, epoch2);
+            // Typically nodeId1 is definitely active if it was not removed.
+            // nodeId2 might or might not appear in epoch2.
+            // The below checks are examples (adjust them as your logic dictates).
+            console2.log("Active nodes in epoch2 length", epoch2Nodes.length);
+
+            // Usually we'd see nodeId1. nodeId2 depends on whether "active in same epoch" is recognized.
+            // Let's do a quick minimal check that nodeId1 is present:
+            assertTrue(_arrayContains(epoch2Nodes, nodeId1), "nodeId1 should be active in epoch2");
+        }
+
+        // epoch3: nodeId1 & nodeId2 were both definitely around *before* we removed nodeId1 in epoch3,
+        //         so they typically are both active for the entire epoch3.
+        {
+            bytes32[] memory epoch3Nodes = middleware.getActiveNodesForEpoch(alice, epoch3);
+            console2.log("Active nodes in epoch3 length", epoch3Nodes.length);
+            assertTrue(
+                _arrayContains(epoch3Nodes, nodeId1),
+                "nodeId1 should be active in epoch3 (before removal finalizes next epoch)"
+            );
+            assertTrue(_arrayContains(epoch3Nodes, nodeId2), "nodeId2 should be active in epoch3");
+        }
+
+        // epoch4: nodeId1 was removed at the end of epoch3 and confirmed, so only nodeId2 is active in epoch4.
+        {
+            bytes32[] memory epoch4Nodes = middleware.getActiveNodesForEpoch(alice, epoch4);
+            console2.log("Active nodes in epoch4 length", epoch4Nodes.length);
+            assertFalse(_arrayContains(epoch4Nodes, nodeId1), "nodeId1 should no longer be active in epoch4");
+            assertTrue(_arrayContains(epoch4Nodes, nodeId2), "nodeId2 should remain active in epoch4");
+        }
+    }
+
+    function test_forceUpdate() public {
+        // Register L1 and vault, then register the operator on the registry.
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        // Register the vault first so that L1 limit can be set later.
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        // Now register the operator in the middleware.
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 200_000_000_002_000);
+        uint256 l1Limit = 1500 ether;
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
+        console2.log("Deposited amount:", depositedAmount);
+        console2.log("Minted shares:", mintedShares);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // Add a node.
+        bytes32 nodeId1 = bytes32("node1");
+        bytes memory blsKey1 = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 4 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct1 = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // Get min stake
+        uint256 iniitialStake = 100_000_000_000_000 + 1000;
+        vm.prank(alice);
+        middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
+
+        // Add a node.
+        bytes32 nodeId2 = bytes32("node2");
+        bytes memory blsKey2 = hex"1235";
+        registrationExpiry = uint64(block.timestamp + 4 days);
+        ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct2 = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
+
+        // Check that the node weight cached is zero and that operatorLockedStake was updated.
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
+
+        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        console2.log("Node weight:", nodeWeight);
+        assertGt(nodeWeight2, 0, "Node actual weight must be positive immediately");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId1, 0);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+        epoch = middleware.getCurrentEpoch();
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId2, 1);
+
+        // Move Middleware Epoch + 1
+        epoch = middleware.getCurrentEpoch();
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+
+        vm.warp(newMiddlewareEpochStart);
+
+        epoch = middleware.getCurrentEpoch();
+        console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
+
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID2);
+        console2.log("Node weight:", nodeWeight);
+
+        // Check that the node weight is still not updated in the middleware until next epoch.
+        assertGt(nodeWeight, 0, "Node actual weight must be positive after confirmation");
+
+        _moveToNextEpochAndCalc(1);
+
+        // Move forward to next vault epoch so that a withdrawal is scheduled into the next epoch
+        // uint48 nextVaultEpoch = vault.currentEpochStart() + vault.epochDuration() + 1;
+        // vm.warp(nextVaultEpoch);
+        _moveToNextEpochAndCalc(2);
+        uint256 withdrawAmount = 50_000_000_000_000;
+        // (just an example portion of what was deposited)
+        _withdraw(alice, withdrawAmount);
+        console2.log("Withdrawn from vault:", withdrawAmount);
+
+        // Move to the middleware  epoch
+        _moveToNextEpochAndCalc(1);
+        // Try forceUpdateNodes => expect revert (we're *not* in the final hour yet)
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__NotEpochUpdatePeriod.selector,
+                Time.timestamp(),
+                middleware.getEpochStartTs(currentEpoch) + middleware.UPDATE_WINDOW()
+            )
+        );
+        middleware.forceUpdateNodes(alice, 0);
+        // Move to the final hour of the epoch
+        _warpToLastHourOfCurrentEpoch();
+        middleware.forceUpdateNodes(alice, 0);
+
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(2);
+
+        _moveToNextEpochAndCalc(1);
+        epoch = middleware.getCurrentEpoch();
+        uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        console2.log("Operator stake after partial withdraw & forceUpdateNodes:", updatedStake);
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        console2.log("Node weight 1 after partial withdraw & forceUpdateNodes:", nodeWeight);
+        console2.log("Node weight 2 after partial withdraw & forceUpdateNodes:", nodeWeight2);
+
+        // Move forward another vault epoch so the user can claim
+        _moveToNextEpochAndCalc(2);
+        console2.log("previous epoch:", vault.currentEpoch() - 1);
+        uint256 claimEpoch = vault.currentEpoch() - 1;
+        uint256 claimed = _claim(alice, claimEpoch);
+        console2.log("Claimed after partial withdraw from vault:", claimed);
+
+        _moveToNextEpochAndCalc(1);
+
+        // Now call forceUpdateNodes to recalc node weights based on lower stake
+        vm.prank(alice);
+        // middleware.forceUpdateNodes(alice, 0);
+
+        // At this point you can add checks/logs to verify the operator’s node weights
+        // reflect a smaller total stake. Something like:
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        epoch = middleware.getCurrentEpoch();
+        updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        console2.log("Operator stake after partial withdraw & forceUpdateNodes:", updatedStake);
+        nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        console2.log("Node weight 1 after partial withdraw & forceUpdateNodes:", nodeWeight);
+        console2.log("Node weight 2 after partial withdraw & forceUpdateNodes:", nodeWeight2);
+    }
+
+    function test_forceUpdateWithAdditionalStake() public {
+        // -------------------------------------------------------------------
+        // Setup / Register
+        // -------------------------------------------------------------------
+        _registerL1(validatorManagerAddress, address(vaultManager));
+
+        uint96 assetClassId = 1;
+        uint256 maxVaultL1Limit = 2000 ether;
+        vm.startPrank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vm.stopPrank();
+
+        _registerOperator(alice, "alice metadata");
+        _optInOperatorL1(alice, validatorManagerAddress);
+        _optInOperatorVault(alice);
+
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(alice);
+        vm.stopPrank();
+
+        _grantDepositorWhitelistRole(bob, alice);
+
+        // -------------------------------------------------------------------
+        // Initial deposit & L1 setup
+        // -------------------------------------------------------------------
+        (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 200_000_000_002_000);
+        uint256 l1Limit = 1500 ether;
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
+        console2.log("Deposited amount:", depositedAmount);
+        console2.log("Minted shares:", mintedShares);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+        uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+        vm.warp(newEpochStart);
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(totalStake, 0);
+
+        // -------------------------------------------------------------------
+        // Add Nodes
+        // -------------------------------------------------------------------
+        bytes32 nodeId1 = bytes32("node1");
+        bytes memory blsKey1 = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 4 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct1 = PChainOwner({threshold: 1, addresses: ownerArr});
+        uint256 iniitialStake = 100_000_000_000_000 + 1000;
+
+        vm.prank(alice);
+        middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
+
+        bytes32 nodeId2 = bytes32("node2");
+        bytes memory blsKey2 = hex"1235";
+        registrationExpiry = uint64(block.timestamp + 4 days);
+        ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct2 = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.prank(alice);
+        middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
+
+        bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        uint256 nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
+        assertGt(nodeWeight1, 0, "Node1 weight must be positive immediately");
+
+        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        assertGt(nodeWeight2, 0, "Node2 weight must be positive immediately");
+
+        // -------------------------------------------------------------------
+        // completeValidatorRegistration
+        // -------------------------------------------------------------------
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId1, 0);
+
+        // Move forward + recalc
+        epoch = middleware.getCurrentEpoch();
+        uint48 newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
+        assertGt(nodeWeight1, 0);
+
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId2, 1);
+
+        // Move forward + recalc
+        epoch = middleware.getCurrentEpoch();
+        newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
+        vm.warp(newMiddlewareEpochStart);
+
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeWeightsForAllOperators();
+        nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        assertGt(nodeWeight2, 0);
+
+        // -------------------------------------------------------------------
+        // Additional Deposit Instead of Withdrawal
+        // -------------------------------------------------------------------
+        uint256 extraDeposit = 50_000_000_000_000;
+        console2.log("Making additional deposit:", extraDeposit);
+        (uint256 newDeposit, uint256 newShares) = _deposit(alice, extraDeposit);
+        uint256 totalShares = mintedShares + newShares;
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalShares);
+        console2.log("Additional deposit made. Amount:", newDeposit, "Shares:", newShares);
+
+        // ADD THIS: first move the vault itself to its next epoch,
+        // so that newly deposited amounts are 'active'.
+        _moveToNextEpochAndCalc(3);
+
+        // Move to last part of the
+        _warpToLastHourOfCurrentEpoch();
+
+        // Now this will correctly see the increased stake
+        epoch = middleware.getCurrentEpoch();
+        uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        console2.log("Operator stake after extra deposit (before forceUpdate):", updatedStake);
+
+        // leftover should now be > 0
+        uint256 oldUsedStake = middleware.getOperatorUsedWeightCached(alice);
+        uint256 leftover = updatedStake - oldUsedStake;
+        assertGt(leftover, 0, "Expected leftover to be > 0");
+
+        // We expect the leftover event with the exact leftover
+        vm.expectEmit(true, true, true, true);
+        emit IAvalancheL1Middleware.OperatorHasLeftoverStake(alice, leftover);
+
+        // Now call forceUpdateNodes (which should only handle decrease)
+        middleware.forceUpdateNodes(alice, 0);
+
+        // Finally, confirm the used stake is unchanged
+        uint256 newUsedStake = middleware.getOperatorUsedWeightCached(alice);
+        assertEq(newUsedStake, oldUsedStake, "Used stake must remain unchanged if weight only decreases");
+    }
+
+    // function test_ForceRemoveNode() public {
+    //     uint96 assetClassId = 1;
+    //     // Register L1 and vault first.
+    //     _registerL1(validatorManagerAddress, address(middleware));
+    //     vm.startPrank(validatorManagerAddress);
+    //     vaultManager.registerVault(address(vault), 1, 2000 ether);
+    //     vm.stopPrank();
+
+    //     _registerOperator(alice, "alice metadata");
+    //     _optInOperatorL1(alice, validatorManagerAddress);
+    //     _optInOperatorVault(alice);
+
+    //     vm.startPrank(validatorManagerAddress);
+    //     middleware.registerOperator(alice);
+    //     vm.stopPrank();
+
+    //     _grantDepositorWhitelistRole(bob, alice);
+    //     (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 500 ether);
+    //     _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+
+    //     uint48 epoch = middleware.getCurrentEpoch();
+    //     bytes32 nodeId = bytes32("node3");
+    //     bytes memory blsKey = hex"9abc";
+    //     uint64 registrationExpiry = uint64(block.timestamp + 1 days);
+    //     address[] memory ownerArr = new address[](1);
+    //     ownerArr[0] = alice;
+    //     PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+    //     vm.prank(alice);
+    //     middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+    //     bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+    //     uint256 initialNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+    //     assertGt(initialNodeWeight, 0);
+
+    //     // Act: Force-remove the node. Have to fix adding function
+    //     // vm.prank(validatorManagerAddress);
+    //     // middleware.forceRemoveNode(alice);
+
+    //     // // Assert: Node weight is now zero.
+    //     // uint256 finalNodeWeight = middleware.nodeWeightCache(epoch, validationID);
+    //     // assertEq(finalNodeWeight, 0, "Node weight should be zero after force removal");
+    // }
+
+    // /**
+    //  * @dev Demonstrates multiple nodes for a single operator, calling forceUpdateNodes,
+    //  *      then adjusting stake to see how weights re-balance.
+    //  */
+    // function test_MultipleNodesUpdateAllWeights() public {
+    //     // 1) Register L1 + Vault
+    //     _registerL1(validatorManagerAddress, address(middleware));
+    //     vm.startPrank(validatorManagerAddress);
+    //     vaultManager.registerVault(address(vault), 1, 5 ether);
+    //     vm.stopPrank();
+
+    //     // 2) Register operator
+    //     _registerOperator(alice, "alice metadata");
+    //     _optInOperatorL1(alice, validatorManagerAddress);
+    //     _optInOperatorVault(alice);
+    //     vm.startPrank(validatorManagerAddress);
+    //     middleware.registerOperator(alice);
+    //     vm.stopPrank();
+
+    //     // 3) Alice deposits
+    //     _grantDepositorWhitelistRole(bob, alice);
+    //     (uint256 depositedAmount, uint256 mintedShares) = _deposit(alice, 2 ether);
+
+    //     // 4) Set L1 Limit + operator shares
+    //     _grantL1LimiteRole(bob, alice);
+    //     _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, 1, alice, mintedShares);
+
+    //     // 5) Advance epoch so stake is recognized in the new epoch
+    //     uint256 nextEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(nextEpochStart);
+    //     uint48 epochNow = middleware.getCurrentEpoch();
+    //     middleware.calcAndCacheStakes(epochNow, 1);
+
+    //     // 6) Add multiple nodes
+    //     bytes32 node1 = bytes32("nodeA");
+    //     bytes32 node2 = bytes32("nodeB");
+
+    //     // mock manager says it's all good:
+    //     // mockValidatorManager.simulateActivateValidator(bytes32("dummy"));
+
+    //     {
+    //         // Node1
+    //         bytes memory blsKey = hex"111111";
+    //         address[] memory owners = new address[](1);
+    //         owners[0] = alice;
+    //         PChainOwner memory pOwner = PChainOwner({threshold: 1, addresses: owners});
+    //         console2.log("Adding node1");
+    //         vm.prank(alice);
+    //         middleware.addNode(node1, blsKey, uint64(block.timestamp + 1 days), pOwner, pOwner, 0);
+    //         bytes32 _valId1 = middleware.getCurrentValidationID(node1);
+    //         // Now the manager “knows” about this node as “pending”
+    //         mockValidatorManager.simulateActivateValidator(_valId1);
+    //     }
+
+    //     {
+    //         // Node2
+    //         bytes memory blsKey = hex"222222";
+    //         address[] memory owners = new address[](1);
+    //         owners[0] = alice;
+    //         PChainOwner memory pOwner = PChainOwner({threshold: 1, addresses: owners});
+    //         console2.log("Adding node2");
+    //         vm.prank(alice);
+    //         middleware.addNode(node2, blsKey, uint64(block.timestamp + 1 days), pOwner, pOwner, 0);
+    //         bytes32 _valId2 = middleware.getCurrentValidationID(node2);
+    //         mockValidatorManager.simulateActivateValidator(_valId2);
+    //     }
+
+    //     // 7) Check initial locked stake across both nodes
+    //     uint48 ep = middleware.getCurrentEpoch();
+    //     bytes32 valId1 = middleware.getCurrentValidationID(node1);
+    //     bytes32 valId2 = middleware.getCurrentValidationID(node2);
+    //     uint256 node1Weight = middleware.nodeWeightCache(ep, valId1);
+    //     uint256 node2Weight = middleware.nodeWeightCache(ep, valId2);
+
+    //     // 8) Now let's reduce the shares for operator => effectively reduce stake
+    //     // We'll do it by removing half the deposit from the vault
+    //     uint256 half = 0.4 ether;
+    //     vm.prank(alice);
+    //     vault.withdraw(alice, half); // remove 1000
+    //     // In the next epoch, total stake for alice should drop drastically.
+
+    //     // 9) Advance to next epoch => then call forceUpdateNodes
+    //     uint256 secondEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(secondEpochStart);
+    //     uint48 newEpoch = middleware.getCurrentEpoch();
+    //     // must recalc base stake
+    //     middleware.calcAndCacheStakes(newEpoch, 1);
+    //     // triggers a rebalancing of node weights
+    //     vm.prank(alice);
+    //     // This uses the internal logic to see if some node must be ended or weight lowered
+    //     middleware.forceUpdateNodes(alice, 0);
+
+    //     // Suppose node2 is the one that got rebalanced to a lower stake
+    //     // We'll do a final "confirm" step so the nodeWeightCache actually sees the new weight
+
+    //     // 1) Check that operatorLockedStake is still elevated (some stake is locked for the pending update)
+    //     uint256 lockedBefore = middleware.operatorLockedStake(alice);
+    //     uint256 operatorAvailableBefore = middleware.getOperatorAvailableStake(alice);
+    //     console2.log("Locked stake before confirmation:", lockedBefore);
+    //     console2.log("Available stake before confirmation:", operatorAvailableBefore);
+
+    //     // 2) The manager sees a pending weight update for node2.
+    //     //    We emulate finalization:
+    //     uint64 finalWeight = 600_000_000_000_000_000; // e.g. 0.6 ETH, as rebalanced
+    //     mockValidatorManager.simulateWeightUpdate(valId2, finalWeight);
+
+    //     // 3) Now we call completeNodeWeightUpdate(...) on the middleware to finalize
+    //     vm.prank(alice);
+    //     middleware.completeNodeWeightUpdate(node2, 0);
+    //     // The "messageIndex" param is normally the cross-chain message index,
+    //     // but in a local mock scenario you might pass 0 or 1,
+    //     // depending on your mock’s implementation.
+
+    //     uint256 lockedAfter = middleware.operatorLockedStake(alice);
+    //     console2.log("Locked stake after confirm:", lockedAfter);
+
+    //     // 4) Re-check the node weight
+    //     newEpoch = middleware.getCurrentEpoch();
+    //     uint256 val2NewWeight = middleware.nodeWeightCache(newEpoch, valId2);
+    //     console2.log("node2 final weight:", val2NewWeight);
+
+    //     // 5) Now your test's final assertion sees node2 weight < the old 1.0 ETH
+    //     assertTrue(val2NewWeight < 1 ether, "node2 weight must be below the old 1.0 ETH");
+
+    //     // 10) Check updated weights
+    //     uint256 val1NewWeight = middleware.nodeWeightCache(newEpoch, valId1);
+    //     // Because half the stake was removed, likely each node's weight will be reduced
+    //     // or one might be removed if the new total is below min stake. We'll just check it changed.
+    //     assertTrue(val1NewWeight < node1Weight || val2NewWeight < node2Weight, "At least one node weight should be smaller");
+    // }
+
+    // /**
+    //  * @dev Checks that we can read older epochs' stake from the cache,
+    //  *      plus we confirm nodeIDs / validationIDs differ across time.
+    //  */
+    // function test_PastEpochWeightsAndIDs() public {
+    //     // 1) Prepare vault and operator
+    //     _registerL1(validatorManagerAddress, address(middleware));
+    //     vm.startPrank(validatorManagerAddress);
+    //     vaultManager.registerVault(address(vault), 1, 3000 ether);
+    //     vm.stopPrank();
+
+    //     _registerOperator(alice, "opAlice");
+    //     _optInOperatorL1(alice, validatorManagerAddress);
+    //     _optInOperatorVault(alice);
+
+    //     vm.startPrank(validatorManagerAddress);
+    //     middleware.registerOperator(alice);
+    //     vm.stopPrank();
+
+    //     // 2) Alice deposits 1500
+    //     _grantDepositorWhitelistRole(bob, alice);
+    //     _grantL1LimiteRole(bob, alice);
+    //     (uint256 depAmt, uint256 minted) = _deposit(alice, 1500 ether);
+    //     _setL1Limit(bob, validatorManagerAddress, 1, depAmt);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, 1, alice, minted);
+
+    //     // 3) Advance 1 epoch => store that stake in cache
+    //     uint256 epochStart1 = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(epochStart1);
+    //     uint48 epoch1 = middleware.getCurrentEpoch();
+    //     middleware.calcAndCacheStakes(epoch1, 1);
+
+    //     // 4) Alice deposits an additional 500 => total 2000
+    //     (uint256 depAmt2, uint256 minted2) = _deposit(alice, 500 ether);
+    //     _setL1Limit(bob, validatorManagerAddress, 1, depAmt + depAmt2);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, 1, alice, depAmt + depAmt2);
+
+    //     // 5) Advance to epoch2, stake ~2000
+    //     uint256 epochStart2 = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(epochStart2);
+    //     uint48 epoch2 = middleware.getCurrentEpoch();
+    //     middleware.calcAndCacheStakes(epoch2, 1);
+
+    //     // 6) Add a node now => validationID is assigned
+    //     bytes32 nodeId = bytes32("testNode");
+    //     bytes memory blsKey = hex"abcdef";
+    //     address[] memory owners = new address[](1);
+    //     owners[0] = alice;
+    //     PChainOwner memory pOwner = PChainOwner({threshold: 1, addresses: owners});
+
+    //     vm.prank(alice);
+    //     middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 1 days), pOwner, pOwner, 0);
+    //     bytes32 valIdNow = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+
+    //     // 7) Advance to epoch3
+    //     uint256 epochStart3 = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(epochStart3);
+    //     uint48 epoch3 = middleware.getCurrentEpoch();
+    //     middleware.calcAndCacheStakes(epoch3, 1);
+
+    //     // 8) Check historical operator stake
+    //     uint256 stakeE1 = middleware.getOperatorStake(alice, epoch1, 1);
+    //     uint256 stakeE2 = middleware.getOperatorStake(alice, epoch2, 1);
+    //     uint256 stakeE3 = middleware.getOperatorStake(alice, epoch3, 1);
+    //     assertEq(stakeE1, 1500 ether, "Epoch1 stake must be 1500");
+    //     assertEq(stakeE2, 2000 ether, "Epoch2 stake must be 2000");
+    //     assertEq(stakeE3, 2000 ether, "Epoch3 stake must be 2000");
+
+    //     // 9) Check node's validationID at older epochs => should be zero
+    //     bytes32 oldValE1 = middleware.getValidationIDAt(nodeId, uint48(epochStart1));
+    //     bytes32 oldValE2 = middleware.getValidationIDAt(nodeId, uint48(epochStart2));
+    //     assertEq(oldValE1, bytes32(0), "No validationID at epoch1");
+    //     assertEq(oldValE2, bytes32(0), "No validationID at epoch2");
+    //     // At epoch3 time => it should be the current valId
+    //     bytes32 valE3 = middleware.getValidationIDAt(nodeId, uint48(epochStart3));
+    //     assertEq(valE3, valIdNow, "Epoch3's val ID must match the new one");
+    // }
+
+    // /**
+    //  * @dev Full scenario with multiple operators and multiple nodes. Then removal of a node.
+    //  */
+    // function test_MultipleOperatorsAndNodes() public {
+    //     // 1) Register L1 + Vault
+    //     _registerL1(validatorManagerAddress, address(middleware));
+    //     vm.startPrank(validatorManagerAddress);
+    //     vaultManager.registerVault(address(vault), 1, 10000 ether);
+    //     vm.stopPrank();
+
+    //     // 2) Register 2 operators: alice + charlie
+    //     _registerOperator(alice, "alice meta");
+    //     _optInOperatorL1(alice, validatorManagerAddress);
+    //     _optInOperatorVault(alice);
+
+    //     _registerOperator(charlie, "charlie meta");
+    //     _optInOperatorL1(charlie, validatorManagerAddress);
+    //     _optInOperatorVault(charlie);
+
+    //     vm.startPrank(validatorManagerAddress);
+    //     middleware.registerOperator(alice);
+    //     middleware.registerOperator(charlie);
+    //     vm.stopPrank();
+
+    //     // 3) Both deposit
+    //     _grantDepositorWhitelistRole(bob, alice);
+    //     _grantDepositorWhitelistRole(bob, charlie);
+    //     _grantL1LimiteRole(bob, alice);
+    //     _grantL1LimiteRole(bob, charlie);
+
+    //     // Alice
+    //     (uint256 aliceAmt, uint256 aliceShares) = _deposit(alice, 4000 ether);
+    //     _setL1Limit(bob, validatorManagerAddress, 1, aliceAmt);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, 1, alice, aliceShares);
+
+    //     // Bob
+    //     (uint256 charlieAmt, uint256 charlieShares) = _deposit(charlie, 3000 ether);
+    //     _setL1Limit(bob, validatorManagerAddress, 1, charlieAmt);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, 1, charlie, charlieShares);
+
+    //     // 4) Advance epoch
+    //     uint256 nextEpoch = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(nextEpoch);
+    //     uint48 ep1 = middleware.getCurrentEpoch();
+    //     middleware.calcAndCacheStakes(ep1, 1);
+
+    //     // 5) Each operator adds multiple nodes
+    //     vm.prank(alice);
+    //     middleware.addNode(bytes32("aliceNode1"), hex"AA11", uint64(block.timestamp + 1 days), _makePChainOwner(alice), _makePChainOwner(alice), 0);
+    //     vm.prank(alice);
+    //     middleware.addNode(bytes32("aliceNode2"), hex"AA22", uint64(block.timestamp + 1 days), _makePChainOwner(alice), _makePChainOwner(alice), 0);
+
+    //     vm.prank(charlie);
+    //     middleware.addNode(bytes32("charlieNode1"), hex"BB11", uint64(block.timestamp + 1 days), _makePChainOwner(charlie), _makePChainOwner(charlie), 0);
+    //     vm.prank(charlie);
+    //     middleware.addNode(bytes32("charlieNode2"), hex"BB22", uint64(block.timestamp + 1 days), _makePChainOwner(charlie), _makePChainOwner(charlie), 0);
+    //     vm.prank(charlie);
+    //     middleware.addNode(bytes32("charlieNode3"), hex"BB33", uint64(block.timestamp + 1 days), _makePChainOwner(charlie), _makePChainOwner(charlie), 0);
+
+    //     // 6) Next epoch => re-check total stake
+    //     uint256 nextEpoch2 = vault.currentEpochStart() + vault.epochDuration() + 1;
+    //     vm.warp(nextEpoch2);
+    //     uint48 ep2 = middleware.getCurrentEpoch();
+    //     middleware.calcAndCacheStakes(ep2, 1);
+
+    //     // 7) Suppose Bob forcibly removes one node
+    //     vm.prank(validatorManagerAddress);
+    //     middleware.forceRemoveNode(charlie);
+
+    //     // 8) Check that after forceRemoveNode, charlie's node weights in ep2 are zero
+    //     // for the forcibly removed nodes
+    //     // The method sets them all to zero. We'll just check one of them:
+    //     bytes32 valBobNode1 = middleware.getCurrentValidationID(bytes32("charlieNode1"));
+    //     uint256 nodeWeight1 = middleware.nodeWeightCache(ep2, valBobNode1);
+    //     assertEq(nodeWeight1, 0, "Force removed node weight must be 0 in ep2");
+
+    //     // 9) All done
+    // }
+    ///////////////////////////////
+    // INTERNAL HELPERS
+    ///////////////////////////////
+
     function _registerOperator(address user, string memory metadataURL) internal {
         vm.startPrank(user);
         operatorRegistry.registerOperator(metadataURL);
         vm.stopPrank();
     }
 
-    function _registerL1(address l1, address _middleware) internal {
-        vm.prank(l1);
-        l1Registry.registerL1(l1, _middleware, "metadataURL");
+    function _registerL1(address _l1, address _middleware) internal {
+        vm.prank(_l1);
+        l1Registry.registerL1(_l1, _middleware, "metadataURL");
     }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
         vm.startPrank(user);
         VaultTokenized(address(vault)).grantRole(vault.DEPOSITOR_WHITELIST_ROLE(), account);
+        vm.stopPrank();
+    }
+
+    function _grantL1LimiteRole(address user, address account) internal {
+        vm.startPrank(user);
+        delegator.grantRole(delegator.L1_LIMIT_SET_ROLE(), account);
         vm.stopPrank();
     }
 
@@ -309,45 +2238,49 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
     }
 
-    function _optInOperatorVault(address user) internal {
+    function _optInOperatorVault(
+        address user
+    ) internal {
         vm.startPrank(user);
         operatorVaultOptInService.optIn(address(vault));
         vm.stopPrank();
     }
 
-    function _optOutOperatorVault(address user) internal {
+    function _optOutOperatorVault(
+        address user
+    ) internal {
         vm.startPrank(user);
         operatorVaultOptInService.optOut(address(vault));
         vm.stopPrank();
     }
 
-    function _optInOperatorL1(address user, address l1) internal {
+    function _optInOperatorL1(address user, address _l1) internal {
         vm.startPrank(user);
-        operatorL1OptInService.optIn(l1);
+        operatorL1OptInService.optIn(_l1);
         vm.stopPrank();
     }
 
-    function _optOutOperatorL1(address user, address l1) internal {
+    function _optOutOperatorL1(address user, address _l1) internal {
         vm.startPrank(user);
-        operatorL1OptInService.optOut(l1);
+        operatorL1OptInService.optOut(_l1);
         vm.stopPrank();
     }
 
-    function _setL1Limit(address user, address l1, uint96 assetClass, uint256 amount) internal {
+    function _setL1Limit(address user, address _l1, uint96 assetClass, uint256 amount) internal {
         vm.startPrank(user);
-        delegator.setL1Limit(l1, assetClass, amount);
+        delegator.setL1Limit(_l1, assetClass, amount);
         vm.stopPrank();
     }
 
     function _setOperatorL1Shares(
         address user,
-        address l1,
+        address _l1,
         uint96 assetClass,
         address operator,
         uint256 shares
     ) internal {
         vm.startPrank(user);
-        delegator.setOperatorL1Shares(l1, assetClass, operator, shares);
+        delegator.setOperatorL1Shares(_l1, assetClass, operator, shares);
         vm.stopPrank();
     }
 
@@ -365,5 +2298,53 @@ contract AvalancheL1MiddlewareTest is Test {
         );
 
         return proxy;
+    }
+
+    // function _moveToNextEpochAndCalc(address operator, uint256 numberOfEpochs) internal {
+    //     for (uint256 i = 0; i < numberOfEpochs; i++) {
+    //         uint256 newMiddlewareEpochStart =
+    //             middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
+    //         vm.warp(newMiddlewareEpochStart);
+    //         middleware.calcAndCacheNodeWeightsForAllOperators();
+    //         console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
+    //         console2.log("Current vault epoch:", vault.currentEpoch());
+    //     }
+    // }
+
+    function _moveToNextEpochAndCalc(
+        uint256 numberOfEpochs
+    ) internal {
+        for (uint256 i = 0; i < numberOfEpochs; i++) {
+            // 1. Figure out what the *next* epoch index would be
+            uint48 nextEpochIndex = middleware.getCurrentEpoch() + 1;
+
+            // 2. Warp to *just after* that epoch’s start
+            uint256 nextEpochStartTs = middleware.getEpochStartTs(nextEpochIndex);
+            vm.warp(nextEpochStartTs + 1);
+
+            // 3. Do any housekeeping
+            middleware.calcAndCacheNodeWeightsForAllOperators();
+
+            console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
+            console2.log("Current vault epoch:", vault.currentEpoch());
+        }
+    }
+
+    function _warpToLastHourOfCurrentEpoch() internal {
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        uint48 currentEpochTs = middleware.getEpochStartTs(currentEpoch);
+
+        // The final “window” starts at (epoch end - weightUpdateGracePeriod)
+        uint256 finalHourStartTs = currentEpochTs + middleware.UPDATE_WINDOW();
+
+        // If we want to be safe, warp a few seconds into that window
+        vm.warp(finalHourStartTs + 10);
+    }
+
+    function _arrayContains(bytes32[] memory arr, bytes32 target) internal pure returns (bool) {
+        for (uint256 i = 0; i < arr.length; i++) {
+            if (arr[i] == target) return true;
+        }
+        return false;
     }
 }

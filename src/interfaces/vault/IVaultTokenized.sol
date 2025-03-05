@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 // import {IMigratableEntity} from "../common/IMigratableEntity.sol";
 
-interface IVaultTokenized  {
+interface IVaultTokenized {
     error Vault__AlreadyClaimed();
     error Vault__AlreadySet();
     error Vault__DelegatorAlreadyInitialized();
@@ -86,9 +88,15 @@ interface IVaultTokenized  {
      * @param data some data to use
      * @param delegatorFactory Address of the delegator factory.
      * @param slasherFactory Address of the slasher factory.
-     * 
+     *
      */
-    function initialize(uint64 initialVersion, address owner, bytes calldata data, address delegatorFactory, address slasherFactory) external;
+    function initialize(
+        uint64 initialVersion,
+        address owner,
+        bytes calldata data,
+        address delegatorFactory,
+        address slasherFactory
+    ) external;
 
     /**
      * @notice Migrate this entity to a particular newer version using a given data.
@@ -128,11 +136,7 @@ interface IVaultTokenized  {
      * @param mintedShares amount of the epoch withdrawal shares minted
      */
     event Withdraw(
-        address indexed withdrawer,
-        address indexed claimer,
-        uint256 amount,
-        uint256 burnedShares,
-        uint256 mintedShares
+        address indexed withdrawer, address indexed claimer, uint256 amount, uint256 burnedShares, uint256 mintedShares
     );
 
     /**
@@ -460,7 +464,9 @@ interface IVaultTokenized  {
      * @param account account to get the active balance for
      * @return active balance for the account
      */
-    function activeBalanceOf(address account) external view returns (uint256);
+    function activeBalanceOf(
+        address account
+    ) external view returns (uint256);
 
     /**
      * @notice Get withdrawals for a particular account at a given epoch (zero if claimed).
@@ -475,7 +481,9 @@ interface IVaultTokenized  {
      * @param account account to get the slashable collateral for
      * @return total amount of the account's slashable collateral
      */
-    function slashableBalanceOf(address account) external view returns (uint256);
+    function slashableBalanceOf(
+        address account
+    ) external view returns (uint256);
 
     /**
      * @notice Deposit collateral into the vault.
@@ -537,7 +545,9 @@ interface IVaultTokenized  {
      * @param status if enabling deposit whitelist
      * @dev Only a DEPOSIT_WHITELIST_SET_ROLE holder can call this function.
      */
-    function setDepositWhitelist(bool status) external;
+    function setDepositWhitelist(
+        bool status
+    ) external;
 
     /**
      * @notice Set a depositor whitelist status.
@@ -552,28 +562,36 @@ interface IVaultTokenized  {
      * @param status if enabling deposit limit
      * @dev Only a IS_DEPOSIT_LIMIT_SET_ROLE holder can call this function.
      */
-    function setIsDepositLimit(bool status) external;
+    function setIsDepositLimit(
+        bool status
+    ) external;
 
     /**
      * @notice Set a deposit limit.
      * @param limit deposit limit (maximum amount of the collateral that can be in the vault simultaneously)
      * @dev Only a DEPOSIT_LIMIT_SET_ROLE holder can call this function.
      */
-    function setDepositLimit(uint256 limit) external;
+    function setDepositLimit(
+        uint256 limit
+    ) external;
 
     /**
      * @notice Set a delegator.
      * @param delegator vault's delegator to delegate the stake to networks and operators
      * @dev Can be set only once.
      */
-    function setDelegator(address delegator) external;
+    function setDelegator(
+        address delegator
+    ) external;
 
     /**
      * @notice Set a slasher.
      * @param slasher vault's slasher to provide a slashing mechanism to networks
      * @dev Can be set only once.
      */
-    function setSlasher(address slasher) external;
+    function setSlasher(
+        address slasher
+    ) external;
 
     /**
      * @notice Make a delegatecall from this contract to a given target contract with a particular data (always reverts with a return data).

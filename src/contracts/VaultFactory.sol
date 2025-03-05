@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {MigratableEntityProxy} from "./common/MigratableEntityProxy.sol";
@@ -51,7 +53,6 @@ contract VaultFactory is Ownable, IMigratablesFactory {
     constructor(
         address owner_
     ) Ownable(owner_) {}
-
 
     /**
      * @inheritdoc IMigratablesFactory
@@ -116,36 +117,20 @@ contract VaultFactory is Ownable, IMigratablesFactory {
         }
 
         // Validate factory addresses using ERC165.
-        if (
-            !delegatorFactory.supportsInterface(INTERFACE_ID_IDELEGATOR_FACTORY)
-        ) {
+        if (!delegatorFactory.supportsInterface(INTERFACE_ID_IDELEGATOR_FACTORY)) {
             revert MigratableFactory__InvalidImplementation();
         }
-        if (
-            !slasherFactory.supportsInterface(INTERFACE_ID_ISLASHER_FACTORY)
-        ) {
+        if (!slasherFactory.supportsInterface(INTERFACE_ID_ISLASHER_FACTORY)) {
             revert MigratableFactory__InvalidImplementation();
         }
 
         // Deploy a new MigratableEntityProxy using CREATE2 for deterministic address
         entity_ = address(
             new MigratableEntityProxy{
-                salt: keccak256(
-                    abi.encode(
-                        totalEntities(),
-                        version,
-                        owner_,
-                        data,
-                        delegatorFactory,
-                        slasherFactory
-                    )
-                )
+                salt: keccak256(abi.encode(totalEntities(), version, owner_, data, delegatorFactory, slasherFactory))
             }(
                 implementation(version),
-                abi.encodeCall(
-                    IVaultTokenized.initialize,
-                    (version, owner_, data, delegatorFactory, slasherFactory)
-                )
+                abi.encodeCall(IVaultTokenized.initialize, (version, owner_, data, delegatorFactory, slasherFactory))
             )
         );
 
@@ -211,5 +196,4 @@ contract VaultFactory is Ownable, IMigratablesFactory {
             revert EntityNotExist();
         }
     }
-
 }

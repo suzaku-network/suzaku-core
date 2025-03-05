@@ -17,6 +17,7 @@ import {
     AvalancheL1Middleware,
     AvalancheL1MiddlewareSettings
 } from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
 
 /**
  * @dev Deploy a test Avalanche L1 Middleware
@@ -65,14 +66,20 @@ contract DeployTestAvalancheL1Middleware is Script {
                 operatorRegistry: address(operatorRegistry),
                 vaultRegistry: address(vaultFactory),
                 operatorL1Optin: address(operatorL1OptIn),
-                epochDuration: 3 hours,
-                slashingWindow: 4 hours
+                epochDuration: 4 hours,
+                slashingWindow: 5 hours,
+                weightUpdateWindow: 3 hours
             }),
             protocolOwnerAddress,
             primaryAsset,
             primaryAssetMaxStake,
             primaryAssetMinStake
         );
+
+        MiddlewareVaultManager vaultManager =
+            new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress);
+
+        avalancheL1Middleware.setVaultManager(address(vaultManager));
 
         vm.stopBroadcast();
 

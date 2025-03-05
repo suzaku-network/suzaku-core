@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 interface IBaseDelegator {
@@ -47,7 +49,9 @@ interface IBaseDelegator {
      * @param amount amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
      */
-    event OnSlash(address indexed l1, uint96 indexed assetClass, address indexed operator, uint256 amount, uint48 captureTimestamp);
+    event OnSlash(
+        address indexed l1, uint96 indexed assetClass, address indexed operator, uint256 amount, uint48 captureTimestamp
+    );
 
     /**
      * @notice Emitted when a hook is set.
@@ -158,10 +162,13 @@ interface IBaseDelegator {
      * @return slashable stake at the given timestamp until the end of the consequent epoch
      * @dev Warning: it is not safe to use timestamp >= current one for the stake capturing, as it can change later.
      */
-    function stakeAt(address l1, uint96 assetClass, address operator, uint48 timestamp, bytes memory hints)
-        external
-        view
-        returns (uint256);
+    function stakeAt(
+        address l1,
+        uint96 assetClass,
+        address operator,
+        uint48 timestamp,
+        bytes memory hints
+    ) external view returns (uint256);
 
     /**
      * @notice Get a stake that a given asset class will be able to slash
@@ -189,7 +196,9 @@ interface IBaseDelegator {
      * @dev Only a HOOK_SET_ROLE holder can call this function.
      *      The hook can have arbitrary logic under certain functions, however, it doesn't affect the stake guarantees.
      */
-    function setHook(address hook) external;
+    function setHook(
+        address hook
+    ) external;
 
     /**
      * @notice Called when a slash happens.

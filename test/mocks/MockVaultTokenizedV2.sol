@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
-import { IVaultTokenized } from "../../src/interfaces/vault/IVaultTokenized.sol";
-import { IBaseDelegator } from "../../src/interfaces/delegator/IBaseDelegator.sol";
-import { IBaseSlasher } from "../../src/interfaces/slasher/IBaseSlasher.sol";
-import { IRegistry } from "../../src/interfaces/common/IRegistry.sol";
+import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
+import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
+import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
+import {IRegistry} from "../../src/interfaces/common/IRegistry.sol";
 
-import { Checkpoints } from "../../src/contracts/libraries/Checkpoints.sol";
-import { ERC4626Math } from "../../src/contracts/libraries/ERC4626Math.sol";
+import {Checkpoints} from "../../src/contracts/libraries/Checkpoints.sol";
+import {ERC4626Math} from "../../src/contracts/libraries/ERC4626Math.sol";
 
-import { AccessControlUpgradeable } from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
-import { SafeCast } from "@openzeppelin/contracts/utils/math/SafeCast.sol";
-import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import { IERC20Metadata } from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import { SafeERC20, IERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import { Time } from "@openzeppelin/contracts/utils/types/Time.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
-import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import { ReentrancyGuardUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
 contract MockVaultTokenizedV2 is
     Initializable,
@@ -53,44 +55,32 @@ contract MockVaultTokenizedV2 is
         bytes32 DEPOSITOR_WHITELIST_ROLE;
         bytes32 IS_DEPOSIT_LIMIT_SET_ROLE;
         bytes32 DEPOSIT_LIMIT_SET_ROLE;
-
         // State variables
         address DELEGATOR_FACTORY;
         address SLASHER_FACTORY;
-
         bool depositWhitelist;
         bool isDepositLimit;
-
         address collateral;
         address burner;
-
         uint48 epochDurationInit;
         uint48 epochDuration;
-
         address delegator;
         bool isDelegatorInitialized;
-
         address slasher;
         bool isSlasherInitialized;
-
         uint256 depositLimit;
-
         mapping(address => bool) isDepositorWhitelisted;
-
         mapping(uint256 => uint256) withdrawals;
         mapping(uint256 => uint256) withdrawalShares;
         mapping(uint256 => mapping(address => uint256)) withdrawalSharesOf;
         mapping(uint256 => mapping(address => bool)) isWithdrawalsClaimed;
-
         Checkpoints.Trace256 _activeShares;
         Checkpoints.Trace256 _activeStake;
-
         mapping(address => Checkpoints.Trace256) _activeSharesOf;
     }
 
     // bytes32(uint256(keccak256(abi.encodePacked(uint256(keccak256("vault.storage")) - 1))) & ~uint256(0xff));
-    bytes32 public constant _VAULT_STORAGE_SLOT =
-        0x8b11a41397fd1980a1e0d979c37e7161d100e59fa63c611bcc37f4f3fcd7b600;
+    bytes32 public constant _VAULT_STORAGE_SLOT = 0x8b11a41397fd1980a1e0d979c37e7161d100e59fa63c611bcc37f4f3fcd7b600;
 
     function _vaultStorage() internal pure returns (VaultStorageStruct storage vs) {
         bytes32 slot = _VAULT_STORAGE_SLOT;
@@ -100,7 +90,7 @@ contract MockVaultTokenizedV2 is
     }
 
     /**
-     * 
+     *
      * @param vaultFactory Address of the vault factory.
      */
     constructor(
@@ -120,7 +110,7 @@ contract MockVaultTokenizedV2 is
         bytes calldata data,
         address delegatorFactory,
         address slasherFactory
-    ) external initializer virtual {
+    ) external virtual initializer {
         VaultStorageStruct storage vs = _vaultStorage();
 
         __Ownable_init(owner_);
@@ -145,7 +135,11 @@ contract MockVaultTokenizedV2 is
      * @dev Internal initialization function.
      * @param data Initialization data.
      */
-    function _initialize(uint64, /* initialVersion */ address, /* owner */ bytes memory data) internal onlyInitializing {
+    function _initialize(
+        uint64, /* initialVersion */
+        address, /* owner */
+        bytes memory data
+    ) internal onlyInitializing {
         VaultStorageStruct storage vs = _vaultStorage();
 
         (InitParams memory params) = abi.decode(data, (InitParams));
@@ -225,7 +219,11 @@ contract MockVaultTokenizedV2 is
         _migrateInternal(_getInitializedVersion(), newVersion, data);
     }
 
-     function _migrateInternal(uint64 oldVersion, uint64 newVersion, bytes calldata data) private reinitializer(newVersion) {
+    function _migrateInternal(
+        uint64 oldVersion,
+        uint64 newVersion,
+        bytes calldata data
+    ) private reinitializer(newVersion) {
         _migrate(oldVersion, newVersion, data);
     }
 
@@ -258,7 +256,7 @@ contract MockVaultTokenizedV2 is
 
     /**
      * @inheritdoc IVaultTokenized
-     */ 
+     */
     function isInitialized() external view returns (bool) {
         VaultStorageStruct storage vs = _vaultStorage();
         return vs.isDelegatorInitialized && vs.isSlasherInitialized;
@@ -387,7 +385,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function isDepositorWhitelisted(address account) external view override returns (bool) {
+    function isDepositorWhitelisted(
+        address account
+    ) external view override returns (bool) {
         VaultStorageStruct storage vs = _vaultStorage();
         return vs.isDepositorWhitelisted[account];
     }
@@ -419,7 +419,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function withdrawalShares(uint256 epoch) external view override returns (uint256) {
+    function withdrawalShares(
+        uint256 epoch
+    ) external view override returns (uint256) {
         VaultStorageStruct storage vs = _vaultStorage();
         return vs.withdrawalShares[epoch];
     }
@@ -435,11 +437,12 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function withdrawals(uint256 epoch) external view override returns (uint256) {
+    function withdrawals(
+        uint256 epoch
+    ) external view override returns (uint256) {
         VaultStorageStruct storage vs = _vaultStorage();
         return vs.withdrawals[epoch];
     }
-
 
     /**
      * @inheritdoc IVaultTokenized
@@ -453,28 +456,25 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function activeBalanceOfAt(
-        address account,
-        uint48 timestamp,
-        bytes calldata hints
-    ) public view returns (uint256) {
+    function activeBalanceOfAt(address account, uint48 timestamp, bytes calldata hints) public view returns (uint256) {
         // VaultStorageStruct storage vs = _vaultStorage();
         ActiveBalanceOfHints memory activeBalanceOfHints;
         if (hints.length > 0) {
             activeBalanceOfHints = abi.decode(hints, (ActiveBalanceOfHints));
         }
-        return
-            ERC4626Math.previewRedeem(
-                activeSharesOfAt(account, timestamp, activeBalanceOfHints.activeSharesOfHint),
-                activeStakeAt(timestamp, activeBalanceOfHints.activeStakeHint),
-                activeSharesAt(timestamp, activeBalanceOfHints.activeSharesHint)
-            );
+        return ERC4626Math.previewRedeem(
+            activeSharesOfAt(account, timestamp, activeBalanceOfHints.activeSharesOfHint),
+            activeStakeAt(timestamp, activeBalanceOfHints.activeStakeHint),
+            activeSharesAt(timestamp, activeBalanceOfHints.activeSharesHint)
+        );
     }
 
     /**
      * @inheritdoc IVaultTokenized
      */
-    function activeBalanceOf(address account) public view returns (uint256) {
+    function activeBalanceOf(
+        address account
+    ) public view returns (uint256) {
         return ERC4626Math.previewRedeem(activeSharesOf(account), activeStake(), activeShares());
     }
 
@@ -483,18 +483,17 @@ contract MockVaultTokenizedV2 is
      */
     function withdrawalsOf(uint256 epoch, address account) public view returns (uint256) {
         VaultStorageStruct storage vs = _vaultStorage();
-        return
-            ERC4626Math.previewRedeem(
-                vs.withdrawalSharesOf[epoch][account],
-                vs.withdrawals[epoch],
-                vs.withdrawalShares[epoch]
-            );
+        return ERC4626Math.previewRedeem(
+            vs.withdrawalSharesOf[epoch][account], vs.withdrawals[epoch], vs.withdrawalShares[epoch]
+        );
     }
 
     /**
      * @inheritdoc IVaultTokenized
      */
-    function slashableBalanceOf(address account) external view returns (uint256) {
+    function slashableBalanceOf(
+        address account
+    ) external view returns (uint256) {
         uint256 epoch = currentEpoch();
         return activeBalanceOf(account) + withdrawalsOf(epoch, account) + withdrawalsOf(epoch + 1, account);
     }
@@ -613,10 +612,7 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function claimBatch(
-        address recipient,
-        uint256[] calldata epochs
-    ) external nonReentrant returns (uint256 amount) {
+    function claimBatch(address recipient, uint256[] calldata epochs) external nonReentrant returns (uint256 amount) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (recipient == address(0)) {
@@ -695,7 +691,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function setDepositWhitelist(bool status) external nonReentrant onlyRole(_vaultStorage().DEPOSIT_WHITELIST_SET_ROLE) {
+    function setDepositWhitelist(
+        bool status
+    ) external nonReentrant onlyRole(_vaultStorage().DEPOSIT_WHITELIST_SET_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.depositWhitelist == status) {
@@ -732,7 +730,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function setIsDepositLimit(bool status) external nonReentrant onlyRole(_vaultStorage().IS_DEPOSIT_LIMIT_SET_ROLE) {
+    function setIsDepositLimit(
+        bool status
+    ) external nonReentrant onlyRole(_vaultStorage().IS_DEPOSIT_LIMIT_SET_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isDepositLimit == status) {
@@ -747,7 +747,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function setDepositLimit(uint256 limit) external nonReentrant onlyRole(_vaultStorage().DEPOSIT_LIMIT_SET_ROLE) {
+    function setDepositLimit(
+        uint256 limit
+    ) external nonReentrant onlyRole(_vaultStorage().DEPOSIT_LIMIT_SET_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.depositLimit == limit) {
@@ -759,7 +761,9 @@ contract MockVaultTokenizedV2 is
         emit SetDepositLimit(limit);
     }
 
-    function setDelegator(address delegator_) external nonReentrant {
+    function setDelegator(
+        address delegator_
+    ) external nonReentrant {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isDelegatorInitialized) {
@@ -782,7 +786,9 @@ contract MockVaultTokenizedV2 is
         emit SetDelegator(delegator_);
     }
 
-    function setSlasher(address slasher_) external nonReentrant {
+    function setSlasher(
+        address slasher_
+    ) external nonReentrant {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isSlasherInitialized) {
@@ -832,7 +838,9 @@ contract MockVaultTokenizedV2 is
         emit Transfer(msg.sender, address(0), burnedShares);
     }
 
-    function _claim(uint256 epoch) internal returns (uint256 amount) {
+    function _claim(
+        uint256 epoch
+    ) internal returns (uint256 amount) {
         VaultStorageStruct storage vs = _vaultStorage();
         if (epoch >= currentEpoch()) {
             revert Vault__InvalidEpoch();
@@ -854,7 +862,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function epochAt(uint48 timestamp) public view returns (uint256) {
+    function epochAt(
+        uint48 timestamp
+    ) public view returns (uint256) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (timestamp < vs.epochDurationInit) {
@@ -942,7 +952,9 @@ contract MockVaultTokenizedV2 is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function activeSharesOf(address account) public view returns (uint256) {
+    function activeSharesOf(
+        address account
+    ) public view returns (uint256) {
         VaultStorageStruct storage vs = _vaultStorage();
         return vs._activeSharesOf[account].latest();
     }

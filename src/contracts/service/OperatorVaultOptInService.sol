@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {StaticDelegateCallable} from "../common/StaticDelegateCallable.sol";
@@ -19,7 +21,7 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     /**
      * @inheritdoc IOptInService
      */
-    address public immutable WHO_REGISTRY;   // This will be OperatorRegistry
+    address public immutable WHO_REGISTRY; // This will be OperatorRegistry
     /**
      * @inheritdoc IOptInService
      */
@@ -37,7 +39,9 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     mapping(address => mapping(address => uint256)) public nonces;
     mapping(address => mapping(address => Checkpoints.Trace208)) internal _isOptedIn;
 
-    modifier checkDeadline(uint48 deadline) {
+    modifier checkDeadline(
+        uint48 deadline
+    ) {
         if (deadline < Time.timestamp()) {
             revert OptInService__ExpiredSignature();
         }
@@ -71,7 +75,9 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     /**
      * @inheritdoc IOptInService
      */
-    function optIn(address where) external {
+    function optIn(
+        address where
+    ) external {
         _optIn(msg.sender, where);
     }
 
@@ -94,7 +100,9 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     /**
      * @inheritdoc IOptInService
      */
-    function optOut(address where) external {
+    function optOut(
+        address where
+    ) external {
         _optOut(msg.sender, where);
     }
 
@@ -117,7 +125,9 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     /**
      * @inheritdoc IOptInService
      */
-    function increaseNonce(address where) external {
+    function increaseNonce(
+        address where
+    ) external {
         _increaseNonce(msg.sender, where);
     }
 
@@ -162,13 +172,7 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     function _hash(bool ifOptIn, address who, address where, uint48 deadline) internal view returns (bytes32) {
         return _hashTypedDataV4(
             keccak256(
-                abi.encode(
-                    ifOptIn ? OPT_IN_TYPEHASH : OPT_OUT_TYPEHASH,
-                    who,
-                    where,
-                    nonces[who][where],
-                    deadline
-                )
+                abi.encode(ifOptIn ? OPT_IN_TYPEHASH : OPT_OUT_TYPEHASH, who, where, nonces[who][where], deadline)
             )
         );
     }
