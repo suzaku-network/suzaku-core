@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 interface IRegistry {
@@ -34,4 +36,3 @@ interface IRegistry {
         uint256 index
     ) external view returns (address);
 }
-

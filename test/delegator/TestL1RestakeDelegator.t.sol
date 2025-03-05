@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -141,7 +143,9 @@ contract L1RestakeDelegatorTest is Test {
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
     }
 
-    function test_Create(uint48 epochDuration) public {
+    function test_Create(
+        uint48 epochDuration
+    ) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
@@ -171,7 +175,9 @@ contract L1RestakeDelegatorTest is Test {
         assertEq(delegator.operatorL1Shares(l1, assetClass, alice), 0);
     }
 
-    function test_CreateRevertNotVault(uint48 epochDuration) public {
+    function test_CreateRevertNotVault(
+        uint48 epochDuration
+    ) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
@@ -200,7 +206,9 @@ contract L1RestakeDelegatorTest is Test {
         );
     }
 
-    function test_CreateRevertMissingRoleHolders(uint48 epochDuration) public {
+    function test_CreateRevertMissingRoleHolders(
+        uint48 epochDuration
+    ) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
@@ -228,7 +236,9 @@ contract L1RestakeDelegatorTest is Test {
         );
     }
 
-    function test_CreateRevertZeroAddressRoleHolder1(uint48 epochDuration) public {
+    function test_CreateRevertZeroAddressRoleHolder1(
+        uint48 epochDuration
+    ) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
@@ -257,7 +267,9 @@ contract L1RestakeDelegatorTest is Test {
         );
     }
 
-    function test_CreateRevert_DuplicateRoleHolder1(uint48 epochDuration) public {
+    function test_CreateRevert_DuplicateRoleHolder1(
+        uint48 epochDuration
+    ) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
@@ -288,7 +300,9 @@ contract L1RestakeDelegatorTest is Test {
         );
     }
 
-    function test_CreateRevert_DuplicateRoleHolder2(uint48 epochDuration) public {
+    function test_CreateRevert_DuplicateRoleHolder2(
+        uint48 epochDuration
+    ) public {
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
@@ -852,7 +866,9 @@ contract L1RestakeDelegatorTest is Test {
 
     // TODO: Add slash tests
 
-    function _getVaultAndDelegator(uint48 epochDuration) internal returns (VaultTokenized v, L1RestakeDelegator d) {
+    function _getVaultAndDelegator(
+        uint48 epochDuration
+    ) internal returns (VaultTokenized v, L1RestakeDelegator d) {
         address[] memory l1LimitSetRoleHolders = new address[](1);
         l1LimitSetRoleHolders[0] = alice;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
@@ -958,13 +974,17 @@ contract L1RestakeDelegatorTest is Test {
         vm.stopPrank();
     }
 
-    function _optInOperatorVault(address user) internal {
+    function _optInOperatorVault(
+        address user
+    ) internal {
         vm.startPrank(user);
         operatorVaultOptInService.optIn(address(vault));
         vm.stopPrank();
     }
 
-    function _optOutOperatorVault(address user) internal {
+    function _optOutOperatorVault(
+        address user
+    ) internal {
         vm.startPrank(user);
         operatorVaultOptInService.optOut(address(vault));
         vm.stopPrank();

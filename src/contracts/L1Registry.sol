@@ -40,7 +40,9 @@ contract L1Registry is IL1Registry {
     }
 
     /// @inheritdoc IL1Registry
-    function isRegistered(address l1) public view returns (bool) {
+    function isRegistered(
+        address l1
+    ) public view returns (bool) {
         return l1s.contains(l1);
     }
 
@@ -54,7 +56,9 @@ contract L1Registry is IL1Registry {
     }
 
     /// @inheritdoc IL1Registry
-    function getL1At(uint256 index) public view returns (address, address, string memory) {
+    function getL1At(
+        uint256 index
+    ) public view returns (address, address, string memory) {
         address l1 = l1s.at(index);
         return (l1, l1Middleware[l1], l1MetadataURL[l1]);
     }

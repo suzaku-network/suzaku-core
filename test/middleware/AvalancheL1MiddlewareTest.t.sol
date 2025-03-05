@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -230,7 +232,6 @@ contract AvalancheL1MiddlewareTest is Test {
             middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
         );
 
-
         vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
         // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
         // middleware.activateSecondaryAssetClass(0);
@@ -335,7 +336,9 @@ contract AvalancheL1MiddlewareTest is Test {
         PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: owners});
 
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, 0));
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, 0)
+        );
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
     }
 
@@ -497,7 +500,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
 
         // uint96 secondaryAssetClassId = 2;
-        // uint256 
+        // uint256
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
         _registerOperator(alice, "alice metadata");
@@ -568,7 +571,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
 
         // uint96 secondaryAssetClassId = 2;
-        // uint256 
+        // uint256
 
         // Register the operator on the OperatorRegistry BEFORE calling registerOperator on middleware.
         _registerOperator(alice, "alice metadata");
@@ -982,7 +985,11 @@ contract AvalancheL1MiddlewareTest is Test {
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         assertGt(nodeWeight, 0, "Node actual weight must be positive in epoch of initializeEnd");
         assertEq(middleware.nodePendingUpdate(validationID), false, "Node should be pending update after removal");
-        assertEq(middleware.getOperatorNodesLength(alice), 1, "1 node should be in the aray until completed and calc is called");
+        assertEq(
+            middleware.getOperatorNodesLength(alice),
+            1,
+            "1 node should be in the aray until completed and calc is called"
+        );
 
         // Move to the next epoch
         newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
@@ -1047,7 +1054,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
-        
+
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId, 0);
 
@@ -1067,7 +1074,6 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
         assertEq(middleware.getOperatorNodesLength(alice), 1, "1 node should be in the aray after cal");
 
-
         // Remove the node
         vm.prank(alice);
         middleware.removeNode(nodeId);
@@ -1085,7 +1091,9 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.calcAndCacheNodeWeightsForAllOperators();
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
-        assertEq(middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal");
+        assertEq(
+            middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal"
+        );
         assertEq(middleware.getOperatorNodesLength(alice), 0, "0 node should be in the aray until once calc is called");
         // Move to the next epoch
         newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
@@ -1095,7 +1103,9 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.calcAndCacheNodeWeightsForAllOperators();
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
-        assertEq(middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal");
+        assertEq(
+            middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal"
+        );
 
         // Move to the next epoch
         newMiddlewareEpochStart = middleware.getEpochStartTs(epoch) + middleware.EPOCH_DURATION() + 1;
@@ -1110,7 +1120,9 @@ contract AvalancheL1MiddlewareTest is Test {
         // middleware.calcAndCacheNodeWeightsForAllOperators();
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         assertEq(nodeWeight, 0, "Node actual weight must be zero after removal");
-        assertEq(middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal");
+        assertEq(
+            middleware.nodePendingRemoval(validationID), false, "Node should be pending update after 1 epoch of removal"
+        );
         assertEq(middleware.getOperatorNodesLength(alice), 0, "Arry should be 0 next epoch if any function is called");
         // Move Middleware Epoch + 1
         epoch = middleware.getCurrentEpoch();
@@ -1164,9 +1176,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // 4) Warp multiple epochs WITHOUT calling calcAndCacheNodeWeightsForAllOperators
         //    (simulate "late" or "batched" updates)
         for (uint256 i; i < 3; i++) {
-            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) 
-                + middleware.EPOCH_DURATION() 
-                + 1;
+            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
             vm.warp(warpTo);
         }
 
@@ -1176,16 +1186,18 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // 6) Warp several more epochs without calling calc
         for (uint256 i; i < 2; i++) {
-            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) 
-                + middleware.EPOCH_DURATION() 
-                + 1;
+            uint256 warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
             vm.warp(warpTo);
         }
         bytes32 validationId = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationId);
         assertGt(nodeWeight, 0, "Node weight must be positive before anything is called");
         assertTrue(middleware.nodePendingRemoval(validationId), "Node is pending removal until calc is called");
-        assertEq(middleware.getOperatorNodesLength(alice), 1, "Operator should have 1 nodes before calcAndCacheNodeWeightsForAllOperators is called");        
+        assertEq(
+            middleware.getOperatorNodesLength(alice),
+            1,
+            "Operator should have 1 nodes before calcAndCacheNodeWeightsForAllOperators is called"
+        );
 
         // 7) Finally call calcAndCacheNodeWeightsForAllOperators
         //    This should resolve all those “batched” changes: node weight => 0, node marked pending removal
@@ -1421,7 +1433,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.completeValidatorRegistration(alice, nodeId1, 0);
 
         // At this point, nodeId1 is fully active, but to see it in the next epoch's "active node" query,
-        // we need to roll over to a new epoch. 
+        // we need to roll over to a new epoch.
         // However, we can still do a historical check for "epoch1" if we want to see if it was counted.
 
         // -------------------------------------------------------------------------
@@ -1508,7 +1520,7 @@ contract AvalancheL1MiddlewareTest is Test {
         {
             bytes32[] memory epoch2Nodes = middleware.getActiveNodesForEpoch(alice, epoch2);
             // Typically nodeId1 is definitely active if it was not removed.
-            // nodeId2 might or might not appear in epoch2. 
+            // nodeId2 might or might not appear in epoch2.
             // The below checks are examples (adjust them as your logic dictates).
             console2.log("Active nodes in epoch2 length", epoch2Nodes.length);
 
@@ -1518,11 +1530,14 @@ contract AvalancheL1MiddlewareTest is Test {
         }
 
         // epoch3: nodeId1 & nodeId2 were both definitely around *before* we removed nodeId1 in epoch3,
-        //         so they typically are both active for the entire epoch3. 
+        //         so they typically are both active for the entire epoch3.
         {
             bytes32[] memory epoch3Nodes = middleware.getActiveNodesForEpoch(alice, epoch3);
             console2.log("Active nodes in epoch3 length", epoch3Nodes.length);
-            assertTrue(_arrayContains(epoch3Nodes, nodeId1), "nodeId1 should be active in epoch3 (before removal finalizes next epoch)");
+            assertTrue(
+                _arrayContains(epoch3Nodes, nodeId1),
+                "nodeId1 should be active in epoch3 (before removal finalizes next epoch)"
+            );
             assertTrue(_arrayContains(epoch3Nodes, nodeId2), "nodeId2 should be active in epoch3");
         }
 
@@ -1531,7 +1546,7 @@ contract AvalancheL1MiddlewareTest is Test {
             bytes32[] memory epoch4Nodes = middleware.getActiveNodesForEpoch(alice, epoch4);
             console2.log("Active nodes in epoch4 length", epoch4Nodes.length);
             assertFalse(_arrayContains(epoch4Nodes, nodeId1), "nodeId1 should no longer be active in epoch4");
-            assertTrue(_arrayContains(epoch4Nodes, nodeId2),  "nodeId2 should remain active in epoch4");
+            assertTrue(_arrayContains(epoch4Nodes, nodeId2), "nodeId2 should remain active in epoch4");
         }
     }
 
@@ -1658,7 +1673,13 @@ contract AvalancheL1MiddlewareTest is Test {
         _moveToNextEpochAndCalc(alice, 1);
         // Try forceUpdateNodes => expect revert (we're *not* in the final hour yet)
         uint48 currentEpoch = middleware.getCurrentEpoch();
-        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEpochUpdatePeriod.selector, Time.timestamp(), middleware.getEpochStartTs(currentEpoch) + middleware.UPDATE_WINDOW()));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__NotEpochUpdatePeriod.selector,
+                Time.timestamp(),
+                middleware.getEpochStartTs(currentEpoch) + middleware.UPDATE_WINDOW()
+            )
+        );
         middleware.forceUpdateNodes(alice, 0);
         // Move to the final hour of the epoch
         _warpToLastHourOfCurrentEpoch();
@@ -1827,7 +1848,6 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 leftover = updatedStake - oldUsedStake;
         assertGt(leftover, 0, "Expected leftover to be > 0");
 
-
         // We expect the leftover event with the exact leftover
         vm.expectEmit(true, true, true, true);
         emit IAvalancheL1Middleware.OperatorHasLeftoverStake(alice, leftover);
@@ -1837,12 +1857,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Finally, confirm the used stake is unchanged
         uint256 newUsedStake = middleware.getOperatorUsedWeightCached(alice);
-        assertEq(
-            newUsedStake,
-            oldUsedStake,
-            "Used stake must remain unchanged if weight only decreases"
-        );
-
+        assertEq(newUsedStake, oldUsedStake, "Used stake must remain unchanged if weight only decreases");
     }
 
     // function test_ForceRemoveNode() public {

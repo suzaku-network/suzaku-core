@@ -19,7 +19,9 @@ contract OperatorRegistry is IOperatorRegistry {
     mapping(address => string) public operatorMetadataURL;
 
     /// @inheritdoc IOperatorRegistry
-    function registerOperator(string calldata metadataURL) external {
+    function registerOperator(
+        string calldata metadataURL
+    ) external {
         if (isRegistered(msg.sender)) {
             revert OperatorRegistry__OperatorAlreadyRegistered();
         }
@@ -32,12 +34,16 @@ contract OperatorRegistry is IOperatorRegistry {
     }
 
     /// @inheritdoc IOperatorRegistry
-    function isRegistered(address operator) public view returns (bool) {
+    function isRegistered(
+        address operator
+    ) public view returns (bool) {
         return operators.contains(operator);
     }
 
     /// @inheritdoc IOperatorRegistry
-    function getOperatorAt(uint256 index) public view returns (address, string memory) {
+    function getOperatorAt(
+        uint256 index
+    ) public view returns (address, string memory) {
         address operator = operators.at(index);
         return (operator, operatorMetadataURL[operator]);
     }
@@ -58,7 +64,9 @@ contract OperatorRegistry is IOperatorRegistry {
     }
 
     /// @inheritdoc IOperatorRegistry
-    function setMetadataURL(string calldata metadataURL) external {
+    function setMetadataURL(
+        string calldata metadataURL
+    ) external {
         if (!isRegistered(msg.sender)) {
             revert OperatorRegistry__OperatorNotRegistered();
         }

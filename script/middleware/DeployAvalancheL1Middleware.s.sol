@@ -76,7 +76,8 @@ contract DeployTestAvalancheL1Middleware is Script {
             primaryAssetMinStake
         );
 
-        MiddlewareVaultManager vaultManager = new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress);
+        MiddlewareVaultManager vaultManager =
+            new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress);
 
         vm.stopBroadcast();
 

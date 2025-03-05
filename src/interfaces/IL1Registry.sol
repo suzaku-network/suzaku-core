@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 interface IL1Registry {
@@ -24,7 +26,11 @@ interface IL1Registry {
      * @param l1Middleware The l1Middleware of the Avalanche L1
      * @param metadataURL The metadata URL of the Avalanche L1
      */
-    function registerL1(address validatorManager, address l1Middleware, string calldata metadataURL)
+    function registerL1(
+        address validatorManager,
+        address l1Middleware,
+        string calldata metadataURL
+    )
         /*, uint32 messageIndex, SubnetConversionData subnetConversionData*/
         external;
 
@@ -33,7 +39,9 @@ interface IL1Registry {
      * @param l1 The address to check
      * @return True if the address is registered as an L1, false otherwise
      */
-    function isRegistered(address l1) external view returns (bool);
+    function isRegistered(
+        address l1
+    ) external view returns (bool);
 
     /**
      * @notice Check if an address is registered as an L1 and if the Middleware is correct
@@ -50,7 +58,9 @@ interface IL1Registry {
      * @return The l1Middleware of the L1 at the specified index
      * @return The metadata URL of the L1 at the specified index
      */
-    function getL1At(uint256 index) external view returns (address, address, string memory);
+    function getL1At(
+        uint256 index
+    ) external view returns (address, address, string memory);
 
     /**
      * @notice Get the total number of L1s

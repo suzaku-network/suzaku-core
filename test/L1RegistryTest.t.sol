@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -168,7 +170,7 @@ contract L1RegistryTest is Test {
         // Register 1000 L1s
         for (uint256 i = 0; i < 1000; i++) {
             address manager = address(new MockACP99Manager());
-            address middleware = address(uint160(i + 10000)); // Offset to avoid collisions
+            address middleware = address(uint160(i + 10_000)); // Offset to avoid collisions
             vm.prank(address(uint160(i)));
             registry.registerL1(manager, middleware, l1Middleware1MetadataURL);
         }

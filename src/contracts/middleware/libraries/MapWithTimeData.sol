@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.25;
 
 import {Checkpoints} from "@openzeppelin/contracts/utils/structs/Checkpoints.sol";

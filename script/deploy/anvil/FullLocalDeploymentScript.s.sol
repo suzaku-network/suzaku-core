@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Script, console2} from "forge-std/Script.sol";
@@ -22,6 +24,7 @@ import {IBaseSlasher} from "../../../src/interfaces/slasher/IBaseSlasher.sol";
 import {Token} from "../../../test/mocks/MockToken.sol"; // A simple ERC20 for collateral
 
 contract FullLocalDeploymentScript is Script {
+<<<<<<< HEAD
     HelperConfig internal helperConfig;
     NetworkConfig internal config;
 
@@ -32,6 +35,8 @@ contract FullLocalDeploymentScript is Script {
     L1Registry internal l1Registry;
     OperatorRegistry internal operatorRegistry;
 
+=======
+>>>>>>> 5df1d99 (fix(SPDX): add copyright notice)
     struct InitParams {
         uint64 version;
         address owner;
@@ -44,8 +49,13 @@ contract FullLocalDeploymentScript is Script {
     }
 
     function run() public {
+<<<<<<< HEAD
         helperConfig = new HelperConfig();
         config = helperConfig.getConfig();
+=======
+        HelperConfig helperConfig = new HelperConfig();
+        NetworkConfig memory config = helperConfig.getConfig();
+>>>>>>> 5df1d99 (fix(SPDX): add copyright notice)
 
         vm.startBroadcast();
 
@@ -168,6 +178,10 @@ contract FullLocalDeploymentScript is Script {
         VaultTokenized(vault).setDepositorWhitelistStatus(config.generalConfig.owner, true);
         console2.log("Vault deployed at:", vault);
 
+<<<<<<< HEAD
+=======
+        // 7. Deploy Delegator
+>>>>>>> 5df1d99 (fix(SPDX): add copyright notice)
         address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 import "../../src/contracts/middleware/AssetClassRegistry.sol";
@@ -8,7 +10,9 @@ error AssetClassRegistry__AssetIsPrimarytAssetClass(uint256 assetClassId);
 contract MockAssetClassRegistry is AssetClassRegistry {
     address public primaryAsset;
 
-    function setPrimaryAsset(address _primaryAsset) external {
+    function setPrimaryAsset(
+        address _primaryAsset
+    ) external {
         primaryAsset = _primaryAsset;
     }
 

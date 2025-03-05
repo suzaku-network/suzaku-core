@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 interface IDelegatorHook {
@@ -13,7 +15,7 @@ interface IDelegatorHook {
      */
     function onSlash(
         address l1,
-        uint96  assetClass,
+        uint96 assetClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,

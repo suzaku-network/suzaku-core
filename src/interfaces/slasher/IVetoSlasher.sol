@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 import {IBaseSlasher} from "./IBaseSlasher.sol";
@@ -33,7 +35,7 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Structure for a slash request.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass     
+     * @param assetClass the uint96 assetClass
      * @param operator operator that could be slashed (if the request is not vetoed)
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -200,7 +202,12 @@ interface IVetoSlasher is IBaseSlasher {
      * @param hint hint for the checkpoint index
      * @return address of the resolver
      */
-    function resolverAt(address l1, uint96 assetClass, uint48 timestamp, bytes memory hint) external view returns (address);
+    function resolverAt(
+        address l1,
+        uint96 assetClass,
+        uint48 timestamp,
+        bytes memory hint
+    ) external view returns (address);
 
     /**
      * @notice Get a resolver for a given assset class using a hint.

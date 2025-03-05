@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -24,4 +26,5 @@ interface IEntity is IERC165 {
      */
     function initialize(
         bytes calldata data
-    ) external;}
+    ) external;
+}

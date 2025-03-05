@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
@@ -560,7 +562,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     function _calcAndCacheNodeWeightsForOperatorAtEpoch(address operator, uint48 epoch) internal {
         uint48 prevEpoch = (epoch == 0) ? 0 : epoch - 1;
         bytes32[] storage nodeArray = operatorNodesArray[operator];
-        for (uint256 i = nodeArray.length; i > 0; ) {
+        for (uint256 i = nodeArray.length; i > 0;) {
             i--;
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
@@ -573,7 +575,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
                 continue;
             }
 
-            if (nodePendingRemoval[valID] && nodeWeightCache[epoch][valID] == 0 && nodeWeightCache[prevEpoch][valID] != 0) {
+            if (
+                nodePendingRemoval[valID] && nodeWeightCache[epoch][valID] == 0
+                    && nodeWeightCache[prevEpoch][valID] != 0
+            ) {
                 _removeNodeFromArray(operator, nodeId);
                 nodePendingRemoval[valID] = false;
             }
@@ -741,7 +746,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      */
     function _isUsedAsset(uint256 assetClassId, address asset) internal view returns (bool) {
         for (uint256 i; i < vaultManager.getVaultCount(); ++i) {
-            (address vault, , ) = vaultManager.getVaultAtWithTimes(i);
+            (address vault,,) = vaultManager.getVaultAtWithTimes(i);
             if (vaultToAssetClass[vault] == assetClassId && IVaultTokenized(vault).collateral() == asset) {
                 return true;
             }
@@ -758,7 +763,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         uint256 assetClassId
     ) internal view returns (bool) {
         for (uint256 i; i < vaultManager.getVaultCount(); ++i) {
-            (address vault, , ) = vaultManager.getVaultAtWithTimes(i);
+            (address vault,,) = vaultManager.getVaultAtWithTimes(i);
             if (vaultToAssetClass[vault] == assetClassId) {
                 return true;
             }

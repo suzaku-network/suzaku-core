@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 import {IRegistry} from "./IRegistry.sol";
@@ -86,7 +88,13 @@ interface IMigratablesFactory is IRegistry {
      * @return address of the entity
      * @dev CREATE2 salt is constructed from the given parameters.
      */
-    function create(uint64 version, address owner, bytes calldata data, address delegatorFactory, address slasherFactory ) external returns (address);
+    function create(
+        uint64 version,
+        address owner,
+        bytes calldata data,
+        address delegatorFactory,
+        address slasherFactory
+    ) external returns (address);
 
     /**
      * @notice Migrate a given entity to a given newer version.

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
@@ -50,7 +52,9 @@ interface IMiddlewareVaultManager {
      * @notice Removes a vault if the grace period has passed.
      * @param vault The vault address
      */
-    function removeVault(address vault) external;
+    function removeVault(
+        address vault
+    ) external;
 
     /**
      * @notice Slashes a vault based on the operator’s share of stake.
@@ -81,15 +85,16 @@ interface IMiddlewareVaultManager {
      * @return enabledTime The time the vault was enabled
      * @return disabledTime The time the vault was disabled
      */
-    function getVaultAtWithTimes(uint256 index)
-        external
-        view
-        returns (address vault, uint48 enabledTime, uint48 disabledTime);
+    function getVaultAtWithTimes(
+        uint256 index
+    ) external view returns (address vault, uint48 enabledTime, uint48 disabledTime);
 
     /**
      * @notice Returns the asset class ID for a given vault.
      * @param vault The vault address
      * @return The asset class ID
      */
-    function getVaultAssetClass(address vault) external view returns (uint96);
+    function getVaultAssetClass(
+        address vault
+    ) external view returns (uint96);
 }

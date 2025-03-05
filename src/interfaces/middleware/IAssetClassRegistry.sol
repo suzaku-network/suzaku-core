@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 interface IAssetClassRegistry {
@@ -47,19 +49,25 @@ interface IAssetClassRegistry {
      * @notice Removes an asset class.
      * @param assetClassId The ID of the asset class.
      */
-    function removeAssetClass(uint256 assetClassId) external;
+    function removeAssetClass(
+        uint256 assetClassId
+    ) external;
 
     /**
      * @notice Returns all the assets in a specific asset class.
      * @param assetClassId The ID of the asset class.
      * @return An array of asset addresses in the asset class.
      */
-    function getClassAssets(uint256 assetClassId) external view returns (address[] memory);
+    function getClassAssets(
+        uint256 assetClassId
+    ) external view returns (address[] memory);
 
     /**
      * @notice Returns the minimum validator stake for a specific asset class.
      * @param assetClassId The ID of the asset class.
      * @return The minimum and maximum validator stake.
      */
-    function getClassStakingRequirements(uint256 assetClassId) external view returns (uint256, uint256);
+    function getClassStakingRequirements(
+        uint256 assetClassId
+    ) external view returns (uint256, uint256);
 }

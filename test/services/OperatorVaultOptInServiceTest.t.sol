@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
@@ -51,18 +53,15 @@ contract OperatorVaultOptInServiceTest is Test {
         vaultFactory.whitelist(vaultImpl);
 
         // Deploy service for Operator-Vault optin
-        service = new OperatorVaultOptInService(
-            address(operatorRegistry),
-            address(vaultFactory),
-            "OperatorVaultOptInService"
-        );
+        service =
+            new OperatorVaultOptInService(address(operatorRegistry), address(vaultFactory), "OperatorVaultOptInService");
     }
 
     function _createVaultEntity() internal returns (address vaultEntity) {
         uint64 lastVersion = vaultFactory.lastVersion();
         vaultEntity = vaultFactory.create(
             lastVersion,
-            owner, 
+            owner,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -425,4 +424,3 @@ contract OperatorVaultOptInServiceTest is Test {
         return keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, chainId, _service));
     }
 }
-

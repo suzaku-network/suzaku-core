@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity ^0.8.0;
 
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -39,14 +41,18 @@ interface ISlasherFactory is IERC165 {
      * @return `true` if the contract implements `interfaceId` and
      *  `interfaceId` is not 0xffffffff, `false` otherwise
      */
-    function supportsInterface(bytes4 interfaceId) external view returns (bool);
+    function supportsInterface(
+        bytes4 interfaceId
+    ) external view returns (bool);
 
     /**
      * @notice Get if a given address is an entity.
      * @param account address to check
      * @return if the given address is an entity
      */
-    function isEntity(address account) external view returns (bool);
+    function isEntity(
+        address account
+    ) external view returns (bool);
 
     /**
      * @notice Get a total number of entities.
@@ -59,7 +65,9 @@ interface ISlasherFactory is IERC165 {
      * @param index index of the entity to get
      * @return address of the entity
      */
-    function entity(uint256 index) external view returns (address);
+    function entity(
+        uint256 index
+    ) external view returns (address);
 
     /**
      * @notice Get the total number of whitelisted types.
@@ -72,7 +80,9 @@ interface ISlasherFactory is IERC165 {
      * @param type_ position to get the implementation at
      * @return address of the implementation
      */
-    function implementation(uint64 type_) external view returns (address);
+    function implementation(
+        uint64 type_
+    ) external view returns (address);
 
     /**
      * @notice Get if a type is blacklisted (e.g., in case of invalid implementation).
@@ -80,20 +90,26 @@ interface ISlasherFactory is IERC165 {
      * @return whether the type is blacklisted
      * @dev The given type is still deployable.
      */
-    function blacklisted(uint64 type_) external view returns (bool);
+    function blacklisted(
+        uint64 type_
+    ) external view returns (bool);
 
     /**
      * @notice Whitelist a new type of entity.
      * @param implementation address of the new implementation
      */
-    function whitelist(address implementation) external;
+    function whitelist(
+        address implementation
+    ) external;
 
     /**
      * @notice Blacklist a type of entity.
      * @param type_ type to blacklist
      * @dev The given type will still be deployable.
      */
-    function blacklist(uint64 type_) external;
+    function blacklist(
+        uint64 type_
+    ) external;
 
     /**
      * @notice Create a new entity at the factory.

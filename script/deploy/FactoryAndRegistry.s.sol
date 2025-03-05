@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {Script, console2} from "forge-std/Script.sol";
@@ -12,13 +14,12 @@ import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
 
 contract FactoryAndRegistryScript is Script {
     function run() public {
-
         HelperConfig helperConfig = new HelperConfig();
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
 
         console2.log("Deploying on chain ID:", block.chainid);
         console2.log("Owner Address:", config.generalConfig.owner);
-        
+
         vm.startBroadcast();
 
         // Deploy main factories

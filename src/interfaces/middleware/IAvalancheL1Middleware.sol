@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
 pragma solidity 0.8.25;
 
 import {
@@ -8,8 +10,6 @@ import {
     ValidatorRegistrationInput,
     PChainOwner
 } from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-
-
 
 /**
  * @title IAvalancheL1Middleware
@@ -52,12 +52,7 @@ interface IAvalancheL1Middleware {
      * @param stake The stake assigned to the node
      * @param validationID The validation identifier from BalancerValidatorManager
      */
-    event NodeAdded(
-        address indexed operator,
-        bytes32 indexed nodeId,
-        uint256 stake,
-        bytes32 indexed validationID
-    );
+    event NodeAdded(address indexed operator, bytes32 indexed nodeId, uint256 stake, bytes32 indexed validationID);
 
     /**
      * @notice Emitted when a node is removed
@@ -74,7 +69,9 @@ interface IAvalancheL1Middleware {
      * @param newStake The new weight/stake of the node
      * @param validationID The validation identifier from BalancerValidatorManager
      */
-    event NodeWeightUpdated(address indexed operator, bytes32 indexed nodeId, uint256 newStake, bytes32 indexed validationID);
+    event NodeWeightUpdated(
+        address indexed operator, bytes32 indexed nodeId, uint256 newStake, bytes32 indexed validationID
+    );
 
     /**
      * @notice Emitted when the operator has leftover stake after rebalancing
@@ -89,7 +86,7 @@ interface IAvalancheL1Middleware {
      * @param newStake The total new stake for the operator
      */
     event AllNodeWeightsUpdated(address indexed operator, uint256 newStake);
-    
+
     /**
      * @dev Simple struct to return operator stake and key.
      */
@@ -102,37 +99,50 @@ interface IAvalancheL1Middleware {
      * @notice Activates a secondary asset class
      * @param assetClassId The asset class ID to activate
      */
-    function activateSecondaryAssetClass(uint256 assetClassId) external;
+
+    function activateSecondaryAssetClass(
+        uint256 assetClassId
+    ) external;
 
     /**
      * @notice Deactivates a secondary asset class
      * @param assetClassId The asset class ID to deactivate
      */
-    function deactivateSecondaryAssetClass(uint256 assetClassId) external;
+    function deactivateSecondaryAssetClass(
+        uint256 assetClassId
+    ) external;
 
     /**
      * @notice Registers a new operator and enables it
      * @param operator The operator address
      */
-    function registerOperator(address operator) external;
+    function registerOperator(
+        address operator
+    ) external;
 
     /**
      * @notice Disables an operator
      * @param operator The operator address
      */
-    function disableOperator(address operator) external;
+    function disableOperator(
+        address operator
+    ) external;
 
     /**
      * @notice Enables an operator
      * @param operator The operator address
      */
-    function enableOperator(address operator) external;
+    function enableOperator(
+        address operator
+    ) external;
 
     /**
      * @notice Removes an operator if grace period has passed
      * @param operator The operator address
      */
-    function removeOperator(address operator) external;
+    function removeOperator(
+        address operator
+    ) external;
 
     /**
      * @notice Add a new node => create a new validator.
@@ -157,7 +167,9 @@ interface IAvalancheL1Middleware {
      * @notice Remove a node => remove a validator.
      * @param nodeId The node ID
      */
-    function removeNode(bytes32 nodeId) external;
+    function removeNode(
+        bytes32 nodeId
+    ) external;
 
     /**
      * @notice Rebalance node weights once per epoch for an operator.
@@ -192,7 +204,9 @@ interface IAvalancheL1Middleware {
      * @notice Finalize a pending validator removal
      * @param messageIndex The message index
      */
-    function completeValidatorRemoval(uint32 messageIndex) external;
+    function completeValidatorRemoval(
+        uint32 messageIndex
+    ) external;
 
     /**
      * @notice Slashes an operator's stake
@@ -228,21 +242,27 @@ interface IAvalancheL1Middleware {
      * @param assetClassId The asset class ID
      * @return bool True if active
      */
-    function isActiveAssetClass(uint96 assetClassId) external view returns (bool);
+    function isActiveAssetClass(
+        uint96 assetClassId
+    ) external view returns (bool);
 
     /**
      * @notice Gets the start timestamp for a given epoch
      * @param epoch The epoch number
      * @return timestamp The start time of that epoch
      */
-    function getEpochStartTs(uint48 epoch) external view returns (uint48);
+    function getEpochStartTs(
+        uint48 epoch
+    ) external view returns (uint48);
 
     /**
      * @notice Gets the epoch number at a given timestamp
      * @param timestamp The timestamp
      * @return epoch The epoch at that time
      */
-    function getEpochAtTs(uint48 timestamp) external view returns (uint48);
+    function getEpochAtTs(
+        uint48 timestamp
+    ) external view returns (uint48);
 
     /**
      * @notice Gets the current epoch based on the current block time
@@ -293,12 +313,16 @@ interface IAvalancheL1Middleware {
      * @param operator The operator address
      * @return The available stake
      */
-    function getOperatorAvailableStake(address operator) external view returns (uint256);
+    function getOperatorAvailableStake(
+        address operator
+    ) external view returns (uint256);
 
     /**
      * @notice Summation of node stakes from the nodeWeightCache.
      * @param operator The operator address.
      * @return registeredStake The sum of node stakes.
      */
-    function getOperatorUsedWeightCached(address operator) external view returns (uint256);
+    function getOperatorUsedWeightCached(
+        address operator
+    ) external view returns (uint256);
 }
