@@ -11,22 +11,22 @@
 - **Participants**:
   - **L1s**: Avalanche-based networks that define their own staking and slashing rules; leverage Suzaku reference modules.
   - **Stakers**: Provide collateral (L1 tokens, restaked assets) to secure networks; receive rewards via curated operators.
-  - **Operators**: Run validation infrastructure, opting into the vault and L1; must meet each network’s stake requirements.
-  - **Curators**: Select networks and reliable operators; pool staker collateral and distribute rewards.
+  - **Operators**: Run validation infrastructure, opting into vaults and L1s; must meet each L1’s (re)staking requirements.
+  - **Curators**: Select L1s and reliable operators; delegate staker collateral and distribute rewards.
 
 - **Core Features**:
   - **Build Avalanche L1**: Use Avalanche Stack to build an L1 securedy by Suzaku restaking
-  - **PoS, Liquid Staking & Restaking**: Combine native token staking with restaking of stable or blue-chip assets; enable liquid staking tokens for added yield.
+  - **PoS, Liquid Staking & Restaking**: Combine native token staking with restaking of stablecoins or blue-chip assets; enable liquid staking tokens for added yield.
   - **Dual Staking Model**: Require both native and whitelisted collateral for validator nodes, mitigating token volatility risks.
-  - **Slashing**: Suzaku’s architecture currently doesn't have slashing, only implicit through holding rewards for validators with bad uptime. 
+  - **Slashing**: Suzaku’s architecture currently doesn't have slashing on the (re)staking principal, only validation rewards can be lost if validators have a bad uptime.
 
 ## 2. Code Architecture & Main Components
 
-Below is a summarized explanation of the key smart contracts/interfaces within Suzaku.
+Below is a summarized explanation of the key smart contracts/interfaces of the Suzaku protocol.
 
 ### 2.1 VaultTokenized (owner Curator)
-- **Purpose**: An upgradable tokenized vault (ERC4626-like) that manages deposits, withdrawals, and staking shares.
-- **Epoch-Based Withdrawals**: Redeemed amounts become claimable in the **next** epoch, ensuring stable stake across each epoch.
+- **Purpose**: An upgradable tokenized vault (ERC4626-like) that manages deposits, withdrawals, and shares staking.
+- **Epoch-Based Withdrawals**: Redeemed amounts become claimable in `EPOCH+2`, ensuring a stable stake across each epoch.
 - **Checkpointing**: Tracks historical balances (active stake/shares) for record-keeping.
 - **Deployed Behind an ERC1967 Proxy**: The vault factory (`VaultFactory`) deploys each vault as a `MigratableEntityProxy` (an ERC1967 proxy).
 - **Initialization**: The vault’s `initialize()` sets up roles, collateral, deposit limits, and admin addresses.
@@ -35,14 +35,15 @@ Below is a summarized explanation of the key smart contracts/interfaces within S
   2. **Versioned Migrations**: Internally, the vault uses `_migrateInternal(...)` + `reinitializer(newVersion)` to handle logic changes or data migrations.
   3. **`migrate(newVersion, data)`** is called on the vault after pointing the proxy to a new implementation, allowing for safe re-initialization.
 - Core Roles & Access Control
-  - **DEFAULT_ADMIN_ROLE:** overall admin within the vault.
+  - **DEFAULT_ADMIN_ROLE:** overall admin of the vault.
   - **DEPOSIT_WHITELIST_SET_ROLE:** enable/disable deposit whitelist requirement.
   - **DEPOSITOR_WHITELIST_ROLE:** whitelist specific addresses for deposits.
-  - **IS_DEPOSIT_LIMIT_SET_ROLE:** enable/disable the deposit limit fea
+  - **IS_DEPOSIT_LIMIT_SET_ROLE:** enable/disable the deposit limit.
 
 ### 2.2 Delegators (Owner Curator)
 **BaseDelegator**  
-- Tracks maximum stake an entity can allocate to each L1+assetClass pair.
+- Tracks maximum stake an entity can allocate to each `(L1, assetClass)` pair.  
+
 - Uses a vault reference to ensure operators’ stake does not exceed available active stake.
 
 1. **Stake Retrieval**  
@@ -50,8 +51,8 @@ Below is a summarized explanation of the key smart contracts/interfaces within S
    - `stakeAt(l1, assetClass, operator, timestamp, hints)` → historical version of `stake` (useful for a past `timestamp`).  
 
 2. **L1 Limits**  
-   - `maxL1Limit[l1][assetClass]`: the maximum capacity any delegator is willing to allocate to that L1/assetClass.  
-   - `setMaxL1Limit(l1, assetClass, amount)` → sets the maximum limit for a given L1/assetClass pair.  
+   - `maxL1Limit[l1][assetClass]`: the maximum capacity any delegator (curator) is willing to allocate to that `(L1, assetClass)` pair.  
+   - `setMaxL1Limit(l1, assetClass, amount)` → sets the maximum limit for a given `(L1, assetClass)` pair.  
 
 3. **Opt-In Checks**  
    - The delegator checks if an operator is “opted in” to both the vault and the L1. If not, the staked amount is considered **0**.  
@@ -79,7 +80,7 @@ Below is a summarized explanation of the key smart contracts/interfaces within S
      \]
 
 2. **Setting L1 Limits**  
-   - `setL1Limit(l1, assetClass, amount)` → updates the subnetwork’s “live” limit.  
+   - `setL1Limit(l1, assetClass, amount)` → updates the asset class’ “live” limit.  
    - Must not exceed `maxL1Limit[l1][assetClass]` from BaseDelegator.  
 
 3. **Setting Operator Shares**  
@@ -124,13 +125,13 @@ Below is a summarized explanation of the key smart contracts/interfaces within S
 
 ### 2.6 AvalancheL1Middleware (Owner L1)
 - Ties everything together for each L1:
-  - Registers operators, controls node lifecycle, coordinates with a `ValidatorManager` for node weights.
-  - Inherits from `AssetClassRegistry` to handle multiple (re)staking asset classes.
+  - Registers operators, controls node lifecycle, coordinates with a `ValidatorManager` for node weight updates.  
+  - Inherits from `AssetClassRegistry` to handle (re)staking multiple asset classes.  
   - **Node and Stake Management**:
     1. **Epoch Start**: Operators have node weights set from the previous epoch.  
     2. **Operators Make Changes** (optional):
-       - Add or remove nodes, or partially update node weights.  
-       - If mid-epoch, these changes are queued (`nodePendingUpdate`) until finalization messages from `balancerValidatorManager`.
+       - Add or remove nodes, or update node weights.   
+       - If an update is done mid-epoch, these changes are queued (`nodePendingUpdate`) and stake is "locked" (`operatorLockedStake`) until the next epoch. 
     3. **Final Update Window**:  
        - Operators may call `forceUpdateNodes(...)` to ensure node weights align with their real available stake.  
        - The contract locks or unlocks stake accordingly.
