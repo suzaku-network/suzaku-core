@@ -25,11 +25,6 @@ contract L1Registry is IL1Registry {
         if (isRegistered(validatorManager)) {
             revert L1Registry__L1AlreadyRegistered();
         }
-
-        // TODO: check that validatorManager is a valid ValidatorManager
-        // TODO: check that msg.sender is a SecurityModule of the ValidatorManager
-        // TODO: check that l1Middleware_ is a valid SecurityModule of the ValidatorManager
-
         l1s.add(validatorManager);
         l1Middleware[validatorManager] = l1Middleware_;
         l1MetadataURL[validatorManager] = metadataURL;
