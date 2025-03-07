@@ -26,10 +26,13 @@ contract UptimeTracker is IUptimeTracker {
     mapping(uint48 epoch => mapping(bytes32 validationID => uint256 uptime)) public validatorUptimePerEpoch;
 
     /// @notice Mapping of epoch to validator uptime set.
-    mapping(uint48 epoch => mapping(bytes32 validationID => bool isSet)) public isUptimeSet;
+    mapping(uint48 epoch => mapping(bytes32 validationID => bool isSet)) public isValidatorUptimeSet;
 
     /// @notice Mapping of epoch to operator uptime (in seconds).
     mapping(uint48 epoch => mapping(address operator => uint256 uptime)) public operatorUptimePerEpoch;
+
+    /// @notice Mapping of epoch to operator uptime set.
+    mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
     constructor(
         address l1Middleware_
@@ -89,7 +92,7 @@ contract UptimeTracker is IUptimeTracker {
             for (uint48 i = 0; i < elapsedEpochs; i++) {
                 uint48 epoch = lastUptimeEpoch + i;
                 validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch; // Assign uptime to each epoch
-                isUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
+                isValidatorUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
             }
         }
 
@@ -105,7 +108,7 @@ contract UptimeTracker is IUptimeTracker {
         uint256 sumValidatorsUptime = 0;
 
         for (uint256 i = 0; i < numberOfValidators; i++) {
-            if (isUptimeSet[epoch][operatorNodes[i]] == false) {
+            if (isValidatorUptimeSet[epoch][operatorNodes[i]] == false) {
                 revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, operatorNodes[i]);
             }
             uint256 uptimeValidator = validatorUptimePerEpoch[epoch][operatorNodes[i]];
@@ -113,6 +116,7 @@ contract UptimeTracker is IUptimeTracker {
         }
 
         operatorUptimePerEpoch[epoch][operator] = sumValidatorsUptime / numberOfValidators;
+        isOperatorUptimeSet[epoch][operator] = true;
 
         emit OperatorUptimeComputed(operator, epoch, sumValidatorsUptime / numberOfValidators);
     }

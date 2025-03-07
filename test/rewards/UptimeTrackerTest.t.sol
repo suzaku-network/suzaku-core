@@ -5,10 +5,6 @@ pragma solidity 0.8.25;
 import {Test, console2} from "forge-std/Test.sol";
 import {UptimeTracker} from "../../src/contracts/rewards/UptimeTracker.sol";
 import {IUptimeTracker} from "../../src/interfaces/rewards/IUptimeTracker.sol";
-import {
-    AvalancheL1MiddlewareSettings,
-    AvalancheL1Middleware
-} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
 
 import {MockAvalancheL1Middleware} from "../mocks/MockAvalancheL1Middleware.sol";
 import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager2.sol";
@@ -28,8 +24,14 @@ contract UptimeTrackerTest is Test {
     address operator;
 
     function setUp() public {
+        uint256 operatorCount = 3;
+        uint256[] memory nodesPerOperator = new uint256[](3);
+        nodesPerOperator[0] = 2;
+        nodesPerOperator[1] = 3;
+        nodesPerOperator[2] = 1;
+
         validatorManager = new MockBalancerValidatorManager();
-        middleware = new MockAvalancheL1Middleware(address(validatorManager));
+        middleware = new MockAvalancheL1Middleware(operatorCount, nodesPerOperator);
         uptimeTracker = new UptimeTracker(address(middleware));
         operator = makeAddr("Operator");
     }
