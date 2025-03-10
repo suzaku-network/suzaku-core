@@ -1821,6 +1821,86 @@ contract VaultTokenizedTest is Test {
         _withdraw(alice, amount1 + 1);
     }
 
+    function test_HistoricalLookups(uint256 amount1, uint256 amount2, uint256 amount3) public {
+        // 1) Bound the deposit/withdraw amounts so they're valid
+        amount1 = bound(amount1, 1, 100 * 10 ** 18);
+        amount2 = bound(amount2, 1, 100 * 10 ** 18);
+        amount3 = bound(amount3, 1, 100 * 10 ** 18);
+        vm.assume(amount1 >= amount2 + amount3);
+
+        // 2) Warp to a large-ish starting time, same technique used in your other tests
+        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
+        blockTimestamp = blockTimestamp + 1_720_700_948;
+        vm.warp(blockTimestamp);
+
+        // 3) Deploy a vault with epochDuration=1 using your helper
+        vault = _getVault(1);
+
+        // 4) Alice deposit #1
+        //    - record the time right after it, call it timeDeposit1
+        //    - e.g. deposit 'amount1'
+        (, uint256 mintedShares1) = _deposit(alice, amount1);
+        uint256 timeDeposit1 = blockTimestamp; // right now
+
+        // 5) Advance time by +1, do a second deposit (amount2)
+        blockTimestamp = blockTimestamp + 1;
+        vm.warp(blockTimestamp);
+        (, uint256 mintedShares2) = _deposit(alice, amount2);
+        uint256 timeDeposit2 = blockTimestamp; // record second deposit time
+
+        // 6) Advance time by +1, do a withdraw of 'amount3'
+        blockTimestamp = blockTimestamp + 1;
+        vm.warp(blockTimestamp);
+        (uint256 burnedShares, uint256 mintedWithdrawalShares) = _withdraw(alice, amount3);
+        uint256 timeWithdraw = blockTimestamp;
+
+        // 7) Now do historical lookups at each earlier timestamp
+        //    We'll use the *exact* style from your other tests:
+        //    localVault.activeSharesAt(uint48(...), ""), etc.
+
+        // 7.1) Check "before first deposit" = timeDeposit1 - 1
+        uint48 queryT = uint48(timeDeposit1 - 1);
+        assertEq(vault.activeStakeAt(queryT, ""), 0);
+        assertEq(vault.activeSharesAt(queryT, ""), 0);
+        assertEq(vault.activeSharesOfAt(alice, queryT, ""), 0);
+        assertEq(vault.activeBalanceOfAt(alice, queryT, ""), 0);
+
+        // 7.2) Check exactly at timeDeposit1 (just after deposit#1)
+        queryT = uint48(timeDeposit1);
+        // total stake = amount1
+        assertEq(vault.activeStakeAt(queryT, ""), amount1);
+        // total shares = mintedShares1
+        assertEq(vault.activeSharesAt(queryT, ""), mintedShares1);
+        // alice’s shares = mintedShares1
+        assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1);
+        // alice’s active balance = amount1
+        assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1);
+
+        // 7.3) Check exactly at timeDeposit2 (just after deposit#2)
+        queryT = uint48(timeDeposit2);
+        // total stake = amount1 + amount2
+        assertEq(vault.activeStakeAt(queryT, ""), amount1 + amount2);
+        // total shares = mintedShares1 + mintedShares2
+        assertEq(vault.activeSharesAt(queryT, ""), mintedShares1 + mintedShares2);
+        // alice’s shares = mintedShares1 + mintedShares2
+        assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1 + mintedShares2);
+        // alice’s active balance = amount1 + amount2
+        assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1 + amount2);
+
+        // 7.4) Check exactly at timeWithdraw (just after withdraw of amount3)
+        queryT = uint48(timeWithdraw);
+        // total stake = (amount1 + amount2) minus the withdrawn assets
+        uint256 expectedStake = (amount1 + amount2) - amount3;
+        // total shares = mintedShares1 + mintedShares2 - burnedShares
+        uint256 expectedShares = (mintedShares1 + mintedShares2) - burnedShares;
+
+        assertEq(vault.activeStakeAt(queryT, ""), expectedStake);
+        assertEq(vault.activeSharesAt(queryT, ""), expectedShares);
+        assertEq(vault.activeSharesOfAt(alice, queryT, ""), expectedShares);
+        // alice’s balance = (amount1 + amount2) - amount3
+        assertEq(vault.activeBalanceOfAt(alice, queryT, ""), expectedStake);
+    }
+
     function test_RedeemTwice(uint256 amount1, uint256 amount2, uint256 amount3) public {
         amount1 = bound(amount1, 1, 100 * 10 ** 18);
         amount2 = bound(amount2, 1, 100 * 10 ** 18);

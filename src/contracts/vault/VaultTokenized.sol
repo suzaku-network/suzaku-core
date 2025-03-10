@@ -994,7 +994,7 @@ contract VaultTokenized is
     /**
      * @inheritdoc IVaultTokenized
      */
-    function staticDelegateCall(address target, bytes calldata data) external {
+    function staticDelegateCall(address target, bytes calldata data) external onlyOwner {
         (bool success, bytes memory returndata) = target.delegatecall(data);
         bytes memory revertData = abi.encode(success, returndata);
         assembly {
