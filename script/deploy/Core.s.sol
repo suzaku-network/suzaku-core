@@ -42,35 +42,23 @@ contract CoreScript is Script {
         bytes slasherParams;
     }
 
-    function executeCoreDeployment(VaultConfig memory vaultConfig) public {
+    function executeCoreDeployment(
+        VaultConfig memory vaultConfig
+    ) public returns (address vaultTokenized, address delegator, address slasher) {
         vm.startBroadcast(vaultConfig.owner);
 
         vaultFactory = VaultFactory(vaultConfig.factoryConfig.vaultFactory);
-        delegatorFactory = DelegatorFactory(
-            vaultConfig.factoryConfig.delegatorFactory
-        );
-        slasherFactory = SlasherFactory(
-            vaultConfig.factoryConfig.slasherFactory
-        );
+        delegatorFactory = DelegatorFactory(vaultConfig.factoryConfig.delegatorFactory);
+        slasherFactory = SlasherFactory(vaultConfig.factoryConfig.slasherFactory);
         l1Registry = L1Registry(vaultConfig.factoryConfig.l1Registry);
-        operatorRegistry = OperatorRegistry(
-            vaultConfig.factoryConfig.operatorRegistry
-        );
+        operatorRegistry = OperatorRegistry(vaultConfig.factoryConfig.operatorRegistry);
 
-        console2.log(
-            "Deploying core contracts...",
-            vaultConfig.factoryConfig.vaultFactory
-        );
+        console2.log("Deploying core contracts...", vaultConfig.factoryConfig.vaultFactory);
 
         // Whitelist VaultTokenized implementation
-        address vaultTokenizedImpl = address(
-            new VaultTokenized(vaultConfig.factoryConfig.vaultFactory)
-        );
+        address vaultTokenizedImpl = address(new VaultTokenized(vaultConfig.factoryConfig.vaultFactory));
         vaultFactory.whitelist(vaultTokenizedImpl);
-        console2.log(
-            "VaultTokenized implementation whitelisted at version:",
-            vaultFactory.lastVersion()
-        );
+        console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
 
         // Whitelist L1RestakeDelegator
         address l1RestakeDelegatorImpl = address(
@@ -84,15 +72,9 @@ contract CoreScript is Script {
             )
         );
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
-        console2.log(
-            "L1RestakeDelegator implementation whitelisted at type:",
-            delegatorFactory.totalTypes() - 1
-        );
+        console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
 
-        console2.log(
-            "Initializing VaultTokenized with factory:",
-            vaultConfig.factoryConfig.vaultFactory
-        );
+        console2.log("Initializing VaultTokenized with factory:", vaultConfig.factoryConfig.vaultFactory);
         console2.log("Collateral:", vaultConfig.collateralAsset);
         console2.log("Epoch Duration:", vaultConfig.epochDuration);
 
@@ -106,18 +88,10 @@ contract CoreScript is Script {
                 isDepositLimit: vaultConfig.depositLimit != 0,
                 depositLimit: vaultConfig.depositLimit,
                 defaultAdminRoleHolder: vaultConfig.owner,
-                depositWhitelistSetRoleHolder: vaultConfig
-                    .rolesConfig
-                    .depositWhitelistSetRoleHolder,
-                depositorWhitelistRoleHolder: vaultConfig
-                    .rolesConfig
-                    .depositorWhitelistRoleHolder,
-                isDepositLimitSetRoleHolder: vaultConfig
-                    .rolesConfig
-                    .isDepositLimitSetRoleHolder,
-                depositLimitSetRoleHolder: vaultConfig
-                    .rolesConfig
-                    .depositLimitSetRoleHolder,
+                depositWhitelistSetRoleHolder: vaultConfig.rolesConfig.depositWhitelistSetRoleHolder,
+                depositorWhitelistRoleHolder: vaultConfig.rolesConfig.depositorWhitelistRoleHolder,
+                isDepositLimitSetRoleHolder: vaultConfig.rolesConfig.isDepositLimitSetRoleHolder,
+                depositLimitSetRoleHolder: vaultConfig.rolesConfig.depositLimitSetRoleHolder,
                 name: vaultConfig.name,
                 symbol: vaultConfig.symbol
             })
@@ -125,14 +99,10 @@ contract CoreScript is Script {
 
         // Delegator logic
         address[] memory l1LimitSetRoleHolders = new address[](1);
-        l1LimitSetRoleHolders[0] = vaultConfig
-            .rolesConfig
-            .l1LimitSetRoleHolders;
+        l1LimitSetRoleHolders[0] = vaultConfig.rolesConfig.l1LimitSetRoleHolders;
 
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
-        operatorL1SharesSetRoleHolders[0] = vaultConfig
-            .rolesConfig
-            .operatorL1SharesSetRoleHolders;
+        operatorL1SharesSetRoleHolders[0] = vaultConfig.rolesConfig.operatorL1SharesSetRoleHolders;
 
         bytes memory delegatorParams = abi.encode(
             IL1RestakeDelegator.InitParams({
@@ -151,23 +121,14 @@ contract CoreScript is Script {
         bytes memory slasherParams;
         if (withSlasher) {
             if (vaultConfig.slasherConfig.slasherIndex == 0) {
-                slasherParams = abi.encode(
-                    ISlasher.InitParams({
-                        baseParams: IBaseSlasher.BaseParams({
-                            isBurnerHook: false
-                        })
-                    })
-                );
+                slasherParams =
+                    abi.encode(ISlasher.InitParams({baseParams: IBaseSlasher.BaseParams({isBurnerHook: false})}));
             } else if (vaultConfig.slasherConfig.slasherIndex == 1) {
                 slasherParams = abi.encode(
                     IVetoSlasher.InitParams({
-                        baseParams: IBaseSlasher.BaseParams({
-                            isBurnerHook: false
-                        }),
+                        baseParams: IBaseSlasher.BaseParams({isBurnerHook: false}),
                         vetoDuration: vaultConfig.slasherConfig.vetoDuration,
-                        resolverSetEpochsDelay: vaultConfig
-                            .delegatorConfig
-                            .resolverEpochsDelay
+                        resolverSetEpochsDelay: vaultConfig.delegatorConfig.resolverEpochsDelay
                     })
                 );
             }
@@ -186,134 +147,31 @@ contract CoreScript is Script {
         });
 
         // Create Vault
-        address vaultTokenized = vaultFactory.create(
-            params.version,
-            params.owner,
-            params.vaultParams,
-            address(delegatorFactory),
-            address(slasherFactory)
+        vaultTokenized = vaultFactory.create(
+            params.version, params.owner, params.vaultParams, address(delegatorFactory), address(slasherFactory)
         );
 
         console2.log("Vault deployed at:", vaultTokenized);
 
         // Create Delegator
-        address delegator = delegatorFactory.create(
-            params.delegatorIndex,
-            abi.encode(vaultTokenized, params.delegatorParams)
-        );
+        delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vaultTokenized, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 
         // Set delegator in the vault
         VaultTokenized(vaultTokenized).setDelegator(delegator);
 
         // If slasher is included, deploy & set it
-        address slasher;
+        slasher;
         if (params.withSlasher) {
-            slasher = slasherFactory.create(
-                params.slasherIndex,
-                abi.encode(vaultTokenized, params.slasherParams)
-            );
+            slasher = slasherFactory.create(params.slasherIndex, abi.encode(vaultTokenized, params.slasherParams));
             console2.log("Slasher deployed at:", slasher);
             VaultTokenized(vaultTokenized).setSlasher(slasher);
         }
 
         console2.log("Full local deployment completed successfully.");
 
-        // JSON output
-        string memory deploymentFileName = "fullLocalDeployment.json";
-        string memory filePath = string.concat(
-            "./deployments/",
-            deploymentFileName
-        );
-
-        if (vm.exists(filePath)) {
-            vm.removeFile(filePath);
-        }
-
-        string memory coreContracts = "core contracts key";
-        vm.serializeAddress(
-            coreContracts,
-            "CollateralAsset",
-            vaultConfig.collateralAsset
-        );
-        vm.serializeAddress(coreContracts, "Vault", address(vaultTokenized));
-        vm.serializeAddress(coreContracts, "Delegator", address(delegator));
-        vm.serializeAddress(
-            coreContracts,
-            "DepositWhitelistSetRoleHolder",
-            vaultConfig.rolesConfig.depositWhitelistSetRoleHolder
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "DepositorWhitelistRoleHolder",
-            vaultConfig.rolesConfig.depositorWhitelistRoleHolder
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "IsDepositLimitSetRoleHolder",
-            vaultConfig.rolesConfig.isDepositLimitSetRoleHolder
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "DepositLimitSetRoleHolder",
-            vaultConfig.rolesConfig.depositLimitSetRoleHolder
-        );
-
-        vm.serializeAddress(
-            coreContracts,
-            "L1LimitSetRoleHolder",
-            vaultConfig.rolesConfig.l1LimitSetRoleHolders
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "OperatorL1SharesSetRoleHolder",
-            vaultConfig.rolesConfig.operatorL1SharesSetRoleHolders
-        );
-
-        if (params.withSlasher) {
-            vm.serializeAddress(coreContracts, "Slasher", slasher);
-        }
-        vm.serializeAddress(
-            coreContracts,
-            "VaultFactory",
-            vaultConfig.factoryConfig.vaultFactory
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "DelegatorFactory",
-            vaultConfig.factoryConfig.delegatorFactory
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "SlasherFactory",
-            vaultConfig.factoryConfig.slasherFactory
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "L1Registry",
-            vaultConfig.factoryConfig.l1Registry
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "OperatorRegistry",
-            vaultConfig.factoryConfig.operatorRegistry
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "OperatorVaultOptInService",
-            vaultConfig.factoryConfig.operatorVaultOptInService
-        );
-        vm.serializeAddress(
-            coreContracts,
-            "OperatorL1OptInService",
-            vaultConfig.factoryConfig.operatorL1OptInService
-        );
-        string memory coreOutput = vm.serializeAddress(
-            coreContracts,
-            "Vault",
-            address(vaultTokenized)
-        );
-        vm.writeJson(coreOutput, filePath);
         vm.stopBroadcast();
+
+        return (vaultTokenized, delegator, slasher);
     }
 }

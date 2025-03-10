@@ -43,26 +43,16 @@ contract DeployFactoriesRegistriesOptIns is Script {
 
         // Deploy references
         vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);
-        delegatorFactory = new DelegatorFactory(
-            bootstraperConfig.generalConfig.owner
-        );
-        slasherFactory = new SlasherFactory(
-            bootstraperConfig.generalConfig.owner
-        );
+        delegatorFactory = new DelegatorFactory(bootstraperConfig.generalConfig.owner);
+        slasherFactory = new SlasherFactory(bootstraperConfig.generalConfig.owner);
         l1Registry = new L1Registry();
         operatorRegistry = new OperatorRegistry();
 
-        OperatorVaultOptInService operatorVaultOptInService = new OperatorVaultOptInService(
-                address(operatorRegistry),
-                address(l1Registry),
-                "Vault Opt-In"
-            );
+        OperatorVaultOptInService operatorVaultOptInService =
+            new OperatorVaultOptInService(address(operatorRegistry), address(l1Registry), "Vault Opt-In");
 
-        OperatorL1OptInService operatorL1OptInService = new OperatorL1OptInService(
-                address(operatorRegistry),
-                address(l1Registry),
-                "Suzaku Operator -> L1 Opt-In"
-            );
+        OperatorL1OptInService operatorL1OptInService =
+            new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
         vm.stopBroadcast();
 
@@ -74,49 +64,6 @@ contract DeployFactoriesRegistriesOptIns is Script {
         operatorRegistryAddr = address(operatorRegistry);
         operatorVaultOptInServiceAddr = address(operatorVaultOptInService);
         operatorL1OptInServiceAddr = address(operatorL1OptInService);
-
-        // Optionally write to JSON
-        string memory deploymentFileName = "factoriesDeployment.json";
-        string memory filePath = string.concat(
-            "./deployments/",
-            deploymentFileName
-        );
-
-        if (vm.exists(filePath)) {
-            vm.removeFile(filePath);
-        }
-
-        // Store all addresses under a JSON object named "factories"
-        string memory factoriesLabel = "factories";
-        vm.serializeAddress(factoriesLabel, "VaultFactory", vaultFactoryAddr);
-        vm.serializeAddress(
-            factoriesLabel,
-            "DelegatorFactory",
-            delegatorFactoryAddr
-        );
-        vm.serializeAddress(
-            factoriesLabel,
-            "SlasherFactory",
-            slasherFactoryAddr
-        );
-        vm.serializeAddress(factoriesLabel, "L1Registry", l1RegistryAddr);
-        vm.serializeAddress(
-            factoriesLabel,
-            "OperatorRegistry",
-            operatorRegistryAddr
-        );
-        vm.serializeAddress(
-            factoriesLabel,
-            "OperatorVaultOptInService",
-            operatorVaultOptInServiceAddr
-        );
-        string memory finalJson = vm.serializeAddress(
-            factoriesLabel,
-            "OperatorL1OptInService",
-            operatorL1OptInServiceAddr
-        );
-
-        vm.writeJson(finalJson, filePath);
 
         return (
             vaultFactoryAddr,
