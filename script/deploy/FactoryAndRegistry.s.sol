@@ -1,59 +1,131 @@
-// SPDX-License-Identifier: BUSL-1.1
-// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
-
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.25;
 
-import {Script, console2} from "forge-std/Script.sol";
-import {HelperConfig} from "./HelperConfig.s.sol";
+import {Script} from "forge-std/Script.sol";
+import {stdJson} from "forge-std/StdJson.sol";
+
+// Import your BootstraperConfig struct
+import {GeneralConfig, FactoryConfig, OptinConfig, BootstraperConfig} from "./FactoriesRegistriesOptinsTypes.s.sol";
 
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
 import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
+import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
+import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
 
-contract FactoryAndRegistryScript is Script {
-    function run() public {
-        HelperConfig helperConfig = new HelperConfig();
-        HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
+contract DeployFactoriesRegistriesOptIns is Script {
+    using stdJson for string;
 
-        console2.log("Deploying on chain ID:", block.chainid);
-        console2.log("Owner Address:", config.generalConfig.owner);
+    VaultFactory internal vaultFactory;
+    DelegatorFactory internal delegatorFactory;
+    SlasherFactory internal slasherFactory;
+    L1Registry internal l1Registry;
+    OperatorRegistry internal operatorRegistry;
 
-        vm.startBroadcast();
+    function executeFactoriesDeployment(
+        BootstraperConfig memory bootstraperConfig
+    )
+        external
+        returns (
+            address vaultFactoryAddr,
+            address delegatorFactoryAddr,
+            address slasherFactoryAddr,
+            address l1RegistryAddr,
+            address operatorRegistryAddr,
+            address operatorVaultOptInServiceAddr,
+            address operatorL1OptInServiceAddr
+        )
+    {
+        // Start broadcast with the "owner" from the config
+        vm.startBroadcast(bootstraperConfig.generalConfig.owner);
 
-        // Deploy main factories
-        VaultFactory vaultFactory = new VaultFactory(config.generalConfig.owner);
-        DelegatorFactory delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
-        SlasherFactory slasherFactory = new SlasherFactory(config.generalConfig.owner);
-        L1Registry l1Registry = new L1Registry();
-        OperatorRegistry operatorRegistry = new OperatorRegistry();
+        // Deploy references
+        vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);
+        delegatorFactory = new DelegatorFactory(
+            bootstraperConfig.generalConfig.owner
+        );
+        slasherFactory = new SlasherFactory(
+            bootstraperConfig.generalConfig.owner
+        );
+        l1Registry = new L1Registry();
+        operatorRegistry = new OperatorRegistry();
 
-        console2.log("VaultFactory deployed at:", address(vaultFactory));
-        console2.log("DelegatorFactory deployed at:", address(delegatorFactory));
-        console2.log("SlasherFactory deployed at:", address(slasherFactory));
-        console2.log("L1Registry deployed at:", address(l1Registry));
-        console2.log("OperatorRegistry deployed at:", address(operatorRegistry));
+        OperatorVaultOptInService operatorVaultOptInService = new OperatorVaultOptInService(
+                address(operatorRegistry),
+                address(l1Registry),
+                "Vault Opt-In"
+            );
 
-        // Log the addresses of the deployed contracts for verification
-        string memory deploymentFileName = "deploymentDetails.json";
-        string memory filePath = string.concat("./deployments/", deploymentFileName);
+        OperatorL1OptInService operatorL1OptInService = new OperatorL1OptInService(
+                address(operatorRegistry),
+                address(l1Registry),
+                "Suzaku Operator -> L1 Opt-In"
+            );
+
+        vm.stopBroadcast();
+
+        // Assign them to the return variables (so we can return from executeFactoriesDeployment())
+        vaultFactoryAddr = address(vaultFactory);
+        delegatorFactoryAddr = address(delegatorFactory);
+        slasherFactoryAddr = address(slasherFactory);
+        l1RegistryAddr = address(l1Registry);
+        operatorRegistryAddr = address(operatorRegistry);
+        operatorVaultOptInServiceAddr = address(operatorVaultOptInService);
+        operatorL1OptInServiceAddr = address(operatorL1OptInService);
+
+        // Optionally write to JSON
+        string memory deploymentFileName = "factoriesDeployment.json";
+        string memory filePath = string.concat(
+            "./deployments/",
+            deploymentFileName
+        );
 
         if (vm.exists(filePath)) {
-            // If file exists, delete it
             vm.removeFile(filePath);
         }
 
-        string memory factoryContracts = "factory contracts key";
-        vm.serializeAddress(factoryContracts, "VaultFactory", address(vaultFactory));
-        vm.serializeAddress(factoryContracts, "DelegatorFactory", address(delegatorFactory));
-        vm.serializeAddress(factoryContracts, "SlasherFactory", address(slasherFactory));
-        vm.serializeAddress(factoryContracts, "L1Registry", address(l1Registry));
-        vm.serializeAddress(factoryContracts, "OperatorRegistry", address(operatorRegistry));
+        // Store all addresses under a JSON object named "factories"
+        string memory factoriesLabel = "factories";
+        vm.serializeAddress(factoriesLabel, "VaultFactory", vaultFactoryAddr);
+        vm.serializeAddress(
+            factoriesLabel,
+            "DelegatorFactory",
+            delegatorFactoryAddr
+        );
+        vm.serializeAddress(
+            factoriesLabel,
+            "SlasherFactory",
+            slasherFactoryAddr
+        );
+        vm.serializeAddress(factoriesLabel, "L1Registry", l1RegistryAddr);
+        vm.serializeAddress(
+            factoriesLabel,
+            "OperatorRegistry",
+            operatorRegistryAddr
+        );
+        vm.serializeAddress(
+            factoriesLabel,
+            "OperatorVaultOptInService",
+            operatorVaultOptInServiceAddr
+        );
+        string memory finalJson = vm.serializeAddress(
+            factoriesLabel,
+            "OperatorL1OptInService",
+            operatorL1OptInServiceAddr
+        );
 
-        string memory factoryOutput = vm.serializeAddress(factoryContracts, "VaultFactory", address(vaultFactory));
-        vm.writeJson(factoryOutput, filePath);
+        vm.writeJson(finalJson, filePath);
 
-        vm.stopBroadcast();
+        return (
+            vaultFactoryAddr,
+            delegatorFactoryAddr,
+            slasherFactoryAddr,
+            l1RegistryAddr,
+            operatorRegistryAddr,
+            operatorVaultOptInServiceAddr,
+            operatorL1OptInServiceAddr
+        );
     }
 }
