@@ -18,7 +18,7 @@ contract DeployTestAvalancheL1Middleware is Script {
     function executeMiddlewareL1Deployment(
         MiddlewareConfig memory middlewareConfig
     ) public returns (address middlewareL1, address vaultManager) {
-        vm.startBroadcast(middlewareConfig.proxyAdminOwnerAddress);
+        vm.startBroadcast(middlewareConfig.protocolOwnerAddress);
 
         // Deploy the AvalancheL1Middleware
         AvalancheL1Middleware l1Middleware = new AvalancheL1Middleware(
