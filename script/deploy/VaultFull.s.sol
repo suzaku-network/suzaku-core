@@ -24,7 +24,7 @@ import {ISlasher} from "../../src/interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../src/interfaces/slasher/IVetoSlasher.sol";
 import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
 
-contract CoreScript is Script {
+contract VaultFull is Script {
     VaultFactory internal vaultFactory;
     DelegatorFactory internal delegatorFactory;
     SlasherFactory internal slasherFactory;
