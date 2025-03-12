@@ -160,7 +160,6 @@ contract CoreScript is Script {
         // Set delegator in the vault
         VaultTokenized(vaultTokenized).setDelegator(delegator);
 
-        // If slasher is included, deploy & set it
         slasher;
         if (params.withSlasher) {
             slasher = slasherFactory.create(params.slasherIndex, abi.encode(vaultTokenized, params.slasherParams));

@@ -37,7 +37,6 @@ contract DeployFactoriesRegistriesOptIns is Script {
             address operatorL1OptInServiceAddr
         )
     {
-        // Start broadcast with the "owner" from the config
         vm.startBroadcast(bootstraperConfig.generalConfig.owner);
 
         // Deploy factories, registries, and opt-in services
@@ -55,7 +54,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
 
         vm.stopBroadcast();
 
-        // Assign them to the return variables (so we can return from executeFactoriesDeployment())
+        // Assign them to the return variables
         vaultFactoryAddr = address(vaultFactory);
         delegatorFactoryAddr = address(delegatorFactory);
         slasherFactoryAddr = address(slasherFactory);
