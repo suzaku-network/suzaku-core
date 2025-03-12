@@ -24,7 +24,7 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
-import {MiddlewareHelperConfig} from "../../script/middleware/MiddlewareHelperConfig.s.sol";
+import {MiddlewareHelperConfig} from "../../script/middleware/anvil/MiddlewareHelperConfig.s.sol";
 
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";

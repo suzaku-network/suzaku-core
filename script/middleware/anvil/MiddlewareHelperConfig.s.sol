@@ -4,7 +4,7 @@
 pragma solidity 0.8.25;
 
 import {Script} from "forge-std/Script.sol";
-import {Token} from "../../test/mocks/MockToken.sol";
+import {Token} from "../../../test/mocks/MockToken.sol";
 
 contract MiddlewareHelperConfig is Script {
     struct NetworkConfig {

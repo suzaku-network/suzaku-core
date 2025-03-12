@@ -18,7 +18,7 @@ contract DeployTestAvalancheL1Middleware is Script {
     function executeMiddlewareL1Deployment(
         MiddlewareConfig memory middlewareConfig
     ) public returns (address middlewareL1, address vaultManager) {
-        vm.startBroadcast(middlewareConfig.proxyAdminOwnerKey);
+        vm.startBroadcast(middlewareConfig.proxyAdminOwnerAddress);
 
         // Deploy the AvalancheL1Middleware
         AvalancheL1Middleware l1Middleware = new AvalancheL1Middleware(
@@ -31,7 +31,7 @@ contract DeployTestAvalancheL1Middleware is Script {
                 slashingWindow: middlewareConfig.slashingWindow,
                 weightUpdateWindow: middlewareConfig.weightUpdateWindow
             }),
-            vm.addr(middlewareConfig.protocolOwnerKey), // Set the owner
+            middlewareConfig.protocolOwnerAddress, // Set the owner
             middlewareConfig.primaryAsset,
             middlewareConfig.primaryAssetMaxStake,
             middlewareConfig.primaryAssetMinStake
@@ -40,13 +40,13 @@ contract DeployTestAvalancheL1Middleware is Script {
         // Deploy the MiddlewareVaultManager
         // Linking both to the same validator manager
         MiddlewareVaultManager middlewareVaultManager = new MiddlewareVaultManager(
-            middlewareConfig.vaultFactory, middlewareConfig.validatorManager, middlewareConfig.validatorManager
+            middlewareConfig.vaultFactory, middlewareConfig.protocolOwnerAddress, middlewareConfig.validatorManager
         );
 
         vm.stopBroadcast();
 
         // Configure the vault manager in the middleware
-        vm.startBroadcast(middlewareConfig.protocolOwnerKey);
+        vm.startBroadcast(middlewareConfig.protocolOwnerAddress);
         l1Middleware.setVaultManager(address(middlewareVaultManager));
         vm.stopBroadcast();
 

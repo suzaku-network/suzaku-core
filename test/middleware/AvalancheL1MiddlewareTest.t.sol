@@ -26,7 +26,7 @@ import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptI
 import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
-import {MiddlewareHelperConfig} from "../../script/middleware/MiddlewareHelperConfig.s.sol";
+import {MiddlewareHelperConfig} from "../../script/middleware/anvil/MiddlewareHelperConfig.s.sol";
 import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
 
 import {DeployBalancerValidatorManager} from "../../script/validator-manager/DeployBalancerValidatorManager.s.sol";

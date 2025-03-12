@@ -16,13 +16,13 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
+
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
 import {ISlasher} from "../../src/interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../src/interfaces/slasher/IVetoSlasher.sol";
 import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
-import {Token} from "../../test/mocks/MockToken.sol";
 
 contract CoreScript is Script {
     VaultFactory internal vaultFactory;

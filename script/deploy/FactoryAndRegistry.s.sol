@@ -4,7 +4,6 @@ pragma solidity 0.8.25;
 import {Script} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 
-// Import your BootstraperConfig struct
 import {GeneralConfig, FactoryConfig, OptinConfig, BootstraperConfig} from "./FactoriesRegistriesOptinsTypes.s.sol";
 
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
@@ -41,7 +40,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
         // Start broadcast with the "owner" from the config
         vm.startBroadcast(bootstraperConfig.generalConfig.owner);
 
-        // Deploy references
+        // Deploy factories, registries, and opt-in services
         vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);
         delegatorFactory = new DelegatorFactory(bootstraperConfig.generalConfig.owner);
         slasherFactory = new SlasherFactory(bootstraperConfig.generalConfig.owner);

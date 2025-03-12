@@ -2,8 +2,8 @@
 pragma solidity 0.8.25;
 
 struct MiddlewareConfig {
-    uint256 proxyAdminOwnerKey;
-    uint256 protocolOwnerKey;
+    address proxyAdminOwnerAddress;
+    address protocolOwnerAddress;
     address validatorManager;
     address operatorRegistry;
     address vaultFactory;
