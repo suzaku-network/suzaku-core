@@ -3,6 +3,6 @@ forge-std/=lib/forge-std/src/
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
 @openzeppelin/foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
 @symbiotic/core/=lib/core/src/
-@suzaku/contracts-library/=lib/suzaku-contracts-library/contracts/src/
+@suzaku/contracts-library/=lib/suzaku-contracts-library/src
 @avalabs/teleporter/=lib/teleporter/contracts/
 @avalabs/icm-contracts/=lib/teleporter/contracts/
