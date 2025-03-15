@@ -34,7 +34,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         (
             uint256 proxyAdminOwnerKey,
             uint256 protocolOwnerKey,
-            bytes32 subnetID,
+            bytes32 l1ID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
             address primaryAsset,
@@ -45,7 +45,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
         ValidatorManagerSettings memory settings = ValidatorManagerSettings({
-            subnetID: subnetID,
+            l1ID: l1ID,
             churnPeriodSeconds: churnPeriodSeconds,
             maximumChurnPercentage: maximumChurnPercentage
         });
