@@ -4,5 +4,5 @@ forge-std/=lib/forge-std/src/
 @openzeppelin/foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
 @symbiotic/core/=lib/core/src/
 @suzaku/contracts-library/=lib/suzaku-contracts-library/src
-@avalabs/teleporter/=lib/teleporter/contracts/
-@avalabs/icm-contracts/=lib/teleporter/contracts/
+@avalabs/teleporter/=lib/suzaku-contracts-library/lib/icm-contracts/contracts/
+@avalabs/icm-contracts/=lib/suzaku-contracts-library/lib/icm-contracts/contracts/
