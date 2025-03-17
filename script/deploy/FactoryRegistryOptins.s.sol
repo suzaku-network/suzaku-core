@@ -37,7 +37,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
             address operatorL1OptInServiceAddr
         )
     {
-        vm.startBroadcast(bootstraperConfig.generalConfig.owner);
+        vm.startBroadcast();
 
         // Deploy factories, registries, and opt-in services
         vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);

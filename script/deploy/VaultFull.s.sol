@@ -45,7 +45,7 @@ contract VaultFull is Script {
     function executeCoreDeployment(
         VaultConfig memory vaultConfig
     ) public returns (address vaultTokenized, address delegator, address slasher) {
-        vm.startBroadcast(vaultConfig.owner);
+        vm.startBroadcast();
 
         vaultFactory = VaultFactory(vaultConfig.factoryConfig.vaultFactory);
         delegatorFactory = DelegatorFactory(vaultConfig.factoryConfig.delegatorFactory);
