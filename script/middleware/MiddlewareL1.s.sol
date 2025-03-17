@@ -31,7 +31,7 @@ contract DeployTestAvalancheL1Middleware is Script {
                 slashingWindow: middlewareConfig.slashingWindow,
                 weightUpdateWindow: middlewareConfig.weightUpdateWindow
             }),
-            middlewareConfig.l1MiddlewareOwnerKey, // Set the owner
+            middlewareConfig.l1MiddlewareOwnerAddress, // Set the owner
             middlewareConfig.primaryAsset,
             middlewareConfig.primaryAssetMaxStake,
             middlewareConfig.primaryAssetMinStake
@@ -40,13 +40,13 @@ contract DeployTestAvalancheL1Middleware is Script {
         // Deploy the MiddlewareVaultManager
         // Linking both to the same validator manager
         MiddlewareVaultManager middlewareVaultManager = new MiddlewareVaultManager(
-            middlewareConfig.vaultFactory, middlewareConfig.l1MiddlewareOwnerKey, middlewareConfig.validatorManager
+            middlewareConfig.vaultFactory, middlewareConfig.l1MiddlewareOwnerAddress, middlewareConfig.validatorManager
         );
 
         vm.stopBroadcast();
 
         // Configure the vault manager in the middleware
-        vm.startBroadcast(middlewareConfig.l1MiddlewareOwnerKey);
+        vm.startBroadcast(middlewareConfig.l1MiddlewareOwnerAddress);
         l1Middleware.setVaultManager(address(middlewareVaultManager));
         vm.stopBroadcast();
 
