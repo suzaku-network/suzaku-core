@@ -9,13 +9,13 @@ import {IBaseDelegator} from "../../interfaces/delegator/IBaseDelegator.sol";
 import {IL1RestakeDelegator} from "../../interfaces/delegator/IL1RestakeDelegator.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 
-import {Checkpoints} from "../libraries/Checkpoints.sol";
+import {ExtendedCheckpoints} from "../libraries/Checkpoints.sol";
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
-    using Checkpoints for Checkpoints.Trace256;
+    using ExtendedCheckpoints for ExtendedCheckpoints.Trace256;
     using Math for uint256;
 
     /**
@@ -28,9 +28,9 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      */
     bytes32 public constant OPERATOR_L1_SHARES_SET_ROLE = keccak256("OPERATOR_L1_SHARES_SET_ROLE");
 
-    mapping(address => mapping(uint96 => Checkpoints.Trace256)) internal _l1Limit;
-    mapping(address => mapping(uint96 => Checkpoints.Trace256)) internal _totalOperatorL1Shares;
-    mapping(address => mapping(uint96 => mapping(address => Checkpoints.Trace256))) internal _operatorL1Shares;
+    mapping(address => mapping(uint96 => ExtendedCheckpoints.Trace256)) internal _l1Limit;
+    mapping(address => mapping(uint96 => ExtendedCheckpoints.Trace256)) internal _totalOperatorL1Shares;
+    mapping(address => mapping(uint96 => mapping(address => ExtendedCheckpoints.Trace256))) internal _operatorL1Shares;
 
     constructor(
         address l1Registry,

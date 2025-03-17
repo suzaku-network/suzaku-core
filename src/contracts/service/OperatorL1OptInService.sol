@@ -9,14 +9,14 @@ import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
 import {IL1Registry} from "../../interfaces/IL1Registry.sol";
 
-import {Checkpoints} from "../libraries/Checkpoints.sol";
+import {ExtendedCheckpoints} from "../libraries/Checkpoints.sol";
 
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 contract OperatorL1OptInService is StaticDelegateCallable, EIP712, IOptInService {
-    using Checkpoints for Checkpoints.Trace208;
+    using ExtendedCheckpoints for ExtendedCheckpoints.Trace208;
 
     /**
      * @inheritdoc IOptInService
@@ -38,7 +38,7 @@ contract OperatorL1OptInService is StaticDelegateCallable, EIP712, IOptInService
      * @inheritdoc IOptInService
      */
     mapping(address => mapping(address => uint256)) public nonces;
-    mapping(address => mapping(address => Checkpoints.Trace208)) internal _isOptedIn;
+    mapping(address => mapping(address => ExtendedCheckpoints.Trace208)) internal _isOptedIn;
 
     modifier checkDeadline(
         uint48 deadline

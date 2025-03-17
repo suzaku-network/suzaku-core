@@ -9,7 +9,7 @@ import {IBaseSlasher} from "../../interfaces/slasher/IBaseSlasher.sol";
 import {IRegistry} from "../../interfaces/common/IRegistry.sol";
 import {IDelegatorFactory} from "../../interfaces/IDelegatorFactory.sol";
 
-import {Checkpoints} from "../libraries/Checkpoints.sol";
+import {ExtendedCheckpoints} from "../libraries/Checkpoints.sol";
 import {ERC4626Math} from "../libraries/ERC4626Math.sol";
 
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
@@ -32,7 +32,7 @@ contract VaultTokenized is
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable
 {
-    using Checkpoints for Checkpoints.Trace256;
+    using ExtendedCheckpoints for ExtendedCheckpoints.Trace256;
     using Math for uint256;
     using SafeCast for uint256;
     using SafeERC20 for IERC20;
@@ -72,9 +72,9 @@ contract VaultTokenized is
         mapping(uint256 => uint256) withdrawalShares;
         mapping(uint256 => mapping(address => uint256)) withdrawalSharesOf;
         mapping(uint256 => mapping(address => bool)) isWithdrawalsClaimed;
-        Checkpoints.Trace256 _activeShares;
-        Checkpoints.Trace256 _activeStake;
-        mapping(address => Checkpoints.Trace256) _activeSharesOf;
+        ExtendedCheckpoints.Trace256 _activeShares;
+        ExtendedCheckpoints.Trace256 _activeStake;
+        mapping(address => ExtendedCheckpoints.Trace256) _activeSharesOf;
     }
 
     // bytes32(uint256(keccak256(abi.encodePacked(uint256(keccak256("vault.storage")) - 1))) & ~uint256(0xff));

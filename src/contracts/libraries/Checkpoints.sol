@@ -10,7 +10,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
  * @dev This library defines the `Trace*` struct, for checkpointing values as they change at different points in
  * time, and later looking up past values by key.
  */
-library Checkpoints {
+library ExtendedCheckpoints {
     using OZCheckpoints for OZCheckpoints.Trace208;
 
     error SystemCheckpoint();
