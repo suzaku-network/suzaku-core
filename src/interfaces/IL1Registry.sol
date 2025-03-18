@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 
-// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
-
 pragma solidity ^0.8.0;
 
 interface IL1Registry {
@@ -14,11 +12,11 @@ interface IL1Registry {
     error L1Registry__L1NotRegistered();
     error L1Registry__InvalidValidatorManager(address validatorManager);
     error L1Registry__InvalidL1Middleware();
+    error L1Registry__NotValidatorManagerOwner(address caller, address expectedOwner);
+    error L1Registry__NotMiddlewareOwner(address caller, address expectedOwner);
 
     /**
      * @notice Register an Avalanche L1
-     * TODO: verify that the ValidatorManager is effectively the manager of an Avalanche L1 by
-     * checking that the Subnet conversion message points to its address.
      * @dev validatorManager must be the manager of the Avalanche L1
      * @dev msg.sender must be a SecurityModule of the ValidatorManager
      * @dev l1Middleware must be a SecurityModule of the Avalanche L1
@@ -86,7 +84,8 @@ interface IL1Registry {
     /**
      * @notice Set the metadata URL of an L1
      * @param validatorManager The address of the ValidatorManager of the L1
+     * @param l1Middleware_ The address of the l1Middleware_ of the L1
      * @param metadataURL The new metadata URL
      */
-    function setMetadataURL(address validatorManager, string calldata metadataURL) external;
+    function setMetadataURL(address validatorManager, address l1Middleware_, string calldata metadataURL) external;
 }

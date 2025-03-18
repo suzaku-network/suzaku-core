@@ -12,6 +12,15 @@ import {IOptInService} from "../../src/interfaces/service/IOptInService.sol";
 
 import {IERC5267} from "@openzeppelin/contracts/interfaces/IERC5267.sol";
 
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+// Minimal Ownable contract "pretending" to be an L1.
+contract DummyL1 is Ownable {
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) {}
+}
+
 contract OperatorL1OptInServiceTest is Test {
     address owner;
     address alice;
@@ -34,6 +43,8 @@ contract OperatorL1OptInServiceTest is Test {
 
         // Deploy service for Operator-L1 optin
         service = new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "OperatorL1OptInService");
+
+        // DummyL1 dummyWhere = new DummyL1(bob);
     }
 
     function test_Create() public {
@@ -46,14 +57,15 @@ contract OperatorL1OptInServiceTest is Test {
         assertEq(service.nonces(alice, alice), 0);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         // Register operator and L1
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -101,10 +113,11 @@ contract OperatorL1OptInServiceTest is Test {
 
     function test_OptInRevertNotWho() public {
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         // L1 registered, operator not
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -116,7 +129,8 @@ contract OperatorL1OptInServiceTest is Test {
 
     function test_OptInRevertNotWhereRegistered() public {
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         // Operator registered, L1 not
         vm.startPrank(operator);
@@ -131,13 +145,14 @@ contract OperatorL1OptInServiceTest is Test {
 
     function test_OptInRevertAlreadyOptedIn() public {
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -153,13 +168,14 @@ contract OperatorL1OptInServiceTest is Test {
 
     function test_OptOutRevertNotOptedIn() public {
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -175,12 +191,13 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -201,12 +218,13 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -225,12 +243,13 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -249,12 +268,13 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -279,13 +299,14 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -313,13 +334,14 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 
@@ -345,13 +367,14 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         address operator = alice;
-        address where = bob;
+        DummyL1 dummyWhere = new DummyL1(bob);
+        address where = address(dummyWhere);
 
         vm.startPrank(operator);
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(where);
+        vm.startPrank(bob);
         l1Registry.registerL1(where, where, "metadataURL");
         vm.stopPrank();
 

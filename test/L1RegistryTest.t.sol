@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 
-// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {L1Registry} from "../src/contracts/L1Registry.sol";
 import {IL1Registry} from "../src/interfaces/IL1Registry.sol";
 import {MockACP99Manager} from "test/mocks/MockACP99Manager.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract DummySecurityModule is Ownable {
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) {}
+}
 
 contract L1RegistryTest is Test {
     address owner;
@@ -30,7 +36,14 @@ contract L1RegistryTest is Test {
         l1Middleware1SecurityModule = makeAddr("l1Middleware1SecurityModule");
         l1Middleware2SecurityModule = makeAddr("l1Middleware2SecurityModule");
 
-        mockACP99Manager = new MockACP99Manager();
+        mockACP99Manager = new MockACP99Manager(l1Middleware1);
+
+        DummySecurityModule secModule = new DummySecurityModule(l1Middleware1);
+        l1Middleware1SecurityModule = address(secModule);
+
+        DummySecurityModule secModule2 = new DummySecurityModule(l1Middleware2);
+        l1Middleware2SecurityModule = address(secModule2);
+
         registry = new L1Registry();
     }
 
@@ -80,7 +93,7 @@ contract L1RegistryTest is Test {
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
         // Create a new mock manager for l1Middleware2
-        MockACP99Manager l1Middleware2Manager = new MockACP99Manager();
+        MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
 
         // l1Middleware2 registers
         vm.prank(l1Middleware2);
@@ -97,7 +110,7 @@ contract L1RegistryTest is Test {
         vm.prank(l1Middleware1);
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
-        MockACP99Manager l1Middleware2Manager = new MockACP99Manager();
+        MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
         vm.prank(l1Middleware2);
         registry.registerL1(address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL);
 
@@ -117,7 +130,7 @@ contract L1RegistryTest is Test {
         vm.prank(l1Middleware1);
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
-        MockACP99Manager l1Middleware2Manager = new MockACP99Manager();
+        MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
         vm.prank(l1Middleware2);
         registry.registerL1(address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL);
 
@@ -158,10 +171,12 @@ contract L1RegistryTest is Test {
     function testLargeNumberOfRegistrations() public {
         // Register 1000 L1s
         for (uint256 i = 0; i < 1000; i++) {
-            address manager = address(new MockACP99Manager());
-            address middleware = address(uint160(i + 10_000)); // Offset to avoid collisions
-            vm.prank(address(uint160(i)));
-            registry.registerL1(manager, middleware, l1Middleware1MetadataURL);
+            address eoa = address(uint160(i + 10_000)); // skip address(0)
+            MockACP99Manager manager = new MockACP99Manager(eoa);
+            address middleware = address(new DummySecurityModule(eoa));
+
+            vm.prank(eoa);
+            registry.registerL1(address(manager), middleware, l1Middleware1MetadataURL);
         }
 
         // Check that all 1000 L1s are registered
@@ -173,17 +188,20 @@ contract L1RegistryTest is Test {
         vm.prank(l1Middleware1);
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
-        // Set new middleware
-        address newMiddleware = makeAddr("newMiddleware");
+        // Make your "newMiddleware" an Ownable contract if you want to pass the second check
+        DummySecurityModule newMiddle = new DummySecurityModule(l1Middleware1);
+        address newMiddleware = address(newMiddle);
+
+        // **Again** call from l1Middleware1
+        vm.prank(l1Middleware1);
         registry.setL1Middleware(address(mockACP99Manager), newMiddleware);
 
-        // Check that middleware was updated
-        (, address middleware,) = registry.getL1At(0);
-        assertEq(middleware, newMiddleware);
+        (, address actualMw,) = registry.getL1At(0);
+        assertEq(actualMw, newMiddleware);
     }
 
     function testSetL1MiddlewareRevertNotRegistered() public {
-        // Try to set middleware for unregistered L1
+        // Try to set middleware for     unregistered L1
         vm.expectRevert(IL1Registry.L1Registry__L1NotRegistered.selector);
         registry.setL1Middleware(address(mockACP99Manager), l1Middleware1SecurityModule);
     }
@@ -193,44 +211,48 @@ contract L1RegistryTest is Test {
         vm.prank(l1Middleware1);
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
-        // Expect SetL1Middleware event
-        address newMiddleware = makeAddr("newMiddleware");
-        vm.expectEmit(true, true, true, true);
-        emit IL1Registry.SetL1Middleware(address(mockACP99Manager), newMiddleware);
+        string memory newMetadataURL = "https://newmetadata.com";
 
-        registry.setL1Middleware(address(mockACP99Manager), newMiddleware);
+        // Must call from the same manager owner
+        vm.prank(l1Middleware1);
+        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, newMetadataURL);
+
+        (,, string memory actualURL) = registry.getL1At(0);
+        assertEq(actualURL, newMetadataURL);
     }
 
     function testSetMetadataURL() public {
-        // First register an L1
+        // Register from l1Middleware1
         vm.prank(l1Middleware1);
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
-        // Set new metadata URL
+        // Now also call setMetadataURL(...) from l1Middleware1
+        vm.prank(l1Middleware1);
         string memory newMetadataURL = "https://newmetadata.com";
-        registry.setMetadataURL(address(mockACP99Manager), newMetadataURL);
+        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, newMetadataURL);
 
-        // Check that metadata URL was updated
-        (,, string memory metadataURL) = registry.getL1At(0);
-        assertEq(metadataURL, newMetadataURL);
+        // Confirm result
+        (,, string memory actualURL) = registry.getL1At(0);
+        assertEq(actualURL, newMetadataURL);
     }
 
     function testSetMetadataURLRevertNotRegistered() public {
         // Try to set metadata URL for unregistered L1
         vm.expectRevert(IL1Registry.L1Registry__L1NotRegistered.selector);
-        registry.setMetadataURL(address(mockACP99Manager), "https://newmetadata.com");
+        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, "https://newmetadata.com");
     }
 
     function testSetMetadataURLEmitsEvent() public {
-        // Register L1 first
+        // Register from l1Middleware1
         vm.prank(l1Middleware1);
         registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
-        // Expect SetMetadataURL event
-        string memory newMetadataURL = "https://newmetadata.com";
+        // Expect the event
         vm.expectEmit(true, true, true, true);
-        emit IL1Registry.SetMetadataURL(address(mockACP99Manager), newMetadataURL);
+        emit IL1Registry.SetMetadataURL(address(mockACP99Manager), "https://newmetadata.com");
 
-        registry.setMetadataURL(address(mockACP99Manager), newMetadataURL);
+        // Must call from the correct owner again
+        vm.prank(l1Middleware1);
+        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, "https://newmetadata.com");
     }
 }

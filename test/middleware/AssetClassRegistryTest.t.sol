@@ -29,7 +29,7 @@ contract AssetClassRegistryTest is Test {
         tokenC = makeAddr("tokenC");
 
         // Deploy the new child AssetClassRegistry
-        assetClassRegistry = new MockAssetClassRegistry();
+        assetClassRegistry = new MockAssetClassRegistry(owner);
         // Deploy the new AssetClassRegistry
         // The constructor automatically creates class "1" with:
         // - minValidatorStake = 50

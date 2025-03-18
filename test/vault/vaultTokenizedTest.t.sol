@@ -1851,7 +1851,7 @@ contract VaultTokenizedTest is Test {
         // 6) Advance time by +1, do a withdraw of 'amount3'
         blockTimestamp = blockTimestamp + 1;
         vm.warp(blockTimestamp);
-        (uint256 burnedShares, uint256 mintedWithdrawalShares) = _withdraw(alice, amount3);
+        (uint256 burnedShares,) = _withdraw(alice, amount3);
         uint256 timeWithdraw = blockTimestamp;
 
         // 7) Now do historical lookups at each earlier timestamp
