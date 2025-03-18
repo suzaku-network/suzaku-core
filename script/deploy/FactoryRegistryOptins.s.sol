@@ -47,7 +47,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
         operatorRegistry = new OperatorRegistry();
 
         OperatorVaultOptInService operatorVaultOptInService =
-            new OperatorVaultOptInService(address(operatorRegistry), address(l1Registry), "Vault Opt-In");
+            new OperatorVaultOptInService(address(operatorRegistry), address(vaultFactory), "Vault Opt-In");
 
         OperatorL1OptInService operatorL1OptInService =
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
