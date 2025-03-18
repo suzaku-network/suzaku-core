@@ -325,4 +325,10 @@ interface IAvalancheL1Middleware {
     function getOperatorUsedWeightCached(
         address operator
     ) external view returns (uint256);
+
+    /**
+     * @notice Returns the Vault Manager address associated to this middleware
+     * @return Address Vault Manager
+     */
+    function getVaultManager() external view returns (address);
 }

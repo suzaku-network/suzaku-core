@@ -4,7 +4,6 @@
 pragma solidity 0.8.25;
 
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
@@ -45,7 +44,7 @@ struct AvalancheL1MiddlewareSettings {
  * @title AvalancheL1Middleware
  * @notice Manages operator registration, vault registration, stake accounting, and slashing for Avalanche L1
  */
-contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassRegistry {
+contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.UintSet;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
@@ -99,7 +98,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         uint256 primaryAssetMaxStake,
         uint256 primaryAssetMinStake,
         uint256 primaryAssetWeightScaleFactor
-    ) Ownable(owner) {
+    ) AssetClassRegistry(owner) {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
         }
@@ -116,7 +115,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         WEIGHT_SCALE_FACTOR = primaryAssetWeightScaleFactor;
 
         balancerValidatorManager = BalancerValidatorManager(settings.l1ValidatorManager);
-        Ownable(owner);
         _addAssetClass(PRIMARY_ASSET_CLASS, primaryAssetMinStake, primaryAssetMaxStake, PRIMARY_ASSET);
     }
 
@@ -757,7 +755,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     function _isUsedAsset(uint256 assetClassId, address asset) internal view returns (bool) {
         for (uint256 i; i < vaultManager.getVaultCount(); ++i) {
             (address vault,,) = vaultManager.getVaultAtWithTimes(i);
-            if (vaultToAssetClass[vault] == assetClassId && IVaultTokenized(vault).collateral() == asset) {
+            if (vaultManager.vaultToAssetClass(vault) == assetClassId && IVaultTokenized(vault).collateral() == asset) {
                 return true;
             }
         }
@@ -774,7 +772,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     ) internal view returns (bool) {
         for (uint256 i; i < vaultManager.getVaultCount(); ++i) {
             (address vault,,) = vaultManager.getVaultAtWithTimes(i);
-            if (vaultToAssetClass[vault] == assetClassId) {
+            if (vaultManager.vaultToAssetClass(vault) == assetClassId) {
                 return true;
             }
         }
@@ -934,6 +932,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         address operator
     ) external view returns (uint256) {
         return _getOperatorAvailableStake(operator);
+    }
+
+    /**
+     * @inheritdoc IAvalancheL1Middleware
+     */
+    function getVaultManager() external view returns (address) {
+        return address(vaultManager);
     }
 
     /**

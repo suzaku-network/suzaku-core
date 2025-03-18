@@ -3,7 +3,13 @@
 
 pragma solidity 0.8.25;
 
-contract MockACP99Manager {
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract MockACP99Manager is Ownable {
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) {}
+
     function isValidManager() public pure returns (bool) {
         return true;
     }

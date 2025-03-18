@@ -10,6 +10,10 @@ error AssetClassRegistry__AssetIsPrimarytAssetClass(uint256 assetClassId);
 contract MockAssetClassRegistry is AssetClassRegistry {
     address public primaryAsset;
 
+    constructor(
+        address initialOwner
+    ) AssetClassRegistry(initialOwner) {}
+
     function setPrimaryAsset(
         address _primaryAsset
     ) external {
