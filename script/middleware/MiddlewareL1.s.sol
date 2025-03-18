@@ -46,7 +46,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         vm.stopBroadcast();
 
         // Configure the vault manager in the middleware
-        vm.startBroadcast(middlewareConfig.l1MiddlewareOwnerAddress);
+        vm.startBroadcast();
         l1Middleware.setVaultManager(address(middlewareVaultManager));
         vm.stopBroadcast();
 
