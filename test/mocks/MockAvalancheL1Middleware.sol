@@ -5,8 +5,8 @@ pragma solidity 0.8.25;
 
 contract MockAvalancheL1Middleware {
     uint48 public constant EPOCH_DURATION = 4 hours;
-    address public constant BALANCER_VALIDATOR_MANAGER = address(0x123);
-    address public constant L1_VALIDATOR_MANAGER = address(0x234);
+    address public immutable BALANCER_VALIDATOR_MANAGER;
+    address public constant L1_VALIDATOR_MANAGER = address(0x123);
 
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStake;
     mapping(uint48 => mapping(uint96 => uint256)) public totalStakeCache;
@@ -23,9 +23,11 @@ contract MockAvalancheL1Middleware {
     uint96 primaryAssetClass = 1;
     uint96[] secondaryAssetClasses = [2, 3];
 
-    constructor(uint256 operatorCount, uint256[] memory nodesPerOperator) {
+    constructor(uint256 operatorCount, uint256[] memory nodesPerOperator, address balancerValidatorManager) {
         require(operatorCount > 0, "At least one operator required");
         require(operatorCount == nodesPerOperator.length, "Arrays length mismatch");
+
+        BALANCER_VALIDATOR_MANAGER = balancerValidatorManager;
 
         // Generate operators
         for (uint256 i = 0; i < operatorCount; i++) {
@@ -67,8 +69,8 @@ contract MockAvalancheL1Middleware {
         return nodeStake[epoch][nodeId]; // Return stored stake instead of reverting
     }
 
-    function getCurrentEpoch() external pure returns (uint48) {
-        return 5;
+    function getCurrentEpoch() external view returns (uint48) {
+        return getEpochAtTs(uint48(block.timestamp));
     }
 
     function getAllOperators() external view returns (address[] memory) {
@@ -86,7 +88,7 @@ contract MockAvalancheL1Middleware {
     /// @notice Returns the mock epoch at a given timestamp.
     function getEpochAtTs(
         uint48 timestamp
-    ) external pure returns (uint48) {
+    ) public pure returns (uint48) {
         return timestamp / EPOCH_DURATION;
     }
 

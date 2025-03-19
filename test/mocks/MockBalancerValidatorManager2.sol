@@ -6,8 +6,8 @@ import {Validator, ValidatorStatus} from "@avalabs/teleporter/validator-manager/
 
 contract MockBalancerValidatorManager {
     function getValidator(
-        bytes32 validationID
-    ) external view returns (Validator memory) {
+        bytes32
+    ) external pure returns (Validator memory) {
         Validator memory validator = Validator({
             status: ValidatorStatus.Active,
             nodeID: "",

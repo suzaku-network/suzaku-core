@@ -3,8 +3,6 @@
 
 pragma solidity 0.8.25;
 
-import {Test, console2} from "forge-std/Test.sol";
-
 import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 import {MiddlewareVaultManager} from "../middleware/MiddlewareVaultManager.sol";
 import {UptimeTracker} from "./UptimeTracker.sol";
@@ -17,45 +15,54 @@ import {VaultTokenized} from "../vault/VaultTokenized.sol";
 import {IRewards} from "../../interfaces/rewards/IRewards.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
+/**
+ * @title Rewards
+ * @notice Contract for managing and distributing staking rewards across the protocol
+ * @dev Handles reward distribution calculations, fee management, and claiming logic for stakers,
+ * operators, curators and protocol owner. Supports multiple reward tokens and asset classes.
+ * Integrates with UptimeTracker to factor in validator performance.
+ */
 contract Rewards is AccessControlUpgradeable, IRewards {
     using SafeERC20 for IERC20;
     using EnumerableMap for EnumerableMap.AddressToUintMap;
 
-    /// @notice Basis points denominator (1e4 = 100%)
+    /// @notice Basis points denominator where 10000 equals 100%
     uint16 private constant BASIS_POINTS_DENOMINATOR = 10_000;
 
     /// @notice Roles
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant PROTOCOL_OWNER_ROLE = keccak256("PROTOCOL_OWNER_ROLE");
 
-    /// @notice Protocol, operator and curator fees (in basis points)
+    /// @notice Protocol, operator and curator fee percentages in basis points
     uint16 public protocolFee;
     uint16 public operatorFee;
     uint16 public curatorFee;
 
-    /// @notice External contract references
+    /// @notice External contract references for core functionality
     AvalancheL1Middleware public l1Middleware;
     MiddlewareVaultManager public middlewareVaultManager;
     UptimeTracker public uptimeTracker;
 
-    /// @notice Epoch duration in seconds
+    /// @notice Duration of each epoch in seconds
     uint48 public epochDuration;
 
-    /// @notice Min required uptime in seconds
-    /// @dev If uptime less than 80% -> rewards = 0
+    /// @notice Minimum required uptime in seconds for reward eligibility
+    /// @dev Rewards are zero if uptime is less than 80%
     uint256 public minRequiredUptime;
 
-    /// @notice Maps an epoch to a rewards' token and its reward amount
+    /// @notice Maps epochs to their reward token amounts
     mapping(uint48 epoch => EnumerableMap.AddressToUintMap rewardsTokenToAmount) private rewardsAmountPerTokenFromEpoch;
 
-    /// @notice Protocol's rewards tracking
+    /// @notice Protocol rewards tracking per token
     mapping(address rewardsToken => uint256 rewardsAmount) public protocolRewardsAmountPerToken;
 
-    /// @notice Operators' rewards tracking
-    mapping(address operator => mapping(address rewardsToken => uint256 rewardsAmount)) public operatorsRewardsPerToken;
+    /// @notice Operator rewards tracking per token
+    mapping(address operator => mapping(address rewardsToken => uint256 rewardsAmount)) public
+        operatorRewardsAmountPerToken;
 
-    /// @notice Curators' rewards tracking
-    mapping(address curator => mapping(address rewardsToken => uint256 rewardsAmount)) public curatorsRewardsPerToken;
+    /// @notice Curators' rewards tracking per token
+    mapping(address curator => mapping(address rewardsToken => uint256 rewardsAmount)) public
+        curatorRewardsAmountPerToken;
 
     /// @notice Vaults' rewards tracking
     mapping(uint48 epoch => mapping(address vault => mapping(address rewardsToken => uint256 rewardsAmount))) public
@@ -127,7 +134,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
                 uint256 operatorRewards = Math.mulDiv(availableRewards, operatorFee, BASIS_POINTS_DENOMINATOR);
                 // set the operator rewards if rewards were not already distributed
                 bool rewardDistributed = operatorsRewardsDistributed[epoch][operators[i]];
-                if (!rewardDistributed) operatorsRewardsPerToken[rewardTokens[j]][operators[i]] += operatorRewards;
+                if (!rewardDistributed) operatorRewardsAmountPerToken[operators[i]][rewardTokens[j]] += operatorRewards;
                 // compute remaining rewards
                 availableRewards -= operatorRewards;
                 // compute vaults rewards
@@ -141,7 +148,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /// @inheritdoc IRewards
-    function claimRewards(address rewardToken, address recipient) external {
+    function claimRewards(address rewardsToken, address recipient) external {
         if (recipient == address(0)) {
             revert InvalidRecipient(recipient);
         }
@@ -159,13 +166,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             uint48 epochTs = l1Middleware.getEpochStartTs(i);
             for (uint256 j = 0; j < vaults.length; j++) {
                 // get vault asset class
-                uint96 vaultAssetClass = _getVaultAssetClassId(vaults[i]);
+                uint96 vaultAssetClass = _getVaultAssetClassId(vaults[j]);
                 // fetch stakes
-                uint256 stakerStake = IVaultTokenized(vaults[i]).activeBalanceOfAt(msg.sender, epochTs, new bytes(0));
-                uint256 vaultStake = BaseDelegator(IVaultTokenized(vaults[i]).delegator()).stakeAt(
+                uint256 stakerStake = IVaultTokenized(vaults[j]).activeBalanceOfAt(msg.sender, epochTs, new bytes(0));
+                uint256 vaultStake = BaseDelegator(IVaultTokenized(vaults[j]).delegator()).stakeAt(
                     l1Middleware.L1_VALIDATOR_MANAGER(),
                     vaultAssetClass,
-                    vaultDelegatingToOperator[i][vaults[i]],
+                    vaultDelegatingToOperator[i][vaults[j]],
                     epochTs,
                     new bytes(0)
                 );
@@ -174,13 +181,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
                     revert ZeroVaultStake(vaults[j], i);
                 }
                 // compute staker share
-                uint256 stakerShare = Math.mulDiv(stakerStake, vaultStake, BASIS_POINTS_DENOMINATOR);
-                uint256 availableRewardsForVault = vaultsRewardsPerTokenPerEpoch[i][vaults[j]][rewardToken];
+                uint256 stakerShare = Math.mulDiv(stakerStake, BASIS_POINTS_DENOMINATOR, vaultStake);
+                uint256 availableRewardsForVault = vaultsRewardsPerTokenPerEpoch[i][vaults[j]][rewardsToken];
                 // compute total staker rewards
-                uint256 stakerRewards = Math.mulDiv(availableRewardsForVault, BASIS_POINTS_DENOMINATOR, stakerShare);
+                uint256 stakerRewards = Math.mulDiv(availableRewardsForVault, stakerShare, BASIS_POINTS_DENOMINATOR);
                 // deduct curator fee
-                uint256 curatorRewards = Math.mulDiv(stakerRewards, BASIS_POINTS_DENOMINATOR, curatorFee);
-                curatorsRewardsPerToken[VaultTokenized(vaults[j]).owner()][rewardToken] += curatorRewards;
+                uint256 curatorRewards = Math.mulDiv(stakerRewards, curatorFee, BASIS_POINTS_DENOMINATOR);
+                curatorRewardsAmountPerToken[VaultTokenized(vaults[j]).owner()][rewardsToken] += curatorRewards;
                 stakerRewards -= curatorRewards;
                 claimableRewards += stakerRewards;
             }
@@ -191,7 +198,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             revert NoRewardsToClaim(msg.sender);
         }
 
-        IERC20(rewardToken).safeTransfer(recipient, claimableRewards);
+        IERC20(rewardsToken).safeTransfer(recipient, claimableRewards);
         lastEpochClaimed[msg.sender] = currentEpoch - 1;
     }
 
@@ -200,13 +207,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         if (recipient == address(0)) {
             revert InvalidRecipient(recipient);
         }
-        uint256 rewardsToClaim = curatorsRewardsPerToken[rewardsToken][msg.sender];
+        uint256 rewardsToClaim = curatorRewardsAmountPerToken[msg.sender][rewardsToken];
         if (rewardsToClaim == 0) {
             revert NoRewardsToClaim(msg.sender);
         }
 
         IERC20(rewardsToken).safeTransfer(recipient, rewardsToClaim);
-        curatorsRewardsPerToken[rewardsToken][msg.sender] = 0;
+        curatorRewardsAmountPerToken[msg.sender][rewardsToken] = 0;
     }
 
     /// @inheritdoc IRewards
@@ -214,13 +221,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         if (recipient == address(0)) {
             revert InvalidRecipient(recipient);
         }
-        uint256 rewardsToClaim = operatorsRewardsPerToken[rewardsToken][msg.sender];
+        uint256 rewardsToClaim = operatorRewardsAmountPerToken[msg.sender][rewardsToken];
         if (rewardsToClaim == 0) {
             revert NoRewardsToClaim(msg.sender);
         }
 
         IERC20(rewardsToken).safeTransfer(recipient, rewardsToClaim);
-        operatorsRewardsPerToken[rewardsToken][msg.sender] = 0;
+        operatorRewardsAmountPerToken[msg.sender][rewardsToken] = 0;
     }
 
     /// @inheritdoc IRewards
@@ -263,26 +270,53 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
     /// @inheritdoc IRewards
     function updateProtocolFee(
-        uint16 fee
+        uint16 newFee
     ) external onlyRole(ADMIN_ROLE) {
-        protocolFee = fee;
-        emit ProtocolFeeUpdated(fee);
+        if (newFee > 10_000) {
+            revert IRewards.FeePercentageTooHigh(newFee);
+        }
+
+        uint16 totalFees = newFee + operatorFee + curatorFee;
+        if (totalFees > 10_000) {
+            revert IRewards.TotalFeesExceed100(totalFees);
+        }
+
+        protocolFee = newFee;
+        emit ProtocolFeeUpdated(newFee);
     }
 
     /// @inheritdoc IRewards
     function updateOperatorFee(
-        uint16 fee
+        uint16 newFee
     ) external onlyRole(ADMIN_ROLE) {
-        operatorFee = fee;
-        emit OperatorFeeUpdated(fee);
+        if (newFee > 10_000) {
+            revert IRewards.FeePercentageTooHigh(newFee);
+        }
+
+        uint16 totalFees = protocolFee + newFee + curatorFee;
+        if (totalFees > 10_000) {
+            revert IRewards.TotalFeesExceed100(totalFees);
+        }
+
+        operatorFee = newFee;
+        emit OperatorFeeUpdated(newFee);
     }
 
     /// @inheritdoc IRewards
     function updateCuratorFee(
-        uint16 fee
+        uint16 newFee
     ) external onlyRole(ADMIN_ROLE) {
-        curatorFee = fee;
-        emit CuratorFeeUpdated(fee);
+        if (newFee > 10_000) {
+            revert IRewards.FeePercentageTooHigh(newFee);
+        }
+
+        uint16 totalFees = protocolFee + operatorFee + newFee;
+        if (totalFees > 10_000) {
+            revert IRewards.TotalFeesExceed100(totalFees);
+        }
+
+        curatorFee = newFee;
+        emit CuratorFeeUpdated(newFee);
     }
 
     /// @inheritdoc IRewards
@@ -304,6 +338,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint256 protocolRewards = (rewardsAmount * protocolFee) / BASIS_POINTS_DENOMINATOR;
 
         for (uint48 i = 0; i < numberOfEpochs; i++) {
+            // need to transfer some funds from msg.sender to the contract
+            IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), rewardsAmount);
             protocolRewardsAmountPerToken[rewardsToken] += protocolRewards;
             rewardsAmountPerTokenFromEpoch[startEpoch + i].set(rewardsToken, rewardsAmount - protocolRewards);
         }
@@ -352,13 +388,17 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Computes the available rewards for an operator in a given epoch.
-     * @param epoch The epoch for which rewards are computed.
-     * @param operator The address of the operator.
-     * @param rewardToken The address of the reward token.
-     * @return The total rewards available for the operator in the given epoch.
+     * @dev Computes the available rewards for an operator in a given epoch
+     * @param epoch The epoch for which rewards are computed
+     * @param operator The address of the operator
+     * @param rewardToken The address of the reward token
+     * @return The total rewards available for the operator in the given epoch
      */
-    function _computeAvailableRewards(uint48 epoch, address operator, address rewardToken) internal returns (uint256) {
+    function _computeAvailableRewards(
+        uint48 epoch,
+        address operator,
+        address rewardToken
+    ) internal view returns (uint256) {
         // if operator uptime not set, reverts
         bool isUptimeSet = uptimeTracker.isOperatorUptimeSet(epoch, operator);
         if (!isUptimeSet) {
@@ -371,51 +411,41 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             return 0;
         }
         uint256 operatorUptime = Math.mulDiv(uptime, BASIS_POINTS_DENOMINATOR, epochDuration);
-        emit DEBUG(operatorUptime);
         // fetch the asset classes
         uint96[] memory assetClasses = _getAssetClassIds();
         // total rewards for this operator, for this epoch and reward token
         uint256 totalRewards = 0;
-        emit DEBUG(operator);
 
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            emit DEBUG(assetClasses[i]);
             // fetch amount of rewards available
             uint256 rewards = rewardsPerAssetClassPerTokenPerEpoch[epoch][assetClasses[i]][rewardToken];
 
             // fetch stakes
             uint256 operatorStake = _getOperatorTrueStake(epoch, operator, assetClasses[i]);
-            emit DEBUG(operatorStake);
             uint256 l1TotalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
-            emit DEBUG(l1TotalStake);
 
             // compute operator's weight on the L1 (in basis points)
             uint256 operatorWeight = Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, l1TotalStake);
             operatorWeight = Math.mulDiv(operatorWeight, operatorUptime, BASIS_POINTS_DENOMINATOR);
-            emit DEBUG(operatorWeight);
 
             // compute operator's rewards for this asset class
             uint256 operatorRewards = Math.mulDiv(operatorWeight, rewards, BASIS_POINTS_DENOMINATOR);
-            emit DEBUG(operatorRewards);
-
             totalRewards += operatorRewards;
         }
-
-        emit DEBUG(totalRewards);
         return totalRewards;
     }
 
     /**
-     * @dev Computes and distributes vault rewards for an operator.
-     * @param operator The address of the operator.
-     * @param epoch The epoch for which vault rewards are computed.
-     * @param rewardToken The address of the reward token.
-     * @param totalVaultRewards The total rewards allocated for vaults.
+     * @dev Computes and distributes vault rewards for an operator
+     * @param operator The address of the operator whose vaults' rewards are being computed
+     * @param epoch The epoch for which vault rewards are being computed
+     * @param rewardsToken The address of the token in which rewards are paid
+     * @param totalVaultRewards The total amount of rewards allocated for all vaults
      */
     function _computeVaultsRewards(
         address operator,
         uint48 epoch,
-        address rewardToken,
+        address rewardsToken,
         uint256 totalVaultRewards
     ) internal {
         // fetch the vaults
@@ -436,18 +466,17 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             // get the operator's stake
             uint256 operatorStake = _getOperatorTrueStake(epoch, operator, vaultAssetClass);
             // get the weight of the vault (vaultStake compared to operatorStake)
-            uint256 vaultWeight = Math.mulDiv(vaultStake, operatorStake, BASIS_POINTS_DENOMINATOR);
+            uint256 vaultWeight = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorStake);
             // get the vault's share of rewards (vaultWeight * assetClassShare)
-            uint256 vaultRewardsShare = Math.mulDiv(vaultWeight, BASIS_POINTS_DENOMINATOR, vaultAssetClassShare);
+            uint256 vaultRewardsShare = Math.mulDiv(vaultWeight, vaultAssetClassShare, BASIS_POINTS_DENOMINATOR);
             // compute the vault rewards
-            uint256 vaultRewards =
-                Math.mulDiv(totalVaultRewards, BASIS_POINTS_DENOMINATOR * vaults.length, vaultRewardsShare);
+            uint256 vaultRewards = Math.mulDiv(totalVaultRewards, vaultRewardsShare, BASIS_POINTS_DENOMINATOR);
             // set the vault's rewards for this reward token and epoch
             // if rewards not already distributed
-            bool rewardDistributed = vaultsRewardsDistributed[epoch][rewardToken][vaults[i]];
+            bool rewardDistributed = vaultsRewardsDistributed[epoch][rewardsToken][vaults[i]];
             if (!rewardDistributed) {
-                vaultsRewardsPerTokenPerEpoch[epoch][vaults[i]][rewardToken] = vaultRewards;
-                vaultsRewardsDistributed[epoch][rewardToken][vaults[i]] = true;
+                vaultsRewardsPerTokenPerEpoch[epoch][vaults[i]][rewardsToken] = vaultRewards;
+                vaultsRewardsDistributed[epoch][rewardsToken][vaults[i]] = true;
             }
             // link the vault to the operator
             vaultDelegatingToOperator[epoch][vaults[i]] = operator;
@@ -455,9 +484,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the active vaults for a given epoch.
-     * @param epoch The epoch for which vaults are fetched.
-     * @return An array of active vault addresses.
+     * @dev Fetches the active vaults for a given epoch
+     * @dev Move to vault manager
+     * @param epoch The epoch for which vaults are fetched
+     * @return An array of active vault addresses
      */
     function _getVaults(
         uint48 epoch
@@ -477,10 +507,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the vaults where a staker has an active balance.
-     * @param staker The address of the staker.
-     * @param epoch The epoch for which vaults are fetched.
-     * @return An array of vault addresses where the staker has an active balance.
+     * @dev Fetches the vaults where a staker has an active balance
+     * @param staker The address of the staker
+     * @param epoch The epoch for which vaults are fetched
+     * @return An array of vault addresses where the staker has an active balance
      */
     function _getStakerVaults(address staker, uint48 epoch) internal view returns (address[] memory) {
         address[] memory vaults = _getVaults(epoch);
@@ -513,8 +543,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the active asset class IDs from L1 Middleware.
-     * @return An array of asset class IDs.
+     * @dev Fetches the active asset class IDs from L1 Middleware
+     * @dev Move to AssetClassRegistry
+     * @return An array of asset class IDs
      */
     function _getAssetClassIds() internal view returns (uint96[] memory) {
         (uint256 primary, uint256[] memory secondaries) = l1Middleware.getActiveAssetClasses();
@@ -528,23 +559,29 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the asset class ID for a given vault.
-     * @param vault The address of the vault.
-     * @return The asset class ID of the vault.
+     * @dev Fetches the asset class ID for a given vault
+     * @dev Move to middlewareVaultManager
+     * @param vault The address of the vault
+     * @return The asset class ID of the vault
      */
     function _getVaultAssetClassId(
         address vault
     ) internal view returns (uint96) {
-        address asset = vault;
         uint96[] memory assetClasses = _getAssetClassIds();
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            if (l1Middleware.isAssetInClass(assetClasses[i], asset)) {
+            if (l1Middleware.isAssetInClass(assetClasses[i], vault)) {
                 return assetClasses[i];
             }
         }
-        return 1; // not sure, revert would be better
+        revert AssetClassNotFound(vault);
     }
 
+    /**
+     * @dev Move to avalancheL1Middleware and cache it
+     * @param epoch Epoch ID
+     * @param operator Address of the operator
+     * @param assetClass ID of the asset class
+     */
     function _getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) internal view returns (uint256) {
         // primary asset class
         if (assetClass == 1) {
