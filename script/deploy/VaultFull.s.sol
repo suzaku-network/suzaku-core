@@ -63,7 +63,7 @@ contract VaultFull is Script {
         // Whitelist L1RestakeDelegator
         address l1RestakeDelegatorImpl = address(
             new L1RestakeDelegator(
-                vaultConfig.owner,
+                vaultConfig.factoryConfig.l1Registry,
                 vaultConfig.factoryConfig.vaultFactory,
                 vaultConfig.factoryConfig.operatorVaultOptInService,
                 vaultConfig.factoryConfig.operatorL1OptInService,
