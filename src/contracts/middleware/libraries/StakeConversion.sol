@@ -4,7 +4,7 @@
 pragma solidity 0.8.25;
 
 library StakeConversion {
-    uint256 internal constant WEIGHT_SCALE_FACTOR = 1e8;
+    uint256 internal constant WEIGHT_SCALE_FACTOR = 3e16;
 
     error MiddlewareUtils__OverflowInStakeToWeight();
 
