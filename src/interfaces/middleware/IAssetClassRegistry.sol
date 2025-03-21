@@ -71,4 +71,10 @@ interface IAssetClassRegistry {
     function getClassStakingRequirements(
         uint256 assetClassId
     ) external view returns (uint256, uint256);
+
+    /**
+     * @notice Fetches the active asset class IDs
+     * @return An array of asset class IDs
+     */
+    function getAssetClassIds() external view returns (uint96[] memory);
 }

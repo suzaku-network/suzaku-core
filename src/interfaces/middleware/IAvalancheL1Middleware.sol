@@ -47,7 +47,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
     error AvalancheL1Middleware__ZeroAddress(string name);
     error AvalancheL1Middleware__InvalidScaleFactor();
-    
+
     // Events
     /**
      * @notice Emitted when a node is added
@@ -56,7 +56,6 @@ interface IAvalancheL1Middleware {
      * @param stake The stake assigned to the node
      * @param validationID The validation identifier from BalancerValidatorManager
      */
-
     event NodeAdded(address indexed operator, bytes32 indexed nodeId, uint256 stake, bytes32 indexed validationID);
 
     /**
@@ -343,4 +342,13 @@ interface IAvalancheL1Middleware {
      * @return Address Vault Manager
      */
     function getVaultManager() external view returns (address);
+
+    /**
+     * @notice Returns the true active stake for an operator in a given epoch and asset class
+     * @param epoch The epoch number
+     * @param operator The operator address
+     * @param assetClass The asset class ID
+     * @return The true active stake
+     */
+    function getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) external view returns (uint256);
 }

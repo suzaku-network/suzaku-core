@@ -6,3 +6,4 @@ forge-std/=lib/forge-std/src/
 @suzaku/contracts-library/=lib/suzaku-contracts-library/src
 @avalabs/teleporter/=lib/suzaku-contracts-library/lib/icm-contracts/contracts/
 @avalabs/icm-contracts/=lib/suzaku-contracts-library/lib/icm-contracts/contracts/
+@avalabs/subnet-evm-contracts/=lib/suzaku-contracts-library/lib/icm-contracts/lib/subnet-evm/contracts/contracts/

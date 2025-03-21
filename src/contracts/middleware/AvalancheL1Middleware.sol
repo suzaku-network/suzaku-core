@@ -992,6 +992,30 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     }
 
     /**
+     * @inheritdoc IAvalancheL1Middleware
+     */
+    function getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) external view returns (uint256) {
+        if (assetClass == PRIMARY_ASSET_CLASS) {
+            bytes32[] storage nodesArr = operatorNodesArray[operator];
+            uint256 operatorStake = 0;
+            uint48 epochStartTs = getEpochStartTs(epoch);
+
+            for (uint256 i = 0; i < nodesArr.length; i++) {
+                bytes32 nodeId = nodesArr[i];
+                bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+                Validator memory validator = balancerValidatorManager.getValidator(validationID);
+
+                if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
+                    operatorStake += getEffectiveNodeWeight(epoch, validationID);
+                }
+            }
+            return operatorStake;
+        } else {
+            return getOperatorStake(operator, epoch, assetClass);
+        }
+    }
+
+    /**
      * @notice Get the validator per ValidationID.
      * @param validationID The validation ID.
      */

@@ -164,6 +164,23 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         return vaultToAssetClass[vault];
     }
 
+    function getVaults(
+        uint48 epoch
+    ) external view returns (address[] memory) {
+        uint256 vaultCount = vaults.length();
+        uint48 epochStart = middleware.getEpochStartTs(epoch);
+        address[] memory activeVaults = new address[](vaultCount);
+
+        for (uint256 i = 0; i < vaultCount; i++) {
+            (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
+            if (enabledTime != 0 && enabledTime <= epochStart && (disabledTime == 0 || disabledTime >= epochStart)) {
+                activeVaults[i] = vault;
+            }
+        }
+
+        return activeVaults;
+    }
+
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
         return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
     }

@@ -88,4 +88,13 @@ interface IMiddlewareVaultManager {
     function getVaultAssetClass(
         address vault
     ) external view returns (uint96);
+
+    /**
+     * @notice Fetches the active vaults for a given epoch
+     * @param epoch The epoch for which vaults are fetched
+     * @return An array of active vault addresses
+     */
+    function getVaults(
+        uint48 epoch
+    ) external view returns (address[] memory);
 }
