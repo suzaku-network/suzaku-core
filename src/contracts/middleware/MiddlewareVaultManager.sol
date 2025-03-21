@@ -102,12 +102,15 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         }
 
         (, uint48 disabledTime) = vaults.getTimes(vault);
-        if (disabledTime == 0 || disabledTime + middleware.SLASHING_WINDOW() > Time.timestamp()) {
+        if (disabledTime == 0) {
+            revert AvalancheL1Middleware__VaultNotDisabled();
+        }
+
+        if (disabledTime + middleware.SLASHING_WINDOW() > Time.timestamp()) {
             revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
         }
 
-        _setVaultMaxL1Limit(vault, vaultToAssetClass[vault], 0);
-
+        // Remove from vaults and clear mapping
         vaults.remove(vault);
         delete vaultToAssetClass[vault];
     }
