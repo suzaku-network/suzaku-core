@@ -16,6 +16,7 @@ contract MiddlewareHelperConfig is Script {
         address primaryAsset;
         uint256 primaryAssetMaxStake;
         uint256 primaryAssetMinStake;
+        uint256 primaryAssetWeightScaleFactor;
     }
 
     NetworkConfig public activeNetworkConfig;
@@ -42,7 +43,8 @@ contract MiddlewareHelperConfig is Script {
             maximumChurnPercentage: 20,
             primaryAsset: address(localToken),
             primaryAssetMaxStake: 10_000_000_000_000_000_000_000_000,
-            primaryAssetMinStake: 100_000_000_000_000
+            primaryAssetMinStake: 100_000_000_000_000,
+            primaryAssetWeightScaleFactor: 1e8
         });
     }
 }

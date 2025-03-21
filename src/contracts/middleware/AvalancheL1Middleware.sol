@@ -61,10 +61,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     uint48 public immutable SLASHING_WINDOW;
     uint48 public immutable START_TIME;
     uint48 public immutable UPDATE_WINDOW;
+    uint256 public immutable WEIGHT_SCALE_FACTOR;
     uint48 private lastGlobalNodeWeightsUpdateEpoch;
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
-    uint256 public constant WEIGHT_SCALE_FACTOR = 1e8;
 
     MiddlewareVaultManager vaultManager;
     EnumerableMap.AddressToUintMap private operators;
@@ -97,7 +97,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         address owner,
         address primaryAsset,
         uint256 primaryAssetMaxStake,
-        uint256 primaryAssetMinStake
+        uint256 primaryAssetMinStake,
+        uint256 primaryAssetWeightScaleFactor
     ) Ownable(owner) {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
@@ -111,6 +112,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         SLASHING_WINDOW = settings.slashingWindow;
         PRIMARY_ASSET = primaryAsset;
         UPDATE_WINDOW = settings.weightUpdateWindow;
+        require(primaryAssetWeightScaleFactor > 0, "Invalid scale factor");
+        WEIGHT_SCALE_FACTOR = primaryAssetWeightScaleFactor;
 
         balancerValidatorManager = BalancerValidatorManager(settings.l1ValidatorManager);
         Ownable(owner);
@@ -324,8 +327,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             disableOwner: disableOwner
         });
 
-        bytes32 validationID =
-            balancerValidatorManager.initializeValidatorRegistration(input, StakeConversion.stakeToWeight(newWeight));
+        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
+            input, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+        );
 
         // Track node in our time-based map and dynamic array.
         operatorNodes[operator].add(nodeId);
@@ -422,7 +426,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
                 newWeight = 0;
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
-                _initializeValidatorWeightUpdateAndLock(operator, valID, StakeConversion.stakeToWeight(newWeight));
+                _initializeValidatorWeightUpdateAndLock(
+                    operator, valID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+                );
                 emit NodeWeightUpdated(operator, nodeId, newWeight, valID);
             }
         }
@@ -489,8 +495,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      */
     function slash(
         uint48 epoch,
-        address /* operator */,
-        uint256 /* amount */,
+        address, /* operator */
+        uint256, /* amount */
         uint96 assetClassId
     ) public onlyOwner updateStakeCache(epoch, assetClassId) updateGlobalNodeWeightsOncePerEpoch {
         revert AvalancheL1Middleware__NotImplemented();
@@ -696,7 +702,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
         uint256 delta;
-        balancerValidatorManager.initializeValidatorWeightUpdate(validationID, StakeConversion.stakeToWeight(newWeight));
+        balancerValidatorManager.initializeValidatorWeightUpdate(
+            validationID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+        );
         if (newWeight > cachedWeight) {
             delta = newWeight - cachedWeight;
             if (delta > _getOperatorAvailableStake(operator)) {
@@ -972,7 +980,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
         // Enforce max security module weight
         (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
-        uint256 convertedSecurityModuleMaxWeight = StakeConversion.weightToStake(securityModuleMaxWeight);
+        uint256 convertedSecurityModuleMaxWeight =
+            StakeConversion.weightToStake(securityModuleMaxWeight, WEIGHT_SCALE_FACTOR);
         if (totalStake > convertedSecurityModuleMaxWeight) {
             totalStake = convertedSecurityModuleMaxWeight;
         }

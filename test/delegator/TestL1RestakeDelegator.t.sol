@@ -84,7 +84,8 @@ contract L1RestakeDelegatorTest is Test {
             uint8 maximumChurnPercentage,
             ,
             uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake
+            uint256 primaryAssetMinStake,
+            uint256 primaryAssetWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -109,7 +110,12 @@ contract L1RestakeDelegatorTest is Test {
         });
 
         middleware = new AvalancheL1Middleware(
-            middlewareSettings, owner, address(collateral), primaryAssetMaxStake, primaryAssetMinStake
+            middlewareSettings,
+            owner,
+            address(collateral),
+            primaryAssetMaxStake,
+            primaryAssetMinStake,
+            primaryAssetWeightScaleFactor
         );
 
         // Deploy opt-in services

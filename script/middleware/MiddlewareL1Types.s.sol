@@ -10,6 +10,7 @@ struct MiddlewareConfig {
     address primaryAsset;
     uint256 primaryAssetMaxStake;
     uint256 primaryAssetMinStake;
+    uint256 primaryAssetWeightScaleFactor;
     uint48 epochDuration;
     uint48 slashingWindow;
     uint48 weightUpdateWindow;

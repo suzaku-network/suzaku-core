@@ -39,7 +39,8 @@ contract DeployTestAvalancheL1Middleware is Script {
             uint8 maximumChurnPercentage,
             address primaryAsset,
             uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake
+            uint256 primaryAssetMinStake,
+            uint256 primaryAssetWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -73,7 +74,8 @@ contract DeployTestAvalancheL1Middleware is Script {
             protocolOwnerAddress,
             primaryAsset,
             primaryAssetMaxStake,
-            primaryAssetMinStake
+            primaryAssetMinStake,
+            primaryAssetWeightScaleFactor
         );
 
         MiddlewareVaultManager vaultManager =

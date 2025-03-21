@@ -96,8 +96,17 @@ contract AvalancheL1MiddlewareTest is Test {
         operatorRegistry = new OperatorRegistry();
 
         MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
-        (,,,,, address primaryAsset, uint256 primaryAssetMaxStake, uint256 primaryAssetMinStake) =
-            helperConfig.activeNetworkConfig();
+        (
+            ,
+            ,
+            ,
+            ,
+            ,
+            address primaryAsset,
+            uint256 primaryAssetMaxStake,
+            uint256 primaryAssetMinStake,
+            uint256 primaryAssetWeightScaleFactor
+        ) = helperConfig.activeNetworkConfig();
         // address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         // address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
@@ -219,7 +228,12 @@ contract AvalancheL1MiddlewareTest is Test {
         });
 
         middleware = new AvalancheL1Middleware(
-            middlewareSettings, owner, primaryAsset, primaryAssetMaxStake, primaryAssetMinStake
+            middlewareSettings,
+            owner,
+            primaryAsset,
+            primaryAssetMaxStake,
+            primaryAssetMinStake,
+            primaryAssetWeightScaleFactor
         );
 
         vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
