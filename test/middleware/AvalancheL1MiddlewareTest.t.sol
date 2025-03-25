@@ -332,7 +332,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Do NOT deposit any funds for alice.
         // Try to add a node—this should revert because there is no free stake.
-        bytes32 nodeId = bytes32("nodeNoStake");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"deadbeef";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory owners = new address[](1);
@@ -400,7 +400,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGe(newStake, operatorStake, "Operator stake in new epoch should reflect the deposit");
 
         // Add a node.
-        bytes32 nodeId = bytes32("nodeWithStake");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory owners = new address[](1);
@@ -412,7 +412,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         currentEpoch = middleware.getCurrentEpoch();
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(currentEpoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
@@ -452,7 +452,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId = bytes32("node1");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -463,7 +463,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
@@ -481,7 +481,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -528,7 +528,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId = bytes32("node1");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -539,7 +539,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
@@ -554,7 +554,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -599,7 +599,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId = bytes32("node1");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -610,7 +610,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
@@ -621,7 +621,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Move Middleware Epoch + 1 and check that the node weight is still not updated
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -673,7 +673,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
         vm.warp(newEpochStart);
         uint48 epoch = middleware.getCurrentEpoch();
-        bytes32 nodeId = bytes32("node2");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"5678";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -685,7 +685,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -699,7 +699,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertEq(middleware.getOperatorNodesLength(alice), 1, "Node should be in the array");
@@ -791,7 +791,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration() + 1;
         vm.warp(newEpochStart);
         uint48 epoch = middleware.getCurrentEpoch();
-        bytes32 nodeId = bytes32("node2");
+        bytes32 nodeId = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
         bytes memory blsKey = hex"5678";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -803,7 +803,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -817,7 +817,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         vm.warp(newMiddlewareEpochStart);
         epoch = middleware.getCurrentEpoch();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertEq(middleware.getOperatorNodesLength(alice), 1, "Node should be in the array");
@@ -946,7 +946,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId = bytes32("node1");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -957,7 +957,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
@@ -974,7 +974,7 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -1043,7 +1043,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId = bytes32("node1");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 1 days);
         address[] memory ownerArr = new address[](1);
@@ -1054,7 +1054,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
@@ -1070,7 +1070,7 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -1168,7 +1168,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint48 epoch = middleware.getCurrentEpoch();
 
         // 3) Add node
-        bytes32 nodeId = bytes32("node1");
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = hex"ABCD";
         address[] memory owners = new address[](1);
         owners[0] = alice;
@@ -1193,7 +1193,7 @@ contract AvalancheL1MiddlewareTest is Test {
             warpTo = middleware.getEpochStartTs(middleware.getCurrentEpoch()) + middleware.EPOCH_DURATION() + 1;
             vm.warp(warpTo);
         }
-        bytes32 validationId = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationId = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationId);
         assertGt(nodeWeight, 0, "Node weight must be positive before anything is called");
         assertTrue(middleware.nodePendingRemoval(validationId), "Node is pending removal until calc is called");
@@ -1262,7 +1262,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId1 = bytes32("node1");
+        bytes32 nodeId1 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey1 = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 4 days);
         address[] memory ownerArr = new address[](1);
@@ -1275,7 +1275,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
 
         // Add a node.
-        bytes32 nodeId2 = bytes32("node2");
+        bytes32 nodeId2 = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
         bytes memory blsKey2 = hex"1235";
         registrationExpiry = uint64(block.timestamp + 4 days);
         ownerArr = new address[](1);
@@ -1286,12 +1286,12 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
 
-        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
         uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight2, 0, "Node actual weight must be positive immediately");
@@ -1307,7 +1307,7 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -1325,7 +1325,7 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID2);
         console2.log("Node weight:", nodeWeight);
 
@@ -1416,7 +1416,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // -------------------------------------------------------------------------
         // Add nodeId1 in epoch1
         // -------------------------------------------------------------------------
-        bytes32 nodeId1 = bytes32("node1");
+        bytes32 nodeId1 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey1 = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 4 days);
         address[] memory ownerArr = new address[](1);
@@ -1453,7 +1453,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // -------------------------------------------------------------------------
         // Add nodeId2 in epoch2
         // -------------------------------------------------------------------------
-        bytes32 nodeId2 = bytes32("node2");
+        bytes32 nodeId2 = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
         bytes memory blsKey2 = hex"1235";
         registrationExpiry = uint64(block.timestamp + 4 days);
 
@@ -1591,7 +1591,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add a node.
-        bytes32 nodeId1 = bytes32("node1");
+        bytes32 nodeId1 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey1 = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 4 days);
         address[] memory ownerArr = new address[](1);
@@ -1604,7 +1604,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
 
         // Add a node.
-        bytes32 nodeId2 = bytes32("node2");
+        bytes32 nodeId2 = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
         bytes memory blsKey2 = hex"1235";
         registrationExpiry = uint64(block.timestamp + 4 days);
         ownerArr = new address[](1);
@@ -1615,12 +1615,12 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
 
         // Check that the node weight cached is zero and that operatorLockedStake was updated.
-        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
         uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight, 0, "Node actual weight must be positive immediately");
 
-        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
         uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
         console2.log("Node weight:", nodeWeight);
         assertGt(nodeWeight2, 0, "Node actual weight must be positive immediately");
@@ -1636,7 +1636,7 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = middleware.getCurrentEpoch();
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID);
         console2.log("Node weight:", nodeWeight);
 
@@ -1656,7 +1656,7 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
 
         middleware.calcAndCacheNodeWeightsForAllOperators();
-        validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
         nodeWeight = middleware.nodeWeightCache(epoch, validationID2);
         console2.log("Node weight:", nodeWeight);
 
@@ -1768,7 +1768,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // -------------------------------------------------------------------
         // Add Nodes
         // -------------------------------------------------------------------
-        bytes32 nodeId1 = bytes32("node1");
+        bytes32 nodeId1 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey1 = hex"1234";
         uint64 registrationExpiry = uint64(block.timestamp + 4 days);
         address[] memory ownerArr = new address[](1);
@@ -1779,7 +1779,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(alice);
         middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct1, ownerStruct1, iniitialStake);
 
-        bytes32 nodeId2 = bytes32("node2");
+        bytes32 nodeId2 = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
         bytes memory blsKey2 = hex"1235";
         registrationExpiry = uint64(block.timestamp + 4 days);
         ownerArr = new address[](1);
@@ -1789,11 +1789,11 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(alice);
         middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
 
-        bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId1));
+        bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
         uint256 nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
         assertGt(nodeWeight1, 0, "Node1 weight must be positive immediately");
 
-        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(nodeId2));
+        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
         uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
         assertGt(nodeWeight2, 0, "Node2 weight must be positive immediately");
 
