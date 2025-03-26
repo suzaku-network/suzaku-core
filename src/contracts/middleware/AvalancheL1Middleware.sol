@@ -73,14 +73,21 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
     mapping(address => mapping(uint48 => bool)) public rebalancedThisEpoch;
     mapping(uint48 => mapping(uint96 => uint256)) public totalStakeCache;
-    mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
-    mapping(address => uint96) public vaultToAssetClass;
     mapping(address => bytes32[]) public operatorNodesArray;
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeWeightCache;
     mapping(bytes32 => bool) public nodePendingUpdate;
     mapping(bytes32 => bool) public nodePendingRemoval;
     mapping(address => uint256) public operatorLockedStake;
+    mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
+    // operatorNodesArray[operator] is used for iteration during certain
+    // rebalancing or node-update operations, and has nodes removed once
+    // they are effectively retired. This means a node can remain in
+    // operatorNodes while it is removed from operatorNodesArray.
+    // operatorNodes[operator] is intended as a permanent record of all nodes
+    // ever registered by the operator, used for historical/epoch-based queries.
+    // We do *not* remove nodes from this set when they are "retired" so
+    // getActiveNodesForEpoch(...) can still detect them for past epochs.
     mapping(address => EnumerableSet.Bytes32Set) private operatorNodes;
 
     /**
@@ -213,7 +220,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         address asset
     ) external override updateGlobalNodeWeightsOncePerEpoch {
         if (assetClassId == 1 && asset == PRIMARY_ASSET) {
-            revert AssetClassRegistry__AssetIsPrimarytAssetClass(assetClassId);
+            revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
 
         if (_isUsedAsset(assetClassId, asset)) {
@@ -325,15 +332,14 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             disableOwner: disableOwner
         });
 
-        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
-            input, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
-        );
-
         // Track node in our time-based map and dynamic array.
         operatorNodes[operator].add(nodeId);
         operatorNodesArray[operator].push(nodeId);
-
         uint48 epoch = getCurrentEpoch();
+
+        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
+            input, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+        );
         nodeWeightCache[epoch][validationID] = newWeight;
         nodeWeightCache[epoch + 1][validationID] = newWeight;
         nodePendingUpdate[validationID] = true;
@@ -343,9 +349,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
     function removeNode(
         bytes32 nodeId
-    ) external updateGlobalNodeWeightsOncePerEpoch {
-        address operator = msg.sender;
-        _removeNode(operator, nodeId);
+    ) external updateGlobalNodeWeightsOncePerEpoch onlyRegisteredOperatorNode(msg.sender, nodeId) {
+        _removeNode(msg.sender, nodeId);
     }
 
     /**
@@ -607,11 +612,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     }
 
     function _initializeEndValidationAndFlag(address operator, bytes32 validationID, bytes32 nodeId) internal {
-        balancerValidatorManager.initializeEndValidation(validationID);
-
         uint48 nextEpoch = getCurrentEpoch() + 1;
         nodeWeightCache[nextEpoch][validationID] = 0;
         nodePendingRemoval[validationID] = true;
+
+        balancerValidatorManager.initializeEndValidation(validationID);
 
         emit NodeRemoved(operator, nodeId, validationID);
     }
@@ -701,9 +706,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
         uint256 delta;
-        balancerValidatorManager.initializeValidatorWeightUpdate(
-            validationID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
-        );
         if (newWeight > cachedWeight) {
             delta = newWeight - cachedWeight;
             if (delta > _getOperatorAvailableStake(operator)) {
@@ -714,6 +716,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         nodePendingUpdate[validationID] = true;
         nodeWeightCache[currentEpoch + 1][validationID] = newWeight;
         // if newWeight < cachedWeight, no lock should happen, it's locked in the cache
+
+        balancerValidatorManager.initializeValidatorWeightUpdate(
+            validationID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+        );
     }
 
     function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {
