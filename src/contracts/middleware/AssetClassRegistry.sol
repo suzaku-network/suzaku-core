@@ -130,7 +130,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         uint256 assetClassId
     ) internal {
         if (assetClassId == 1) {
-            revert AssetClassRegistry__AssetIsPrimarytAssetClass(assetClassId);
+            revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
 
         if (!assetClassIds.contains(assetClassId)) {
