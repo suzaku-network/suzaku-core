@@ -4,18 +4,19 @@
 pragma solidity 0.8.25;
 
 import {Script} from "forge-std/Script.sol";
-import {Token} from "../../test/mocks/MockToken.sol";
+import {Token} from "../../../test/mocks/MockToken.sol";
 
 contract MiddlewareHelperConfig is Script {
     struct NetworkConfig {
         uint256 proxyAdminOwnerKey;
         uint256 protocolOwnerKey;
-        bytes32 subnetID;
+        bytes32 l1ID;
         uint64 churnPeriodSeconds;
         uint8 maximumChurnPercentage;
         address primaryAsset;
         uint256 primaryAssetMaxStake;
         uint256 primaryAssetMinStake;
+        uint256 primaryAssetWeightScaleFactor;
     }
 
     NetworkConfig public activeNetworkConfig;
@@ -37,12 +38,13 @@ contract MiddlewareHelperConfig is Script {
         return NetworkConfig({
             proxyAdminOwnerKey: proxyAdminOwnerKey,
             protocolOwnerKey: protocolOwnerKey,
-            subnetID: 0x5f4c8570d996184af03052f1b3acc1c7b432b0a41e7480de1b72d4c6f5983eb9,
+            l1ID: 0x5f4c8570d996184af03052f1b3acc1c7b432b0a41e7480de1b72d4c6f5983eb9,
             churnPeriodSeconds: 1 hours,
             maximumChurnPercentage: 20,
             primaryAsset: address(localToken),
             primaryAssetMaxStake: 10_000_000_000_000_000_000_000_000,
-            primaryAssetMinStake: 100_000_000_000_000
+            primaryAssetMinStake: 100_000_000_000_000,
+            primaryAssetWeightScaleFactor: 1e8
         });
     }
 }

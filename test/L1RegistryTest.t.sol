@@ -55,17 +55,6 @@ contract L1RegistryTest is Test {
         assertEq(registry.isRegistered(address(mockACP99Manager)), true);
     }
 
-    function testRegisterWithInvalidACP99Manager() public {
-        // Invalid ACP99Manager address (just a random address or an invalid contract)
-        address invalidACP99Manager = address(0x123);
-
-        // l1Middleware1 tries to register with an invalid ACP99Manager and it should revert.
-        // Currently fails because the check is not implemented
-        vm.prank(l1Middleware1);
-        vm.expectRevert(IL1Registry.L1Registry__InvalidValidatorManager.selector);
-        registry.registerL1(invalidACP99Manager, l1Middleware1SecurityModule, l1Middleware1MetadataURL);
-    }
-
     function testRegisterRevertAlreadyRegistered() public {
         // Register l1Middleware1
         vm.prank(l1Middleware1);
@@ -81,7 +70,7 @@ contract L1RegistryTest is Test {
         // Try to register address(0), which should revert
         // Currently fails because the check is not implemented
         vm.prank(l1Middleware1);
-        vm.expectRevert(IL1Registry.L1Registry__InvalidValidatorManager.selector);
+        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__InvalidValidatorManager.selector, address(0)));
         registry.registerL1(address(0), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
     }
 

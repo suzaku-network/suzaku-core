@@ -9,15 +9,15 @@ import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAVali
 import {Script} from "forge-std/Script.sol";
 import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
 import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
-import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
-import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
-import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
-import {L1Registry} from "../../src/contracts/L1Registry.sol";
+import {OperatorRegistry} from "../../../src/contracts/OperatorRegistry.sol";
+import {VaultFactory} from "../../../src/contracts/VaultFactory.sol";
+import {OperatorL1OptInService} from "../../../src/contracts/service/OperatorL1OptInService.sol";
+import {L1Registry} from "../../../src/contracts/L1Registry.sol";
 import {
     AvalancheL1Middleware,
     AvalancheL1MiddlewareSettings
-} from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
-import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
+} from "../../../src/contracts/middleware/AvalancheL1Middleware.sol";
+import {MiddlewareVaultManager} from "../../../src/contracts/middleware/MiddlewareVaultManager.sol";
 
 /**
  * @dev Deploy a test Avalanche L1 Middleware
@@ -34,18 +34,19 @@ contract DeployTestAvalancheL1Middleware is Script {
         (
             uint256 proxyAdminOwnerKey,
             uint256 protocolOwnerKey,
-            bytes32 subnetID,
+            bytes32 l1ID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
             address primaryAsset,
             uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake
+            uint256 primaryAssetMinStake,
+            uint256 primaryAssetWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
         ValidatorManagerSettings memory settings = ValidatorManagerSettings({
-            subnetID: subnetID,
+            l1ID: l1ID,
             churnPeriodSeconds: churnPeriodSeconds,
             maximumChurnPercentage: maximumChurnPercentage
         });
@@ -73,7 +74,8 @@ contract DeployTestAvalancheL1Middleware is Script {
             protocolOwnerAddress,
             primaryAsset,
             primaryAssetMaxStake,
-            primaryAssetMinStake
+            primaryAssetMinStake,
+            primaryAssetWeightScaleFactor
         );
 
         MiddlewareVaultManager vaultManager =

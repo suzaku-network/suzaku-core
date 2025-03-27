@@ -61,10 +61,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
     uint48 public immutable SLASHING_WINDOW;
     uint48 public immutable START_TIME;
     uint48 public immutable UPDATE_WINDOW;
+    uint256 public immutable WEIGHT_SCALE_FACTOR;
     uint48 private lastGlobalNodeWeightsUpdateEpoch;
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
-    uint256 public constant WEIGHT_SCALE_FACTOR = 1e8;
 
     MiddlewareVaultManager vaultManager;
     EnumerableMap.AddressToUintMap private operators;
@@ -97,7 +97,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         address owner,
         address primaryAsset,
         uint256 primaryAssetMaxStake,
-        uint256 primaryAssetMinStake
+        uint256 primaryAssetMinStake,
+        uint256 primaryAssetWeightScaleFactor
     ) Ownable(owner) {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
@@ -111,6 +112,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         SLASHING_WINDOW = settings.slashingWindow;
         PRIMARY_ASSET = primaryAsset;
         UPDATE_WINDOW = settings.weightUpdateWindow;
+        require(primaryAssetWeightScaleFactor > 0, "Invalid scale factor");
+        WEIGHT_SCALE_FACTOR = primaryAssetWeightScaleFactor;
 
         balancerValidatorManager = BalancerValidatorManager(settings.l1ValidatorManager);
         Ownable(owner);
@@ -317,15 +320,16 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         newWeight = (newWeight > maxStake) ? maxStake : newWeight;
 
         ValidatorRegistrationInput memory input = ValidatorRegistrationInput({
-            nodeID: abi.encodePacked(nodeId),
+            nodeID: abi.encodePacked(uint160(uint256(nodeId))),
             blsPublicKey: blsKey,
             registrationExpiry: registrationExpiry,
             remainingBalanceOwner: remainingBalanceOwner,
             disableOwner: disableOwner
         });
 
-        bytes32 validationID =
-            balancerValidatorManager.initializeValidatorRegistration(input, StakeConversion.stakeToWeight(newWeight));
+        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
+            input, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+        );
 
         // Track node in our time-based map and dynamic array.
         operatorNodes[operator].add(nodeId);
@@ -393,7 +397,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         for (uint256 i = length; i > 0 && leftoverStake > 0;) {
             i--;
             bytes32 nodeId = nodesArr[i];
-            bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+            bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             if (balancerValidatorManager.isValidatorPendingWeightUpdate(valID)) {
                 continue;
             }
@@ -422,7 +426,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
                 newWeight = 0;
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
-                _initializeValidatorWeightUpdateAndLock(operator, valID, StakeConversion.stakeToWeight(newWeight));
+                _initializeValidatorWeightUpdateAndLock(
+                    operator, valID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+                );
                 emit NodeWeightUpdated(operator, nodeId, newWeight, valID);
             }
         }
@@ -452,7 +458,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         if (newWeight < minStake) {
             revert AvalancheL1Middleware__WeightTooLow(newWeight, minStake);
         }
-        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
         _initializeValidatorWeightUpdateAndLock(msg.sender, validationID, newWeight);
     }
@@ -489,8 +495,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      */
     function slash(
         uint48 epoch,
-        address /* operator */,
-        uint256 /* amount */,
+        address, /* operator */
+        uint256, /* amount */
         uint96 assetClassId
     ) public onlyOwner updateStakeCache(epoch, assetClassId) updateGlobalNodeWeightsOncePerEpoch {
         revert AvalancheL1Middleware__NotImplemented();
@@ -548,7 +554,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
                 bytes32[] storage nodeArray = operatorNodesArray[operator];
                 for (uint256 j; j < nodeArray.length; j++) {
                     bytes32 nodeId = nodeArray[j];
-                    bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+                    bytes32 validationID =
+                        balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
                     nodeWeightCache[epoch][validationID] = nodeWeightCache[epoch - 1][validationID];
                 }
             }
@@ -566,7 +573,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         for (uint256 i = nodeArray.length; i > 0;) {
             i--;
             bytes32 nodeId = nodeArray[i];
-            bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+            bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
             // If no removal/update, just carry over from prevEpoch (only if we haven’t set it yet)
             if (!nodePendingRemoval[valID] && !nodePendingUpdate[valID]) {
@@ -597,7 +604,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
      * @param nodeId The node ID
      */
     function _removeNode(address operator, bytes32 nodeId) internal onlyRegisteredOperatorNode(operator, nodeId) {
-        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         _initializeEndValidationAndFlag(operator, validationID, nodeId);
     }
 
@@ -668,7 +675,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         bytes32 nodeId,
         uint32 messageIndex
     ) internal onlyRegisteredOperatorNode(operator, nodeId) {
-        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
         if (!balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdateNotPending(validationID);
@@ -696,7 +703,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
         uint256 delta;
-        balancerValidatorManager.initializeValidatorWeightUpdate(validationID, StakeConversion.stakeToWeight(newWeight));
+        balancerValidatorManager.initializeValidatorWeightUpdate(
+            validationID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+        );
         if (newWeight > cachedWeight) {
             delta = newWeight - cachedWeight;
             if (delta > _getOperatorAvailableStake(operator)) {
@@ -903,7 +912,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
         for (uint256 i = 0; i < allNodeIds.length; i++) {
             bytes32 nodeId = allNodeIds[i];
-            bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+            bytes32 validationID =
+                balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             Validator memory validator = balancerValidatorManager.getValidator(validationID);
 
             if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
@@ -935,7 +945,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length; i++) {
             bytes32 nodeId = nodesArr[i];
-            bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(nodeId));
+            bytes32 validationID =
+                balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             registeredStake += getEffectiveNodeWeight(getCurrentEpoch(), validationID);
         }
     }
@@ -972,7 +983,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, Ownable, AssetClassReg
 
         // Enforce max security module weight
         (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
-        uint256 convertedSecurityModuleMaxWeight = StakeConversion.weightToStake(securityModuleMaxWeight);
+        uint256 convertedSecurityModuleMaxWeight =
+            StakeConversion.weightToStake(securityModuleMaxWeight, WEIGHT_SCALE_FACTOR);
         if (totalStake > convertedSecurityModuleMaxWeight) {
             totalStake = convertedSecurityModuleMaxWeight;
         }

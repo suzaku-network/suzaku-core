@@ -25,6 +25,9 @@ contract L1Registry is IL1Registry {
         if (isRegistered(validatorManager)) {
             revert L1Registry__L1AlreadyRegistered();
         }
+        if (validatorManager == address(0)) {
+            revert L1Registry__InvalidValidatorManager(validatorManager);
+        }
         l1s.add(validatorManager);
         l1Middleware[validatorManager] = l1Middleware_;
         l1MetadataURL[validatorManager] = metadataURL;

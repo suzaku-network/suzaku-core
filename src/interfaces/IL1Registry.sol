@@ -12,7 +12,7 @@ interface IL1Registry {
 
     error L1Registry__L1AlreadyRegistered();
     error L1Registry__L1NotRegistered();
-    error L1Registry__InvalidValidatorManager(address ValidatorManager);
+    error L1Registry__InvalidValidatorManager(address validatorManager);
     error L1Registry__InvalidL1Middleware();
 
     /**
