@@ -20,84 +20,76 @@ contract L1Registry is IL1Registry {
     /// @notice The metadata URL for each L1
     mapping(address => string) public l1MetadataURL;
 
-    modifier onlyValidatorAndMiddlewareOwner(address validatorManager, address middleware) {
+    modifier onlyValidatorManagerOwner(
+        address l1
+    ) {
         // Ensure caller owns the validator manager
-        address vmOwner = Ownable(validatorManager).owner();
+        address vmOwner = Ownable(l1).owner();
         if (vmOwner != msg.sender) {
             revert L1Registry__NotValidatorManagerOwner(msg.sender, vmOwner);
         }
-
-        // Ensure caller owns the middleware (if non-zero)
-        if (middleware != address(0)) {
-            address middlewareOwner = Ownable(middleware).owner();
-            if (middlewareOwner != msg.sender) {
-                revert L1Registry__NotMiddlewareOwner(msg.sender, middlewareOwner);
-            }
-        }
-
         _;
     }
 
     modifier isRegisteredL1(
-        address validatorManager
+        address l1
     ) {
-        if (!isRegistered(validatorManager)) {
+        if (!isRegistered(l1)) {
             revert L1Registry__L1NotRegistered();
         }
         _;
     }
 
     modifier isZeroAddress(
-        address validatorManager
+        address l1
     ) {
-        if (validatorManager == address(0)) {
-            revert L1Registry__InvalidValidatorManager(validatorManager);
+        if (l1 == address(0)) {
+            revert L1Registry__InvalidValidatorManager(l1);
         }
         _;
     }
 
     /// @inheritdoc IL1Registry
     function registerL1(
-        address validatorManager,
+        address l1,
         address l1Middleware_,
         string calldata metadataURL
-    ) external isZeroAddress(validatorManager) onlyValidatorAndMiddlewareOwner(validatorManager, l1Middleware_) {
-        if (isRegistered(validatorManager)) {
+    ) external isZeroAddress(l1) onlyValidatorManagerOwner(l1) {
+        if (isRegistered(l1)) {
             revert L1Registry__L1AlreadyRegistered();
         }
-        if (validatorManager == address(0)) {
-            revert L1Registry__InvalidValidatorManager(validatorManager);
+        if (l1 == address(0)) {
+            revert L1Registry__InvalidValidatorManager(l1);
         }
-        l1s.add(validatorManager);
-        l1Middleware[validatorManager] = l1Middleware_;
-        l1MetadataURL[validatorManager] = metadataURL;
+        l1s.add(l1);
+        l1Middleware[l1] = l1Middleware_;
+        l1MetadataURL[l1] = metadataURL;
 
-        emit RegisterL1(validatorManager);
-        emit SetL1Middleware(validatorManager, l1Middleware_);
-        emit SetMetadataURL(validatorManager, metadataURL);
+        emit RegisterL1(l1);
+        emit SetL1Middleware(l1, l1Middleware_);
+        emit SetMetadataURL(l1, metadataURL);
     }
 
     /// @inheritdoc IL1Registry
     function setL1Middleware(
-        address validatorManager,
+        address l1,
         address l1Middleware_
-    ) external isRegisteredL1(validatorManager) onlyValidatorAndMiddlewareOwner(validatorManager, l1Middleware_) {
-        l1Middleware[validatorManager] = l1Middleware_;
+    ) external isZeroAddress(l1Middleware_) isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
+        l1Middleware[l1] = l1Middleware_;
 
-        emit SetL1Middleware(validatorManager, l1Middleware_);
+        emit SetL1Middleware(l1, l1Middleware_);
     }
 
     /// @inheritdoc IL1Registry
     function setMetadataURL(
-        address validatorManager,
-        address l1Middleware_,
+        address l1,
         string calldata metadataURL
-    ) external isRegisteredL1(validatorManager) onlyValidatorAndMiddlewareOwner(validatorManager, l1Middleware_) {
+    ) external isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
         // TODO: check that msg.sender is a SecurityModule of the ValidatorManager
 
-        l1MetadataURL[validatorManager] = metadataURL;
+        l1MetadataURL[l1] = metadataURL;
 
-        emit SetMetadataURL(validatorManager, metadataURL);
+        emit SetMetadataURL(l1, metadataURL);
     }
 
     /// @inheritdoc IL1Registry

@@ -215,7 +215,7 @@ contract L1RegistryTest is Test {
 
         // Must call from the same manager owner
         vm.prank(l1Middleware1);
-        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, newMetadataURL);
+        registry.setMetadataURL(address(mockACP99Manager), newMetadataURL);
 
         (,, string memory actualURL) = registry.getL1At(0);
         assertEq(actualURL, newMetadataURL);
@@ -229,7 +229,7 @@ contract L1RegistryTest is Test {
         // Now also call setMetadataURL(...) from l1Middleware1
         vm.prank(l1Middleware1);
         string memory newMetadataURL = "https://newmetadata.com";
-        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, newMetadataURL);
+        registry.setMetadataURL(address(mockACP99Manager), newMetadataURL);
 
         // Confirm result
         (,, string memory actualURL) = registry.getL1At(0);
@@ -239,7 +239,7 @@ contract L1RegistryTest is Test {
     function testSetMetadataURLRevertNotRegistered() public {
         // Try to set metadata URL for unregistered L1
         vm.expectRevert(IL1Registry.L1Registry__L1NotRegistered.selector);
-        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, "https://newmetadata.com");
+        registry.setMetadataURL(address(mockACP99Manager), "https://newmetadata.com");
     }
 
     function testSetMetadataURLEmitsEvent() public {
@@ -253,6 +253,6 @@ contract L1RegistryTest is Test {
 
         // Must call from the correct owner again
         vm.prank(l1Middleware1);
-        registry.setMetadataURL(address(mockACP99Manager), l1Middleware1SecurityModule, "https://newmetadata.com");
+        registry.setMetadataURL(address(mockACP99Manager), "https://newmetadata.com");
     }
 }

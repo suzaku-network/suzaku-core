@@ -4,28 +4,28 @@
 pragma solidity ^0.8.0;
 
 interface IL1Registry {
-    event RegisterL1(address indexed validatorManager);
-    event SetL1Middleware(address indexed validatorManager, address indexed l1Middleware);
-    event SetMetadataURL(address indexed validatorManager, string metadataURL);
+    event RegisterL1(address indexed l1);
+    event SetL1Middleware(address indexed l1, address indexed l1Middleware);
+    event SetMetadataURL(address indexed l1, string metadataURL);
 
     error L1Registry__L1AlreadyRegistered();
     error L1Registry__L1NotRegistered();
-    error L1Registry__InvalidValidatorManager(address validatorManager);
+    error L1Registry__InvalidValidatorManager(address l1);
     error L1Registry__InvalidL1Middleware();
     error L1Registry__NotValidatorManagerOwner(address caller, address expectedOwner);
     error L1Registry__NotMiddlewareOwner(address caller, address expectedOwner);
 
     /**
      * @notice Register an Avalanche L1
-     * @dev validatorManager must be the manager of the Avalanche L1
-     * @dev msg.sender must be a SecurityModule of the ValidatorManager
+     * @dev l1 must be the manager of the Avalanche L1
+     * @dev msg.sender must be a SecurityModule of the l1
      * @dev l1Middleware must be a SecurityModule of the Avalanche L1
-     * @param validatorManager The ValidatorManager of the Avalanche L1
+     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
      * @param l1Middleware The l1Middleware of the Avalanche L1
      * @param metadataURL The metadata URL of the Avalanche L1
      */
     function registerL1(
-        address validatorManager,
+        address l1,
         address l1Middleware,
         string calldata metadataURL
     )
@@ -34,7 +34,7 @@ interface IL1Registry {
 
     /**
      * @notice Check if an address is registered as an L1
-     * @param l1 The address to check
+     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
      * @return True if the address is registered as an L1, false otherwise
      */
     function isRegistered(
@@ -43,7 +43,7 @@ interface IL1Registry {
 
     /**
      * @notice Check if an address is registered as an L1 and if the Middleware is correct
-     * @param l1 The address to check
+     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
      * @param l1middleware_ The l1Middleware to check
      * @return True if the address is registered as an L1 and the middleware is correct, false otherwise
      */
@@ -76,16 +76,15 @@ interface IL1Registry {
 
     /**
      * @notice Set the l1Middleware of an L1
-     * @param validatorManager The address of the ValidatorManager of the L1
+     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
      * @param l1Middleware_ The new l1Middleware
      */
-    function setL1Middleware(address validatorManager, address l1Middleware_) external;
+    function setL1Middleware(address l1, address l1Middleware_) external;
 
     /**
      * @notice Set the metadata URL of an L1
-     * @param validatorManager The address of the ValidatorManager of the L1
-     * @param l1Middleware_ The address of the l1Middleware_ of the L1
+     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
      * @param metadataURL The new metadata URL
      */
-    function setMetadataURL(address validatorManager, address l1Middleware_, string calldata metadataURL) external;
+    function setMetadataURL(address l1, string calldata metadataURL) external;
 }
