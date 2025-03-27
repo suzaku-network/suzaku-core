@@ -20,7 +20,7 @@ interface IL1Registry {
      * @dev l1 must be the manager of the Avalanche L1
      * @dev msg.sender must be a SecurityModule of the l1
      * @dev l1Middleware must be a SecurityModule of the Avalanche L1
-     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be The ValidatorManager.
      * @param l1Middleware The l1Middleware of the Avalanche L1
      * @param metadataURL The metadata URL of the Avalanche L1
      */
@@ -34,7 +34,7 @@ interface IL1Registry {
 
     /**
      * @notice Check if an address is registered as an L1
-     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be The ValidatorManager.
      * @return True if the address is registered as an L1, false otherwise
      */
     function isRegistered(
@@ -43,7 +43,7 @@ interface IL1Registry {
 
     /**
      * @notice Check if an address is registered as an L1 and if the Middleware is correct
-     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be The ValidatorManager.
      * @param l1middleware_ The l1Middleware to check
      * @return True if the address is registered as an L1 and the middleware is correct, false otherwise
      */
@@ -76,14 +76,14 @@ interface IL1Registry {
 
     /**
      * @notice Set the l1Middleware of an L1
-     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be The ValidatorManager.
      * @param l1Middleware_ The new l1Middleware
      */
     function setL1Middleware(address l1, address l1Middleware_) external;
 
     /**
      * @notice Set the metadata URL of an L1
-     * @param l1 The l1 of the Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be The ValidatorManager.
      * @param metadataURL The new metadata URL
      */
     function setMetadataURL(address l1, string calldata metadataURL) external;
