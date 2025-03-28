@@ -176,26 +176,27 @@ Note: Hints appear accross the codebase, but the hints in themselves are not imp
 **Goal**: Enable a new Avalanche-based L1 to leverage Suzaku’s restaking infrastructure. Below is an overview of the essential steps, focusing on the protocol contracts involved:
 
 1. **Register the L1**  
-   - The L1 owner calls `L1Registry.registerL1(...)`, providing the addresses of the `ValidatorManager` (handling node-level operations) and (optionally) the `MiddlewareVaultManager` or other middleware modules.  
+   - The L1 owner calls `L1Registry.registerL1(...)`, providing the addresses of the `ValidatorManager` (handling node-level operations) and the associated `AvalancheL1Middleware`.  
    - This step makes the L1 recognized in Suzaku, so operators can opt in to validate it.
 
 2. **Associate a Vault & Set Limits**  
-   - The L1 owner (or curator) links a vault to this new L1.  
-   - Through the `MiddlewareVaultManager` (or a similar manager contract), the L1 sets a maximum stake limit for that vault on the delegator side (e.g., `L1RestakeDelegator.setL1Limit(...)`).  
-   - Ensures the new L1 cannot exceed a certain stake capacity from this vault.
+   - The L1 owner registers a vault to this new L1.  
+   - Through the same register function the `MiddlewareVaultManager`, sets a maximum stake limit for that vault on the delegator side (e.g., `L1RestakeDelegator.setL1Limit(...)`). For this the L1 requires the correct Roles. 
+   - Ensures the vault can stake up to a certain stake to this L1  
+
 
 3. **Operator Registration & Opt-Ins**  
    - Operators register themselves in the `OperatorRegistry` (providing any optional metadata).  
    - They then “opt in” to both the new L1 (via `OperatorL1OptInService`) and the vault (via `OperatorVaultOptInService`).  
-   - Once opted in, the delegator can allocate stake (shares) on their behalf.
+   - Once opted in, the delegator can delegate vault shares to operators for this L1  
 
 4. **Staking & Delegation**  
-   - Stakers deposit assets into the vault (e.g., `VaultTokenized`), which tracks active stake over epochs.  
+   - Stakers deposit Collaterals into the vault (e.g., `VaultTokenized`), which tracks active stake over epochs.  
    - The delegator contract (e.g., `L1RestakeDelegator`) assigns shares to each operator for the new L1, within any `l1Limit` constraints.  
    - Actual staked amounts are derived proportionally from the vault’s active stake and the L1’s stake limit.
 
 5. **Node Setup & Validation**  
-   - Operators add or update nodes in the `ValidatorManager` and `AvalancheL1Middleware` for the new L1 through the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorWeightUpdateAndLock`.  
+   - Operators add or update nodes in the `ValidatorManager` through the `AvalancheL1Middleware` for the new L1, with the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorWeightUpdateAndLock`.  
    - The middleware calculates node weights based on allocated stake and checks churn limits, lock/unlock rules, etc.  
    - On each epoch transition, node statuses and weights are finalized.
 
@@ -205,4 +206,3 @@ Note: Hints appear accross the codebase, but the hints in themselves are not imp
 
 
 ---
-
