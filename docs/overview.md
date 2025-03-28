@@ -20,6 +20,18 @@
   - **Dual Staking Model**: Require both native and whitelisted collateral for validator nodes, mitigating token volatility risks.
   - **Slashing**: Suzaku’s architecture currently doesn't have slashing on the (re)staking principal, only validation rewards can be lost if validators have a bad uptime.
 
+### Overview
+1. **Setup**: An L1 builder configures their chain and chooses how to incorporate PoS, restaking, or the dual-staking model.
+2. **Registration**: 
+   - The L1 is registered in `L1Registry`, and operators register in `OperatorRegistry`.
+   - A vault is deployed via `VaultFactory`, with delegators deciding how to allocate stake. This should be all handled by the same agent, the curator.
+3. **Opt-Ins**: Operators must opt in to both the vault and the L1. Curators manage these allocations on behalf of stakers.
+4. **Epoch Flow**: 
+   - Vaults checkpoint user deposits and handle epoch-based withdrawals.
+   - The L1 middleware calculates node weights, triggers updates, and (in future) can slash underperforming operators based on its own middleware epochs.
+5. **Validator Manager**:
+   - The Validator Manager is a separate contract which is handling the communicating with the P-Chain in order to add-remove-upgrade validators and the L1.
+
 ## 2. Code Architecture & Main Components
 
 Below is a summarized explanation of the key smart contracts/interfaces of the Suzaku protocol.
@@ -39,6 +51,8 @@ Below is a summarized explanation of the key smart contracts/interfaces of the S
   - **DEPOSIT_WHITELIST_SET_ROLE:** enable/disable deposit whitelist requirement.
   - **DEPOSITOR_WHITELIST_ROLE:** whitelist specific addresses for deposits.
   - **IS_DEPOSIT_LIMIT_SET_ROLE:** enable/disable the deposit limit.
+
+Note: Hints appear accross the codebase, but the hints in themselves are not implemented at the moment. These served as optimization to use checkpoints instead of doing full lookups.
 
 ### 2.2 Delegators (Owner Curator)
 **BaseDelegator**  
@@ -75,9 +89,7 @@ Below is a summarized explanation of the key smart contracts/interfaces of the S
      - **`operatorL1Shares[l1][assetClass][operator]`**: how many shares an operator has for a specific L1/assetClass.  
      - **`totalOperatorL1Shares[l1][assetClass]`**: total shares across *all* operators on that L1/assetClass.  
    - The actual staked amount is derived by:  
-     \[
-       \text{operatorShares} * \min(\text{vault.activeStake}, \text{l1Limit}) / \text{totalShares}
-     \]
+      `operatorShares * min(vault.activeStake, l1Limit) / totalShares`
 
 2. **Setting L1 Limits**  
    - `setL1Limit(l1, assetClass, amount)` → updates the asset class’ “live” limit.  
@@ -141,6 +153,16 @@ Below is a summarized explanation of the key smart contracts/interfaces of the S
        - If a node had a pending update, it’s now resolved.
        - If this isn't called, it implies no change was done, it can be called retroactivelly for all nodes.
 - The **BalancerValidatorManager** remains the ultimate source for each node’s status (active, ended, updated, etc.), while this middleware caches that data for fast lookups and consistent staking logic.
+#### Weight Factor Considerations for Adding a New Security Module
+- **Max Weight Alignment**  
+  - Each module has a `maxWeight`. If a new module’s `maxWeight` is far higher than existing modules, you can exceed “churn limits” (e.g. 20% total in one epoch). If it’s too low, you can’t accommodate your target stake. **Balance** new and existing modules’ `maxWeight` values.
+- **Stake-to-Weight Scale Factor**  
+  - A **larger** factor compresses large stakes more (small stakes become zero).  
+  - A **smaller** factor allows precision for small stakes but can overflow `uint64` or ramp up total weight too quickly.  
+  - Pick a factor that matches your min/max stake and desired alignment with other modules.
+- **Combined Churn Limit**  
+  - If the total allowed weight change per epoch is capped (e.g. 20%), a huge `maxWeight` or an unsuitable factor can violate that limit in one go.  
+  - Ensuring modules have similar or carefully balanced caps helps avoid churn‐based reverts.
 
 ### 2.7 MiddlewareVaultManager (Owner L1)
 - Oversees vault registration for a given L1, enforcing stake limits per vault.
@@ -149,24 +171,38 @@ Below is a summarized explanation of the key smart contracts/interfaces of the S
 - Integrates with the L1 middleware to ensure correct staking capacity and slashing windows.
 ---
 
-## 3. Overview
-1. **Setup**: An L1 builder configures their chain and chooses how to incorporate PoS, restaking, or the dual-staking model.
-2. **Registration**: 
-   - The L1 is registered in `L1Registry`, and operators register in `OperatorRegistry`.
-   - A vault is deployed via `VaultFactory`, with delegators deciding how to allocate stake.
-3. **Opt-Ins**: Operators must opt in to both the vault and the L1. Curators manage these allocations on behalf of stakers.
-4. **Epoch Flow**: 
-   - Vaults checkpoint user deposits and handle epoch-based withdrawals.
-   - The L1 middleware calculates node weights, triggers updates, and (in future) can slash underperforming operators based on it's own middleware epochs.
-5. **Validator Manager**:
-   - The Validator Manager is a separate contract which is handling the communicationg with the P-Chain in order to add-remove-upgrade validators and the L1.
+## 4. L1 Onboarding Flow
 
-## 4. Operator Flow
-- **Register** with `OperatorRegistry` (metadata optional).
-- **Opt In** to:
-  - **Vault** (via `OperatorVaultOptInService`)  
-  - **L1** (via `OperatorL1OptInService`)
-- **Stake Allocation** is then managed by a delegator contract (e.g. `L1RestakeDelegator`), assigning a portion of the vault’s active stake to the operator for each L1.
-- **Run Infrastructure** to validate or perform required off-chain tasks (depending on the L1 design).
+**Goal**: Enable a new Avalanche-based L1 to leverage Suzaku’s restaking infrastructure. Below is an overview of the essential steps, focusing on the protocol contracts involved:
+
+1. **Register the L1**  
+   - The L1 owner calls `L1Registry.registerL1(...)`, providing the addresses of the `ValidatorManager` (handling node-level operations) and (optionally) the `MiddlewareVaultManager` or other middleware modules.  
+   - This step makes the L1 recognized in Suzaku, so operators can opt in to validate it.
+
+2. **Associate a Vault & Set Limits**  
+   - The L1 owner (or curator) links a vault to this new L1.  
+   - Through the `MiddlewareVaultManager` (or a similar manager contract), the L1 sets a maximum stake limit for that vault on the delegator side (e.g., `L1RestakeDelegator.setL1Limit(...)`).  
+   - Ensures the new L1 cannot exceed a certain stake capacity from this vault.
+
+3. **Operator Registration & Opt-Ins**  
+   - Operators register themselves in the `OperatorRegistry` (providing any optional metadata).  
+   - They then “opt in” to both the new L1 (via `OperatorL1OptInService`) and the vault (via `OperatorVaultOptInService`).  
+   - Once opted in, the delegator can allocate stake (shares) on their behalf.
+
+4. **Staking & Delegation**  
+   - Stakers deposit assets into the vault (e.g., `VaultTokenized`), which tracks active stake over epochs.  
+   - The delegator contract (e.g., `L1RestakeDelegator`) assigns shares to each operator for the new L1, within any `l1Limit` constraints.  
+   - Actual staked amounts are derived proportionally from the vault’s active stake and the L1’s stake limit.
+
+5. **Node Setup & Validation**  
+   - Operators add or update nodes in the `ValidatorManager` and `AvalancheL1Middleware` for the new L1 through the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorWeightUpdateAndLock`.  
+   - The middleware calculates node weights based on allocated stake and checks churn limits, lock/unlock rules, etc.  
+   - On each epoch transition, node statuses and weights are finalized.
+
+6. **Ongoing Epoch Flow**  
+   - The vault continues to handle deposits, withdrawals (with an epoch delay), and reward distribution.  
+   - Operators can join/leave the L1 or vault, adjusting shares accordingly.  
+
 
 ---
+
