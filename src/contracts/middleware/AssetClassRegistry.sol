@@ -4,9 +4,10 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import {IAssetClassRegistry} from "../../interfaces/middleware/IAssetClassRegistry.sol";
 
-abstract contract AssetClassRegistry is IAssetClassRegistry {
+abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
 
@@ -19,13 +20,17 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
     EnumerableSet.UintSet internal assetClassIds;
     mapping(uint256 => AssetClass) internal assetClasses;
 
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) {}
+
     /// @inheritdoc IAssetClassRegistry
     function addAssetClass(
         uint256 assetClassId,
         uint256 minValidatorStake,
         uint256 maxValidatorStake,
         address initialAsset
-    ) external {
+    ) external onlyOwner {
         _addAssetClass(assetClassId, minValidatorStake, maxValidatorStake, initialAsset);
     }
 
@@ -35,14 +40,14 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function removeAssetFromClass(uint256 assetClassId, address asset) external virtual {
+    function removeAssetFromClass(uint256 assetClassId, address asset) external virtual onlyOwner {
         _removeAssetFromClass(assetClassId, asset);
     }
 
     /// @inheritdoc IAssetClassRegistry
     function removeAssetClass(
         uint256 assetClassId
-    ) external virtual {
+    ) external virtual onlyOwner {
         _removeAssetClass(assetClassId);
     }
 
@@ -125,7 +130,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry {
         uint256 assetClassId
     ) internal {
         if (assetClassId == 1) {
-            revert AssetClassRegistry__AssetIsPrimarytAssetClass(assetClassId);
+            revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
 
         if (!assetClassIds.contains(assetClassId)) {

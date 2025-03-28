@@ -9,7 +9,7 @@ interface IAssetClassRegistry {
     error AssetClassRegistry__AssetAlreadyRegistered();
     error AssetClassRegistry__AssetClassAlreadyExists();
     error AssetClassRegistry__AssetClassNotFound();
-    error AssetClassRegistry__AssetIsPrimarytAssetClass(uint256 assetClassId);
+    error AssetClassRegistry__AssetIsPrimaryAssetClass(uint256 assetClassId);
     error AssetClassRegistry__AssetsStillExist();
 
     event AssetClassAdded(uint256 indexed assetClassId, uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake);

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 
-// Compatible with OpenZeppelin Contracts ^5.0.0
-
 pragma solidity 0.8.25;
 
 import {IL1Registry} from "../interfaces/IL1Registry.sol";
+import {IAvalancheL1Middleware} from "../interfaces/middleware/IAvalancheL1Middleware.sol";
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 contract L1Registry is IL1Registry {
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -20,21 +20,76 @@ contract L1Registry is IL1Registry {
     /// @notice The metadata URL for each L1
     mapping(address => string) public l1MetadataURL;
 
+    modifier onlyValidatorManagerOwner(
+        address l1
+    ) {
+        // Ensure caller owns the validator manager
+        address vmOwner = Ownable(l1).owner();
+        if (vmOwner != msg.sender) {
+            revert L1Registry__NotValidatorManagerOwner(msg.sender, vmOwner);
+        }
+        _;
+    }
+
+    modifier isRegisteredL1(
+        address l1
+    ) {
+        if (!isRegistered(l1)) {
+            revert L1Registry__L1NotRegistered();
+        }
+        _;
+    }
+
+    modifier isZeroAddress(
+        address l1
+    ) {
+        if (l1 == address(0)) {
+            revert L1Registry__InvalidValidatorManager(l1);
+        }
+        _;
+    }
+
     /// @inheritdoc IL1Registry
-    function registerL1(address validatorManager, address l1Middleware_, string calldata metadataURL) external {
-        if (isRegistered(validatorManager)) {
+    function registerL1(
+        address l1,
+        address l1Middleware_,
+        string calldata metadataURL
+    ) external isZeroAddress(l1) onlyValidatorManagerOwner(l1) {
+        if (isRegistered(l1)) {
             revert L1Registry__L1AlreadyRegistered();
         }
-        if (validatorManager == address(0)) {
-            revert L1Registry__InvalidValidatorManager(validatorManager);
+        if (l1 == address(0)) {
+            revert L1Registry__InvalidValidatorManager(l1);
         }
-        l1s.add(validatorManager);
-        l1Middleware[validatorManager] = l1Middleware_;
-        l1MetadataURL[validatorManager] = metadataURL;
+        l1s.add(l1);
+        l1Middleware[l1] = l1Middleware_;
+        l1MetadataURL[l1] = metadataURL;
 
-        emit RegisterL1(validatorManager);
-        emit SetL1Middleware(validatorManager, l1Middleware_);
-        emit SetMetadataURL(validatorManager, metadataURL);
+        emit RegisterL1(l1);
+        emit SetL1Middleware(l1, l1Middleware_);
+        emit SetMetadataURL(l1, metadataURL);
+    }
+
+    /// @inheritdoc IL1Registry
+    function setL1Middleware(
+        address l1,
+        address l1Middleware_
+    ) external isZeroAddress(l1Middleware_) isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
+        l1Middleware[l1] = l1Middleware_;
+
+        emit SetL1Middleware(l1, l1Middleware_);
+    }
+
+    /// @inheritdoc IL1Registry
+    function setMetadataURL(
+        address l1,
+        string calldata metadataURL
+    ) external isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
+        // TODO: check that msg.sender is a SecurityModule of the ValidatorManager
+
+        l1MetadataURL[l1] = metadataURL;
+
+        emit SetMetadataURL(l1, metadataURL);
     }
 
     /// @inheritdoc IL1Registry
@@ -45,12 +100,23 @@ contract L1Registry is IL1Registry {
     }
 
     // @inheritdoc IL1Registry
-    function isRegisteredWithMiddleware(address l1, address l1Middleware_) external view returns (bool) {
-        isRegistered(l1);
-        if (l1Middleware[l1] != l1Middleware_) {
+    function isRegisteredWithMiddleware(address l1, address vaultManager_) external view returns (bool) {
+        if (!isRegistered(l1)) {
+            return false;
+        }
+
+        address middleware = l1Middleware[l1];
+        if (middleware == address(0)) {
+            return false;
+        }
+
+        address actualVaultManager = IAvalancheL1Middleware(middleware).getVaultManager();
+
+        if (actualVaultManager != vaultManager_) {
             revert L1Registry__InvalidL1Middleware();
         }
-        return l1s.contains(l1);
+
+        return true;
     }
 
     /// @inheritdoc IL1Registry
@@ -76,29 +142,5 @@ contract L1Registry is IL1Registry {
             metadataURLs[i] = l1MetadataURL[l1sList[i]];
         }
         return (l1sList, l1Middlewares, metadataURLs);
-    }
-
-    /// @inheritdoc IL1Registry
-    function setL1Middleware(address validatorManager, address l1Middleware_) external {
-        if (!isRegistered(validatorManager)) {
-            revert L1Registry__L1NotRegistered();
-        }
-
-        l1Middleware[validatorManager] = l1Middleware_;
-
-        emit SetL1Middleware(validatorManager, l1Middleware_);
-    }
-
-    /// @inheritdoc IL1Registry
-    function setMetadataURL(address validatorManager, string calldata metadataURL) external {
-        if (!isRegistered(validatorManager)) {
-            revert L1Registry__L1NotRegistered();
-        }
-
-        // TODO: check that msg.sender is a SecurityModule of the ValidatorManager
-
-        l1MetadataURL[validatorManager] = metadataURL;
-
-        emit SetMetadataURL(validatorManager, metadataURL);
     }
 }

@@ -31,9 +31,16 @@ import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDele
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
 import {ISlasher} from "../../src/interfaces/slasher/ISlasher.sol";
 import {IBaseSlasher} from "../../src/interfaces/slasher/IBaseSlasher.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
+contract DummyL1 is Ownable {
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) {}
+}
 
 contract L1RestakeDelegatorTest is Test {
     using Math for uint256;
@@ -118,6 +125,14 @@ contract L1RestakeDelegatorTest is Test {
             primaryAssetWeightScaleFactor
         );
 
+        vm.startPrank(owner); // the test contract is the current owner
+        middleware.transferOwnership(alice);
+        vm.stopPrank();
+
+        vm.startPrank(alice);
+        middleware.setVaultManager(address(middleware));
+        vm.stopPrank();
+
         // Deploy opt-in services
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // WHO_REGISTRY (isRegistered)
@@ -158,7 +173,9 @@ contract L1RestakeDelegatorTest is Test {
 
         // Register an L1 and a subnetwork for testing
         address l1 = alice;
-        l1Registry.registerL1(l1, address(0), "metadataURL");
+        DummyL1 dummyL1 = new DummyL1(alice);
+        vm.prank(alice);
+        l1Registry.registerL1(address(dummyL1), address(0), "metadataURL");
         uint96 assetClass = 1;
 
         assertEq(delegator.VERSION(), 1);
@@ -353,50 +370,53 @@ contract L1RestakeDelegatorTest is Test {
         vm.assume(amount2 != amount3);
         vm.assume(amount3 != amount4);
 
-        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
-        blockTimestamp = blockTimestamp + 1_720_700_948;
+        uint256 blockTimestamp = block.timestamp;
+        blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        address l1 = bob;
-        _registerL1(l1, address(middleware));
+        address l1Owner = alice;
+        // 1) get actual L1 contract address
+        address dummyL1Addr = _registerL1(l1Owner, address(middleware));
         uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, type(uint256).max, address(middleware));
+        // 2) use dummyL1Addr in place of `l1`
+        _setMaxL1Limit(dummyL1Addr, assetClass, type(uint256).max, address(middleware));
 
-        _setL1Limit(alice, l1, assetClass, amount1);
+        // Calls that used `(alice, l1, ...)` now use `(alice, dummyL1Addr, ...)`
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount1);
 
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount1);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount1);
-        assertEq(delegator.l1Limit(l1, assetClass), amount1);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp), ""), amount1);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp + 1), ""), amount1);
+        assertEq(delegator.l1Limit(dummyL1Addr, assetClass), amount1);
 
-        _setL1Limit(alice, l1, assetClass, amount2);
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount2);
 
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount2);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount2);
-        assertEq(delegator.l1Limit(l1, assetClass), amount2);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp), ""), amount2);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp + 1), ""), amount2);
+        assertEq(delegator.l1Limit(dummyL1Addr, assetClass), amount2);
 
-        blockTimestamp = blockTimestamp + 1;
+        blockTimestamp += 1;
         vm.warp(blockTimestamp);
 
-        _setL1Limit(alice, l1, assetClass, amount3);
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount3);
 
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp - 1), ""), amount2);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount3);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount3);
-        assertEq(delegator.l1Limit(l1, assetClass), amount3);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp - 1), ""), amount2);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp), ""), amount3);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp + 1), ""), amount3);
+        assertEq(delegator.l1Limit(dummyL1Addr, assetClass), amount3);
 
-        blockTimestamp = blockTimestamp + 1;
+        blockTimestamp++;
         vm.warp(blockTimestamp);
 
-        _setL1Limit(alice, l1, assetClass, amount4);
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount4);
 
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp - 2), ""), amount2);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp - 1), ""), amount3);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp), ""), amount4);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 1), ""), amount4);
-        assertEq(delegator.l1Limit(l1, assetClass), amount4);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp - 2), ""), amount2);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp - 1), ""), amount3);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp), ""), amount4);
+        assertEq(delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp + 1), ""), amount4);
+        assertEq(delegator.l1Limit(dummyL1Addr, assetClass), amount4);
     }
 
     function test_SetL1LimitRevertExceedsMaxL1Limit(uint48 epochDuration, uint256 amount1, uint256 maxL1Limit) public {
@@ -406,14 +426,14 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        address l1 = bob;
-        _registerL1(l1, address(middleware));
+        address l1 = alice;
+        address dummyL1Addr = _registerL1(l1, address(middleware));
         uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit, address(middleware));
+        _setMaxL1Limit(dummyL1Addr, assetClass, maxL1Limit, address(middleware));
 
         vm.expectRevert(IL1RestakeDelegator.L1RestakeDelegator__ExceedsMaxL1Limit.selector);
-        _setL1Limit(alice, l1, assetClass, amount1);
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount1);
     }
 
     function test_SetL1LimitRevertAlreadySet(uint48 epochDuration, uint256 amount1, uint256 maxL1Limit) public {
@@ -423,16 +443,15 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        address l1 = bob;
-        _registerL1(l1, address(middleware));
+        address dummyL1Addr = _registerL1(alice, address(middleware));
         uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit, address(middleware));
+        _setMaxL1Limit(dummyL1Addr, assetClass, maxL1Limit, address(middleware));
 
-        _setL1Limit(alice, l1, assetClass, amount1);
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount1);
 
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
-        _setL1Limit(alice, l1, assetClass, amount1);
+        _setL1Limit(alice, dummyL1Addr, assetClass, amount1);
     }
 
     function test_SetOperatorL1Limit(
@@ -458,10 +477,10 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        address l1 = bob;
+        address l1 = alice;
         _registerL1(l1, address(middleware));
         uint96 assetClass = 1;
-        address operator = bob;
+        address operator = alice;
         _registerOperator(operator, "operatorMetadata");
 
         _setOperatorL1Shares(alice, l1, assetClass, operator, amount1);
@@ -509,58 +528,65 @@ contract L1RestakeDelegatorTest is Test {
         amount2 = bound(amount2, 1, type(uint256).max / 2);
         vm.assume(amount3 < amount2);
 
-        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
-        blockTimestamp = blockTimestamp + 1_720_700_948;
+        uint256 blockTimestamp = block.timestamp;
+        blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        address l1 = bob;
-        _registerL1(l1, address(middleware));
+        address l1 = alice;
+        // 1) capture the dummy L1 address
+        address dummyL1Addr = _registerL1(l1, address(middleware));
+
         uint96 assetClass = 1;
         _registerOperator(alice, "aliceMetadata");
         _registerOperator(bob, "bobMetadata");
 
-        _setOperatorL1Shares(alice, l1, assetClass, alice, amount1);
+        // 2) wherever you used l1, now use dummyL1Addr
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, alice, amount1);
 
-        assertEq(delegator.operatorL1SharesAt(l1, assetClass, alice, uint48(blockTimestamp + 1), ""), amount1);
-        assertEq(delegator.operatorL1Shares(l1, assetClass, alice), amount1);
+        assertEq(delegator.operatorL1SharesAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp + 1), ""), amount1);
+        assertEq(delegator.operatorL1Shares(dummyL1Addr, assetClass, alice), amount1);
 
-        _setOperatorL1Shares(alice, l1, assetClass, bob, amount2);
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, bob, amount2);
 
-        assertEq(delegator.operatorL1SharesAt(l1, assetClass, bob, uint48(blockTimestamp + 1), ""), amount2);
-        assertEq(delegator.operatorL1Shares(l1, assetClass, bob), amount2);
+        assertEq(delegator.operatorL1SharesAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp + 1), ""), amount2);
+        assertEq(delegator.operatorL1Shares(dummyL1Addr, assetClass, bob), amount2);
 
-        blockTimestamp = blockTimestamp + 1;
+        blockTimestamp += 1;
         vm.warp(blockTimestamp);
 
-        _setOperatorL1Shares(alice, l1, assetClass, bob, amount3);
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, bob, amount3);
 
-        assertEq(delegator.operatorL1SharesAt(l1, assetClass, bob, uint48(blockTimestamp - 1), ""), amount2);
-        assertEq(delegator.operatorL1SharesAt(l1, assetClass, bob, uint48(blockTimestamp + 1), ""), amount3);
-        assertEq(delegator.operatorL1Shares(l1, assetClass, bob), amount3);
+        assertEq(delegator.operatorL1SharesAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp - 1), ""), amount2);
+        assertEq(delegator.operatorL1SharesAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp + 1), ""), amount3);
+        assertEq(delegator.operatorL1Shares(dummyL1Addr, assetClass, bob), amount3);
     }
 
     function test_SetOperatorL1LimitRevertAlreadySet(uint48 epochDuration, uint256 amount1) public {
         epochDuration = uint48(bound(uint256(epochDuration), 1, 100 days));
         amount1 = bound(amount1, 1, type(uint256).max / 2);
 
-        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
-        blockTimestamp = blockTimestamp + 1_720_700_948;
+        uint256 blockTimestamp = block.timestamp;
+        blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        address l1 = bob;
-        _registerL1(l1, address(middleware));
+        address l1 = alice;
+        // capture dummy address
+        address dummyL1Addr = _registerL1(l1, address(middleware));
+
         uint96 assetClass = 1;
         _registerOperator(alice, "aliceMetadata");
 
-        _setOperatorL1Shares(alice, l1, assetClass, alice, amount1);
+        // now pass dummyL1Addr
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, alice, amount1);
 
         vm.startPrank(alice);
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
-        delegator.setOperatorL1Shares(l1, assetClass, alice, amount1);
+        delegator.setOperatorL1Shares(dummyL1Addr, assetClass, alice, amount1);
+        // ^ using dummyL1Addr again
         vm.stopPrank();
     }
 
@@ -574,38 +600,52 @@ contract L1RestakeDelegatorTest is Test {
         maxL1Limit1 = bound(maxL1Limit1, 1, type(uint256).max);
         vm.assume(maxL1Limit1 > maxL1Limit2);
         vm.assume(maxL1Limit1 >= l1Limit1 && l1Limit1 >= maxL1Limit2);
-        vm.assume(0 != l1Limit1);
+        vm.assume(l1Limit1 != 0);
 
-        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
-        blockTimestamp = blockTimestamp + 1_720_700_948;
+        uint256 blockTimestamp = block.timestamp;
+        blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = alice;
-        _registerL1(l1, address(middleware));
+        // store the actual L1 contract
+        address dummyL1Addr = _registerL1(l1, address(middleware));
+
         uint96 assetClass = 1;
 
-        _setMaxL1Limit(l1, assetClass, maxL1Limit1, address(middleware));
+        // use dummyL1Addr
+        _setMaxL1Limit(dummyL1Addr, assetClass, maxL1Limit1, address(middleware));
 
-        assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit1);
+        assertEq(delegator.maxL1Limit(dummyL1Addr, assetClass), maxL1Limit1);
 
-        _setL1Limit(alice, l1, assetClass, l1Limit1);
+        _setL1Limit(alice, dummyL1Addr, assetClass, l1Limit1);
 
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(blockTimestamp + 2 * vault.epochDuration()), ""), l1Limit1);
+        assertEq(
+            delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(blockTimestamp + 2 * vault.epochDuration()), ""),
+            l1Limit1
+        );
 
         uint256 newEpochStart = vault.currentEpochStart() + vault.epochDuration();
         vm.warp(newEpochStart);
 
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""), l1Limit1);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""), l1Limit1);
-
-        _setMaxL1Limit(l1, assetClass, maxL1Limit2, address(middleware));
-
-        assertEq(delegator.maxL1Limit(l1, assetClass), maxL1Limit2);
-        assertEq(delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + vault.epochDuration()), ""), maxL1Limit2);
         assertEq(
-            delegator.l1LimitAt(l1, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""), maxL1Limit2
+            delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(newEpochStart + vault.epochDuration()), ""), l1Limit1
+        );
+        assertEq(
+            delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
+            l1Limit1
+        );
+
+        _setMaxL1Limit(dummyL1Addr, assetClass, maxL1Limit2, address(middleware));
+
+        assertEq(delegator.maxL1Limit(dummyL1Addr, assetClass), maxL1Limit2);
+        assertEq(
+            delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(newEpochStart + vault.epochDuration()), ""), maxL1Limit2
+        );
+        assertEq(
+            delegator.l1LimitAt(dummyL1Addr, assetClass, uint48(newEpochStart + 2 * vault.epochDuration()), ""),
+            maxL1Limit2
         );
     }
 
@@ -615,10 +655,11 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        _registerL1(alice, address(middleware));
+        // capture the dummy L1 for alice
+        address dummyL1Addr = _registerL1(alice, address(middleware));
         uint96 assetClass = 1;
 
-        // Bob is not an L1
+        // Bob is not an L1 => revert
         vm.startPrank(bob);
         vm.expectRevert(IBaseDelegator.BaseDelegator__NotL1.selector);
         delegator.setMaxL1Limit(bob, assetClass, maxL1Limit);
@@ -631,14 +672,15 @@ contract L1RestakeDelegatorTest is Test {
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
-        _registerL1(alice, address(middleware));
+        // again, store the actual L1 contract for alice
+        address dummyL1Addr = _registerL1(alice, address(middleware));
         uint96 assetClass = 1;
 
-        _setMaxL1Limit(alice, assetClass, maxL1Limit, address(middleware));
+        _setMaxL1Limit(dummyL1Addr, assetClass, maxL1Limit, address(middleware));
 
         vm.startPrank(address(middleware));
         vm.expectRevert(IBaseDelegator.BaseDelegator__AlreadySet.selector);
-        delegator.setMaxL1Limit(alice, assetClass, maxL1Limit);
+        delegator.setMaxL1Limit(dummyL1Addr, assetClass, maxL1Limit);
         vm.stopPrank();
     }
 
@@ -659,101 +701,105 @@ contract L1RestakeDelegatorTest is Test {
         operatorL1Shares2 = bound(operatorL1Shares2, 1, type(uint256).max / 2);
         operatorL1Shares3 = bound(operatorL1Shares3, 0, type(uint256).max / 2);
         vm.assume(withdrawAmount <= depositAmount);
-
         vm.assume(operatorL1Shares2 - 1 != operatorL1Shares3);
 
-        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
+        uint256 blockTimestamp = block.timestamp;
         blockTimestamp = blockTimestamp + 1_720_700_948;
         vm.warp(blockTimestamp);
-
-        // Creates the vault and delegator, ensures vault is registred "entity"
 
         (vault, delegator) = _getVaultAndDelegator(epochDuration);
 
         address l1 = alice;
-        _registerL1(l1, address(middleware));
+        // 1) Get the actual L1 contract address from _registerL1
+        address dummyL1Addr = _registerL1(l1, address(middleware));
+
         uint96 assetClass = 1;
-        _setMaxL1Limit(l1, assetClass, type(uint256).max, address(middleware));
+        // 2) Use the dummyL1Addr when setting the L1 limit
+        _setMaxL1Limit(dummyL1Addr, assetClass, type(uint256).max, address(middleware));
 
         _registerOperator(alice, "aliceMetadata");
         _registerOperator(bob, "bobMetadata");
 
         // Initially no stake
-        assertEq(delegator.stake(l1, assetClass, alice), 0);
-        assertEq(delegator.stake(l1, assetClass, bob), 0);
+        assertEq(delegator.stake(dummyL1Addr, assetClass, alice), 0);
+        assertEq(delegator.stake(dummyL1Addr, assetClass, bob), 0);
 
         _optInOperatorVault(alice);
         _optInOperatorVault(bob);
 
-        assertEq(delegator.stake(l1, assetClass, alice), 0);
-        assertEq(delegator.stake(l1, assetClass, bob), 0);
+        // Still no stake
+        assertEq(delegator.stake(dummyL1Addr, assetClass, alice), 0);
+        assertEq(delegator.stake(dummyL1Addr, assetClass, bob), 0);
 
-        _optInOperatorL1(alice, l1);
-        _optInOperatorL1(bob, l1);
+        // 3) Use dummyL1Addr for operator L1 opt in
+        _optInOperatorL1(alice, dummyL1Addr);
+        _optInOperatorL1(bob, dummyL1Addr);
 
-        assertEq(delegator.stake(l1, assetClass, alice), 0);
-        assertEq(delegator.stake(l1, assetClass, bob), 0);
-
-        // Deposit and withdraw before setting any limits/shares
+        // Deposit + withdraw
         _deposit(alice, depositAmount);
         _withdraw(alice, withdrawAmount);
 
-        assertEq(delegator.stake(l1, assetClass, alice), 0);
-        assertEq(delegator.stake(l1, assetClass, bob), 0);
+        // No shares set => no stake
+        assertEq(delegator.stake(dummyL1Addr, assetClass, alice), 0);
+        assertEq(delegator.stake(dummyL1Addr, assetClass, bob), 0);
 
-        // Set L1 limit
-        _setL1Limit(alice, l1, assetClass, l1Limit);
+        // Now set L1 limit
+        _setL1Limit(alice, dummyL1Addr, assetClass, l1Limit);
 
-        assertEq(delegator.stake(l1, assetClass, alice), 0);
-        assertEq(delegator.stake(l1, assetClass, bob), 0);
+        assertEq(delegator.stake(dummyL1Addr, assetClass, alice), 0);
+        assertEq(delegator.stake(dummyL1Addr, assetClass, bob), 0);
 
         // Set operator L1 shares for alice
-        _setOperatorL1Shares(alice, l1, assetClass, alice, operatorL1Shares1);
-        // Checking if CURRENT timestamp is fine
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, alice, operatorL1Shares1);
+
         uint256 effectiveStake = Math.min(depositAmount - withdrawAmount, l1Limit);
+        // At timestamp = blockTimestamp
         assertEq(
-            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1)
         );
-        assertEq(delegator.stake(l1, assetClass, alice), operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1));
-        assertEq(delegator.stake(l1, assetClass, bob), 0);
-
-        // Set operator L1 shares for bob
-        _setOperatorL1Shares(alice, l1, assetClass, bob, operatorL1Shares2);
-        // Check again current timestamp
         assertEq(
-            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
+            delegator.stake(dummyL1Addr, assetClass, alice), operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1)
+        );
+        assertEq(delegator.stake(dummyL1Addr, assetClass, bob), 0);
+
+        // Bob shares
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, bob, operatorL1Shares2);
+
+        assertEq(
+            delegator.stakeAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
         assertEq(
-            delegator.stake(l1, assetClass, alice),
+            delegator.stake(dummyL1Addr, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
         assertEq(
-            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp), ""),
             operatorL1Shares2.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
         assertEq(
-            delegator.stake(l1, assetClass, bob),
+            delegator.stake(dummyL1Addr, assetClass, bob),
             operatorL1Shares2.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2)
         );
 
-        // Decrease bob's shares at current timestamp
-        _setOperatorL1Shares(alice, l1, assetClass, bob, operatorL1Shares2 - 1);
+        // Decrease bob's shares
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, bob, operatorL1Shares2 - 1);
+
         assertEq(
-            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stake(l1, assetClass, alice),
+            delegator.stake(dummyL1Addr, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stake(l1, assetClass, bob),
+            delegator.stake(dummyL1Addr, assetClass, bob),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
 
@@ -761,47 +807,48 @@ contract L1RestakeDelegatorTest is Test {
         blockTimestamp++;
         vm.warp(blockTimestamp);
 
-        // Reduce bob's shares again
-        _setOperatorL1Shares(alice, l1, assetClass, bob, operatorL1Shares3);
+        // Further reduce bob's shares
+        _setOperatorL1Shares(alice, dummyL1Addr, assetClass, bob, operatorL1Shares3);
 
-        // Check the state at blockTimestamp - 1
+        // Check historical state at (blockTimestamp - 1)
         assertEq(
-            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp - 1), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp - 1), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp - 1), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp - 1), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
 
-        // Current state after changes
+        // Current state
         assertEq(
-            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
         assertEq(
-            delegator.stake(l1, assetClass, alice),
+            delegator.stake(dummyL1Addr, assetClass, alice),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
         assertEq(
-            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp), ""),
             operatorL1Shares3.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
         assertEq(
-            delegator.stake(l1, assetClass, bob),
+            delegator.stake(dummyL1Addr, assetClass, bob),
             operatorL1Shares3.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares3)
         );
 
+        // Advance again
         blockTimestamp++;
         vm.warp(blockTimestamp);
 
-        // Historical checks (blockTimestamp - 2), should be stable
+        // Historical checks
         assertEq(
-            delegator.stakeAt(l1, assetClass, alice, uint48(blockTimestamp - 2), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, alice, uint48(blockTimestamp - 2), ""),
             operatorL1Shares1.mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
         assertEq(
-            delegator.stakeAt(l1, assetClass, bob, uint48(blockTimestamp - 2), ""),
+            delegator.stakeAt(dummyL1Addr, assetClass, bob, uint48(blockTimestamp - 2), ""),
             (operatorL1Shares2 - 1).mulDiv(effectiveStake, operatorL1Shares1 + operatorL1Shares2 - 1)
         );
     }
@@ -819,15 +866,15 @@ contract L1RestakeDelegatorTest is Test {
         address l1 = alice;
         address operatorA = alice;
         address operatorB = bob;
-        _registerL1(l1, address(middleware));
+        address dummyL1Addr = _registerL1(l1, address(middleware));
         _registerOperator(operatorA, "operatorA");
         _registerOperator(operatorB, "operatorB");
 
         _optInOperatorVault(operatorA);
         _optInOperatorVault(operatorB);
 
-        _optInOperatorL1(operatorA, l1);
-        _optInOperatorL1(operatorB, l1);
+        _optInOperatorL1(operatorA, dummyL1Addr);
+        _optInOperatorL1(operatorB, dummyL1Addr);
 
         uint256 depositAmount = 100 * 10 ** 18;
         uint256 l1LimitAmount = 50 * 10 ** 18;
@@ -839,31 +886,28 @@ contract L1RestakeDelegatorTest is Test {
         for (uint256 i = 0; i < assets.length; i++) {
             uint96 asset = assets[i];
 
-            // Set max L1 limit for this stakable asset
-            _setMaxL1Limit(l1, asset, type(uint256).max, address(middleware));
+            // 3) Use 'dummyL1Addr' instead of 'l1'
+            _setMaxL1Limit(dummyL1Addr, asset, type(uint256).max, address(middleware));
+            _setL1Limit(alice, dummyL1Addr, asset, l1LimitAmount);
 
-            // Set L1 limit
-            _setL1Limit(alice, l1, asset, l1LimitAmount);
-
-            // Set operator shares
-            _setOperatorL1Shares(alice, l1, asset, operatorA, operatorAShares);
-            _setOperatorL1Shares(alice, l1, asset, operatorB, operatorBShares);
+            _setOperatorL1Shares(alice, dummyL1Addr, asset, operatorA, operatorAShares);
+            _setOperatorL1Shares(alice, dummyL1Addr, asset, operatorB, operatorBShares);
 
             // Check stakes
             uint256 totalShares = operatorAShares + operatorBShares;
             uint256 effectiveStake = Math.min(depositAmount, l1LimitAmount);
 
-            uint256 stakeA = delegator.stake(l1, asset, operatorA);
-            uint256 stakeB = delegator.stake(l1, asset, operatorB);
+            uint256 stakeA = delegator.stake(dummyL1Addr, asset, operatorA);
+            uint256 stakeB = delegator.stake(dummyL1Addr, asset, operatorB);
 
             assertEq(stakeA, operatorAShares * effectiveStake / totalShares, "Stake for Operator A mismatch");
             assertEq(stakeB, operatorBShares * effectiveStake / totalShares, "Stake for Operator B mismatch");
 
-            // Modify operator shares and check again
-            _setOperatorL1Shares(alice, l1, asset, operatorB, operatorBShares + 10);
+            // Adjust operator shares
+            _setOperatorL1Shares(alice, dummyL1Addr, asset, operatorB, operatorBShares + 10);
             totalShares = operatorAShares + (operatorBShares + 10);
-            stakeA = delegator.stake(l1, asset, operatorA);
-            stakeB = delegator.stake(l1, asset, operatorB);
+            stakeA = delegator.stake(dummyL1Addr, asset, operatorA);
+            stakeB = delegator.stake(dummyL1Addr, asset, operatorB);
 
             assertEq(stakeA, operatorAShares * effectiveStake / totalShares, "Updated Stake A mismatch");
             assertEq(stakeB, (operatorBShares + 10) * effectiveStake / totalShares, "Updated Stake B mismatch");
@@ -937,9 +981,15 @@ contract L1RestakeDelegatorTest is Test {
         vm.stopPrank();
     }
 
-    function _registerL1(address l1, address _middleware) internal {
+    function _registerL1(address l1, address _middleware) internal returns (address) {
+        DummyL1 dummyL1 = new DummyL1(l1);
+
+        // 'l1' calls registerL1 for the new contract
         vm.prank(l1);
-        l1Registry.registerL1(l1, _middleware, "metadataURL");
+        l1Registry.registerL1(address(dummyL1), _middleware, "metadataURL");
+
+        // Return the actual contract address
+        return address(dummyL1);
     }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {

@@ -29,7 +29,7 @@ contract AssetClassRegistryTest is Test {
         tokenC = makeAddr("tokenC");
 
         // Deploy the new child AssetClassRegistry
-        assetClassRegistry = new MockAssetClassRegistry();
+        assetClassRegistry = new MockAssetClassRegistry(owner);
         // Deploy the new AssetClassRegistry
         // The constructor automatically creates class "1" with:
         // - minValidatorStake = 50
@@ -63,7 +63,7 @@ contract AssetClassRegistryTest is Test {
     function test_RevertOnRemovePrimaryAssetFromClass1() public {
         // Trying to remove the default asset (tokenA) from class #1 must revert
         vm.expectRevert(
-            abi.encodeWithSelector(IAssetClassRegistry.AssetClassRegistry__AssetIsPrimarytAssetClass.selector, 1)
+            abi.encodeWithSelector(IAssetClassRegistry.AssetClassRegistry__AssetIsPrimaryAssetClass.selector, 1)
         );
         assetClassRegistry.removeAssetFromClass(1, tokenA);
     }

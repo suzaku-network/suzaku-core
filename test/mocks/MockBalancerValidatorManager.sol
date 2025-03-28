@@ -15,11 +15,12 @@ import {
 } from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 import {IBalancerValidatorManager} from
     "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 // Declare missing event (do not duplicate events already in IBalancerValidatorManager)
 event ValidationPeriodRegistered(bytes32 indexed validationID, uint64 weight, uint256 startedAt);
 
-contract MockBalancerValidatorManager is IBalancerValidatorManager {
+contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
     // --- Validator storage ---
     mapping(bytes32 => Validator) public validators;
     mapping(bytes32 => bool) public pendingWeightUpdate;
@@ -43,6 +44,10 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
 
     // mapping from nodeID => validationID ---
     mapping(bytes => bytes32) public _registeredValidators; // <-- ADD
+
+    constructor(
+        address initialOwner
+    ) Ownable(initialOwner) {}
 
     // --- IValidatorManager stubs for functions not needed by middleware ---
     function completeValidatorRegistration(
@@ -93,7 +98,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager {
         return pendingWeightUpdate[validationID];
     }
 
-    function setupSecurityModule(address securityModule, uint64 maxWeight) external {
+    function setupSecurityModule(address securityModule, uint64 maxWeight) external onlyOwner {
         if (isSecurityModuleRegistered[securityModule]) {
             uint64 currentWeight = securityModuleWeight[securityModule];
             require(maxWeight >= currentWeight, "New max weight lower than current weight");
