@@ -15,14 +15,15 @@ contract MockVaultManager {
     }
 
     function deployAndAddVault(
-        address collateralAddress
+        address collateralAddress,
+        address owner
     ) external returns (address vaultAddress, address delegatorAddress) {
         // First deploy the delegator
         MockDelegator delegator = new MockDelegator();
         delegatorAddress = address(delegator);
 
         // Then deploy the vault with reference to the delegator
-        MockVault newVault = new MockVault(collateralAddress, delegatorAddress);
+        MockVault newVault = new MockVault(collateralAddress, delegatorAddress, owner);
         vaultAddress = address(newVault);
 
         vaults.push(vaultAddress);

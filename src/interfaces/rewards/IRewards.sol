@@ -3,6 +3,11 @@
 
 pragma solidity 0.8.25;
 
+struct DistributionBatch {
+    uint256 lastProcessedOperator;
+    bool isComplete;
+}
+
 /**
  * @title IRewards
  * @notice Interface for managing distribution and claiming of staking rewards
@@ -44,6 +49,60 @@ interface IRewards {
     error AlreadyClaimedForLatestEpoch(address staker, uint48 epoch);
 
     /**
+     * @dev Error thrown when an invalid rewards token address is provided
+     * @param rewardsToken Invalid rewards token address
+     */
+    error InvalidRewardsToken(address rewardsToken);
+
+    /**
+     * @dev Error thrown when an invalid rewards amount is provided
+     * @param rewardsAmount Invalid rewards amount
+     */
+    error InvalidRewardsAmount(uint256 rewardsAmount);
+
+    /**
+     * @dev Error thrown when an invalid number of epochs is provided
+     * @param numberOfEpochs Invalid number of epochs
+     */
+    error InvalidNumberOfEpochs(uint48 numberOfEpochs);
+
+    /**
+     * @dev Error thrown when an invalid share percentage is provided
+     * @param share Invalid share percentage
+     */
+    error InvalidShare(uint16 share);
+
+    /**
+     * @dev Error thrown when an invalid fee percentage is provided
+     * @param fee Invalid fee percentage
+     */
+    error InvalidFee(uint16 fee);
+
+    /**
+     * @dev Error thrown when an invalid minimum uptime is provided
+     * @param minUptime Invalid minimum uptime
+     */
+    error InvalidMinUptime(uint256 minUptime);
+
+    /**
+     * @dev Error thrown when a vault's asset class cannot be found
+     * @param vault Address of the vault
+     */
+    error AssetClassNotFound(address vault);
+
+    /**
+     * @dev Error thrown when trying to operate on an unfinished epoch
+     * @param epoch Unfinished epoch
+     */
+    error EpochNotFinished(uint48 epoch);
+
+    /**
+     * @dev Error thrown when an invalid operator address is provided
+     * @param operator Invalid operator address
+     */
+    error InvalidOperator(address operator);
+
+    /**
      * @dev Error thrown when the operator does not have uptime set for the epoch
      * @param operator Address of the operator
      * @param epoch Epoch at which the operator's uptime was checked
@@ -70,10 +129,22 @@ interface IRewards {
     error TotalFeesExceed100(uint16 totalFees);
 
     /**
-     * @notice Error thrown when a vault's asset class cannot be found
-     * @param vault Address of the vault
+     * @notice Error thrown when trying to distribute rewards for an epoch that has already been completed
+     * @param epoch Epoch for which rewards were already distributed
      */
-    error AssetClassNotFound(address vault);
+    error AlreadyCompleted(uint48 epoch);
+
+    /**
+     * @notice Error thrown when trying to claim rewards for an epoch that has not been distributed
+     * @param epoch Epoch for which rewards are not distributed
+     */
+    error DistributionNotComplete(uint48 epoch);
+
+    /**
+     * @notice Error thrown when trying to claim rewards for an epoch that is still claimable
+     * @param epoch Epoch for which rewards are still claimable
+     */
+    error EpochStillClaimable(uint48 epoch);
 
     // ============================
     //         EVENTS
@@ -164,6 +235,17 @@ interface IRewards {
         uint48 indexed startEpoch, uint256 numberOfEpochs, address indexed rewardsToken, uint256 rewardsAmount
     );
 
+    /**
+     * @notice Emitted when undistributed rewards are claimed
+     * @param epoch Epoch for which undistributed rewards were claimed
+     * @param rewardsToken Address of the reward token
+     * @param recipient Address receiving the undistributed rewards
+     * @param amount Amount of reward tokens claimed
+     */
+    event UndistributedRewardsClaimed(
+        uint48 indexed epoch, address indexed rewardsToken, address indexed recipient, uint256 amount
+    );
+
     // ============================
     //         FUNCTIONS
     // ============================
@@ -171,10 +253,9 @@ interface IRewards {
      * @notice Distributes rewards for a given epoch
      * @dev Rewards are allocated to operators, curators, and stakers based on predefined logic
      * @param epoch Epoch for which rewards should be distributed
+     * @param batchSize Size of the batch to distribute rewards in
      */
-    function distributeRewards(
-        uint48 epoch
-    ) external;
+    function distributeRewards(uint48 epoch, uint48 batchSize) external;
 
     /**
      * @notice Claims staking rewards for a user
@@ -277,7 +358,7 @@ interface IRewards {
      */
     function setRewardsAmountForEpochs(
         uint48 startEpoch,
-        uint256 numberOfEpochs,
+        uint48 numberOfEpochs,
         address rewardsToken,
         uint256 rewardsAmount
     ) external;

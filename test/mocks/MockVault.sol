@@ -12,16 +12,13 @@ interface IVaultTokenized {
 contract MockVault is IVaultTokenized {
     address private _collateral;
     address private _delegator;
+    address private _owner;
     mapping(address => uint256) public activeBalance;
 
-    constructor(address collateralAddress, address delegatorAddress) {
+    constructor(address collateralAddress, address delegatorAddress, address owner_) {
         _collateral = collateralAddress;
         _delegator = delegatorAddress;
-
-        // Populate mapping with dummy values
-        activeBalance[address(0x123)] = 1000 * 1e15; // Example balance for address 0x123
-        activeBalance[address(0x456)] = 500 * 1e15; // Example balance for address 0x456
-        activeBalance[address(0x789)] = 750 * 1e15; // Example balance for address 0x789
+        _owner = owner_;
     }
 
     function collateral() external view override returns (address) {
@@ -36,7 +33,11 @@ contract MockVault is IVaultTokenized {
         return activeBalance[account];
     }
 
-    function owner() public view virtual returns (address) {
-        return address(0x12345689123567891235789);
+    function setActiveBalance(address account, uint256 balance) public {
+        activeBalance[account] = balance;
+    }
+
+    function owner() public view override returns (address) {
+        return _owner;
     }
 }

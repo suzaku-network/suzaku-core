@@ -7,87 +7,67 @@ import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 import {MiddlewareVaultManager} from "../middleware/MiddlewareVaultManager.sol";
 import {UptimeTracker} from "./UptimeTracker.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {BaseDelegator} from "../delegator/BaseDelegator.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {VaultTokenized} from "../vault/VaultTokenized.sol";
-import {IRewards} from "../../interfaces/rewards/IRewards.sol";
+import {IRewards, DistributionBatch} from "../../interfaces/rewards/IRewards.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
-/**
- * @title Rewards
- * @notice Contract for managing and distributing staking rewards across the protocol
- * @dev Handles reward distribution calculations, fee management, and claiming logic for stakers,
- * operators, curators and protocol owner. Supports multiple reward tokens and asset classes.
- * Integrates with UptimeTracker to factor in validator performance.
- */
 contract Rewards is AccessControlUpgradeable, IRewards {
     using SafeERC20 for IERC20;
     using EnumerableMap for EnumerableMap.AddressToUintMap;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
-    /// @notice Basis points denominator where 10000 equals 100%
-    uint16 private constant BASIS_POINTS_DENOMINATOR = 10_000;
+    event DEBUG(uint256 vaultShare);
 
-    /// @notice Roles
+    // Constants
+    uint16 public constant BASIS_POINTS_DENOMINATOR = 10_000;
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     bytes32 public constant PROTOCOL_OWNER_ROLE = keccak256("PROTOCOL_OWNER_ROLE");
 
-    /// @notice Protocol, operator and curator fee percentages in basis points
+    // STATE VARIABLES
+    // Fee configuration
     uint16 public protocolFee;
     uint16 public operatorFee;
     uint16 public curatorFee;
 
-    /// @notice External contract references for core functionality
+    // External contracts
     AvalancheL1Middleware public l1Middleware;
     MiddlewareVaultManager public middlewareVaultManager;
     UptimeTracker public uptimeTracker;
 
-    /// @notice Duration of each epoch in seconds
     uint48 public epochDuration;
-
-    /// @notice Minimum required uptime in seconds for reward eligibility
-    /// @dev Rewards are zero if uptime is less than 80%
     uint256 public minRequiredUptime;
 
-    /// @notice Maps epochs to their reward token amounts
+    // Batch tracking
+    mapping(uint48 epoch => DistributionBatch) public distributionBatches;
+
+    // Share tracking
+    mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorTotalShares;
+    mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorShares;
+    mapping(uint48 epoch => mapping(address vault => uint256 share)) public vaultShares;
+    mapping(uint48 epoch => mapping(address curator => uint256 share)) public curatorShares;
+    mapping(uint48 epoch => mapping(address protocolOwner => uint256 share)) public protocolShares;
+
+    // Reward token amounts per epoch
     mapping(uint48 epoch => EnumerableMap.AddressToUintMap rewardsTokenToAmount) private rewardsAmountPerTokenFromEpoch;
 
-    /// @notice Protocol rewards tracking per token
-    mapping(address rewardsToken => uint256 rewardsAmount) public protocolRewardsAmountPerToken;
+    // Last claimed epoch tracking
+    mapping(address staker => uint48 epoch) public lastEpochClaimedStaker;
+    mapping(address curator => uint48 epoch) public lastEpochClaimedCurator;
+    mapping(address protocolOwner => uint48 epoch) public lastEpochClaimedProtocol;
+    mapping(address operator => uint48 epoch) public lastEpochClaimedOperator;
 
-    /// @notice Operator rewards tracking per token
-    mapping(address operator => mapping(address rewardsToken => uint256 rewardsAmount)) public
-        operatorRewardsAmountPerToken;
-
-    /// @notice Curators' rewards tracking per token
-    mapping(address curator => mapping(address rewardsToken => uint256 rewardsAmount)) public
-        curatorRewardsAmountPerToken;
-
-    /// @notice Vaults' rewards tracking
-    mapping(uint48 epoch => mapping(address vault => mapping(address rewardsToken => uint256 rewardsAmount))) public
-        vaultsRewardsPerTokenPerEpoch;
-
-    /// @notice Stakers' last epoch rewards claimed
-    mapping(address staker => uint48 epoch) public lastEpochClaimed;
-
-    /// @notice Rewards share per asset class (in basis points)
+    // Asset class configuration
     mapping(uint96 assetClass => uint16 rewardsShare) public rewardsSharePerAssetClass;
 
-    /// @notice Rewards amount per asset class per rewards' token and per epoch
-    mapping(uint48 epoch => mapping(uint96 assetClass => mapping(address rewardsToken => uint256 rewardsAmount))) public
-        rewardsPerAssetClassPerTokenPerEpoch;
+    // Operators vault delegator mapping
+    mapping(uint48 epoch => mapping(address vault => EnumerableSet.AddressSet operators)) private vaultOperators;
 
-    /// @notice Tracks whether the operators' rewards have been distributed for an epoch
-    mapping(uint48 epoch => mapping(address operator => bool distributed)) public operatorsRewardsDistributed;
-
-    /// @notice Tracks whether the vaults' rewards have been distributed for an epoch and a rewards' token
-    mapping(uint48 epoch => mapping(address rewardsToken => mapping(address vault => bool distributed))) public
-        vaultsRewardsDistributed;
-
-    /// @notice Tracks which vault delegates to which operator for an epoch
-    mapping(uint48 epoch => mapping(address vault => address operator)) public vaultDelegatingToOperator;
-
+    // INITIALIZER
     function initialize(
         address admin_,
         address protocolOwner_,
@@ -95,8 +75,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         address middlewareVaultManager_,
         address uptimeTracker_,
         uint16 protocolFee_,
-        uint16 curatorFee_,
-        uint16 operatorFee_
+        uint16 operatorFee_,
+        uint16 curatorFee_
     ) public initializer {
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
         _grantRole(ADMIN_ROLE, admin_);
@@ -108,179 +88,300 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         epochDuration = l1Middleware.EPOCH_DURATION();
 
         protocolFee = protocolFee_;
-        curatorFee = curatorFee_;
         operatorFee = operatorFee_;
+        curatorFee = curatorFee_;
     }
 
+    // EXTERNAL FUNCTIONS
+    // Distribution
     /// @inheritdoc IRewards
-    function distributeRewards(
-        uint48 epoch
-    ) external _distributeEpochRewardsPerAssetClass(epoch) {
-        // revert if epoch too recent
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
-        if (currentEpoch < (epoch + 1)) {
-            revert RewardsDistributionTooEarly(epoch, epoch + 1);
-        }
-        // fetch operators
+    function distributeRewards(uint48 epoch, uint48 batchSize) external {
+        DistributionBatch storage batch = distributionBatches[epoch];
+
+        if (batch.isComplete) revert AlreadyCompleted(epoch);
+
         address[] memory operators = l1Middleware.getAllOperators();
-        // get reward tokens
-        address[] memory rewardTokens = rewardsAmountPerTokenFromEpoch[epoch].keys();
+        uint256 operatorCount = 0;
 
-        for (uint256 i = 0; i < operators.length; i++) {
-            for (uint256 j = 0; j < rewardTokens.length; j++) {
-                // get the entire available rewards
-                uint256 availableRewards = _computeAvailableRewards(epoch, operators[i], rewardTokens[j]);
-                // compute operator rewards with the fee
-                uint256 operatorRewards = Math.mulDiv(availableRewards, operatorFee, BASIS_POINTS_DENOMINATOR);
-                // set the operator rewards if rewards were not already distributed
-                bool rewardDistributed = operatorsRewardsDistributed[epoch][operators[i]];
-                if (!rewardDistributed) operatorRewardsAmountPerToken[operators[i]][rewardTokens[j]] += operatorRewards;
-                // compute remaining rewards
-                availableRewards -= operatorRewards;
-                // compute vaults rewards
-                _computeVaultsRewards(operators[i], epoch, rewardTokens[j], availableRewards);
-            }
-            // mark operator's rewards as distributed for said epoch
-            operatorsRewardsDistributed[epoch][operators[i]] = true;
+        for (uint256 i = batch.lastProcessedOperator; i < operators.length && operatorCount < batchSize; i++) {
+            // Calculate operator's total share based on stake and uptime
+            _calculateOperatorShare(epoch, operators[i]);
+
+            // Calculate and store vault shares
+            _calculateAndStoreVaultShares(epoch, operators[i]);
+
+            batch.lastProcessedOperator = i + 1;
+            operatorCount++;
         }
 
-        emit RewardsDistributed(epoch);
+        if (batch.lastProcessedOperator >= operators.length) {
+            batch.isComplete = true;
+        }
     }
 
+    // Claiming functions
     /// @inheritdoc IRewards
     function claimRewards(address rewardsToken, address recipient) external {
-        if (recipient == address(0)) {
-            revert InvalidRecipient(recipient);
-        }
-        uint48 lastClaimedEpoch = lastEpochClaimed[msg.sender];
+        if (recipient == address(0)) revert InvalidRecipient(recipient);
+
+        uint48 lastClaimedEpoch = lastEpochClaimedStaker[msg.sender];
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
 
-        if (lastClaimedEpoch >= currentEpoch - 1) {
+        if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
             revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
         }
 
-        uint256 claimableRewards = 0;
+        uint256 totalRewards = 0;
 
-        for (uint48 i = lastClaimedEpoch + 1; i < currentEpoch; i++) {
-            address[] memory vaults = _getStakerVaults(msg.sender, i);
-            uint48 epochTs = l1Middleware.getEpochStartTs(i);
-            for (uint256 j = 0; j < vaults.length; j++) {
-                // get vault asset class
-                uint96 vaultAssetClass = _getVaultAssetClassId(vaults[j]);
-                // fetch stakes
-                uint256 stakerStake = IVaultTokenized(vaults[j]).activeBalanceOfAt(msg.sender, epochTs, new bytes(0));
-                uint256 vaultStake = BaseDelegator(IVaultTokenized(vaults[j]).delegator()).stakeAt(
-                    l1Middleware.L1_VALIDATOR_MANAGER(),
-                    vaultAssetClass,
-                    vaultDelegatingToOperator[i][vaults[j]],
-                    epochTs,
-                    new bytes(0)
-                );
-                // if vaultStake is 0, reverts to prevent division by 0
-                if (vaultStake == 0) {
-                    revert ZeroVaultStake(vaults[j], i);
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            address[] memory vaults = _getStakerVaults(msg.sender, epoch);
+            uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
+
+            for (uint256 i = 0; i < vaults.length; i++) {
+                address vault = vaults[i];
+                uint256 vaultShare = vaultShares[epoch][vault];
+                if (vaultShare == 0) continue;
+
+                // Calculate staker's share of vault rewards at claim time
+                uint256 stakerStake = IVaultTokenized(vault).activeBalanceOfAt(msg.sender, epochTs, new bytes(0));
+
+                // Calculate total vault stake as sum of stakes delegated to all operators
+                uint256 totalVaultStake = 0;
+                address[] memory operators = vaultOperators[epoch][vault].values();
+                for (uint256 j = 0; j < operators.length; j++) {
+                    totalVaultStake += BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                        l1Middleware.L1_VALIDATOR_MANAGER(),
+                        _getVaultAssetClassId(vault),
+                        operators[j],
+                        epochTs,
+                        new bytes(0)
+                    );
                 }
-                // compute staker share
-                uint256 stakerShare = Math.mulDiv(stakerStake, BASIS_POINTS_DENOMINATOR, vaultStake);
-                uint256 availableRewardsForVault = vaultsRewardsPerTokenPerEpoch[i][vaults[j]][rewardsToken];
-                // compute total staker rewards
-                uint256 stakerRewards = Math.mulDiv(availableRewardsForVault, stakerShare, BASIS_POINTS_DENOMINATOR);
-                // deduct curator fee
-                uint256 curatorRewards = Math.mulDiv(stakerRewards, curatorFee, BASIS_POINTS_DENOMINATOR);
-                curatorRewardsAmountPerToken[VaultTokenized(vaults[j]).owner()][rewardsToken] += curatorRewards;
-                stakerRewards -= curatorRewards;
-                claimableRewards += stakerRewards;
+                uint256 stakerShare = Math.mulDiv(stakerStake, vaultShare, totalVaultStake);
+                if (stakerShare == 0) continue;
+
+                uint256 epochRewards = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+
+                // Calculate staker rewards after curator fee
+                uint256 rewards = Math.mulDiv(epochRewards, stakerShare, BASIS_POINTS_DENOMINATOR);
+                totalRewards += rewards;
             }
         }
 
-        // if claimableRewards still 0, reverts to prevent unnecessary transaction and gas waste
-        if (claimableRewards == 0) {
-            revert NoRewardsToClaim(msg.sender);
-        }
+        if (totalRewards == 0) revert NoRewardsToClaim(msg.sender);
 
-        IERC20(rewardsToken).safeTransfer(recipient, claimableRewards);
-        lastEpochClaimed[msg.sender] = currentEpoch - 1;
-    }
-
-    /// @inheritdoc IRewards
-    function claimCuratorFee(address rewardsToken, address recipient) external {
-        if (recipient == address(0)) {
-            revert InvalidRecipient(recipient);
-        }
-        uint256 rewardsToClaim = curatorRewardsAmountPerToken[msg.sender][rewardsToken];
-        if (rewardsToClaim == 0) {
-            revert NoRewardsToClaim(msg.sender);
-        }
-
-        IERC20(rewardsToken).safeTransfer(recipient, rewardsToClaim);
-        curatorRewardsAmountPerToken[msg.sender][rewardsToken] = 0;
+        IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
+        lastEpochClaimedStaker[msg.sender] = currentEpoch - 1;
     }
 
     /// @inheritdoc IRewards
     function claimOperatorFee(address rewardsToken, address recipient) external {
-        if (recipient == address(0)) {
-            revert InvalidRecipient(recipient);
-        }
-        uint256 rewardsToClaim = operatorRewardsAmountPerToken[msg.sender][rewardsToken];
-        if (rewardsToClaim == 0) {
-            revert NoRewardsToClaim(msg.sender);
+        if (recipient == address(0)) revert InvalidRecipient(recipient);
+
+        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 lastClaimedEpoch = lastEpochClaimedOperator[msg.sender];
+
+        if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
+            revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
         }
 
-        IERC20(rewardsToken).safeTransfer(recipient, rewardsToClaim);
-        operatorRewardsAmountPerToken[msg.sender][rewardsToken] = 0;
+        uint256 totalRewards = 0;
+
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            uint256 operatorShare = operatorShares[epoch][msg.sender];
+            if (operatorShare == 0) continue;
+
+            // get rewards amount per token for epoch
+            uint256 rewardsAmount = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+            if (rewardsAmount == 0) continue;
+
+            uint256 operatorRewards = Math.mulDiv(rewardsAmount, operatorShare, BASIS_POINTS_DENOMINATOR);
+            totalRewards += operatorRewards;
+        }
+
+        if (totalRewards == 0) revert NoRewardsToClaim(msg.sender);
+        IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
+        lastEpochClaimedOperator[msg.sender] = currentEpoch - 1;
+    }
+
+    /// @inheritdoc IRewards
+    function claimCuratorFee(address rewardsToken, address recipient) external {
+        if (recipient == address(0)) revert InvalidRecipient(recipient);
+
+        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 lastClaimedEpoch = lastEpochClaimedCurator[msg.sender];
+
+        if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
+            revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
+        }
+
+        uint256 totalCuratorRewards = 0;
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            uint256 curatorShare = curatorShares[epoch][msg.sender];
+            if (curatorShare == 0) continue;
+
+            uint256 rewardsAmount = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+            if (rewardsAmount == 0) continue;
+
+            uint256 curatorRewards = Math.mulDiv(rewardsAmount, curatorShare, BASIS_POINTS_DENOMINATOR);
+            totalCuratorRewards += curatorRewards;
+        }
+        if (totalCuratorRewards == 0) revert NoRewardsToClaim(msg.sender);
+
+        IERC20(rewardsToken).safeTransfer(recipient, totalCuratorRewards);
+        lastEpochClaimedCurator[msg.sender] = currentEpoch - 1;
     }
 
     /// @inheritdoc IRewards
     function claimProtocolFee(address rewardsToken, address recipient) external onlyRole(PROTOCOL_OWNER_ROLE) {
-        if (recipient == address(0)) {
-            revert InvalidRecipient(recipient);
-        }
-        uint256 rewardsToClaim = protocolRewardsAmountPerToken[rewardsToken];
-        if (rewardsToClaim == 0) {
-            revert NoRewardsToClaim(msg.sender);
+        if (recipient == address(0)) revert InvalidRecipient(recipient);
+
+        uint48 lastClaimedEpoch = lastEpochClaimedProtocol[msg.sender];
+        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+
+        if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
+            revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
         }
 
-        IERC20(rewardsToken).safeTransfer(recipient, rewardsToClaim);
-        protocolRewardsAmountPerToken[rewardsToken] = 0;
+        uint256 totalProtocolRewards = 0;
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            uint256 protocolShare = protocolShares[epoch][rewardsToken];
+            if (protocolShare == 0) continue;
+
+            uint256 rewardsAmount = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+            if (rewardsAmount == 0) continue;
+
+            uint256 protocolRewards = Math.mulDiv(rewardsAmount, protocolShare, BASIS_POINTS_DENOMINATOR);
+            totalProtocolRewards += protocolRewards;
+        }
+        if (totalProtocolRewards == 0) revert NoRewardsToClaim(msg.sender);
+
+        IERC20(rewardsToken).safeTransfer(recipient, totalProtocolRewards);
+        lastEpochClaimedProtocol[msg.sender] = currentEpoch - 1;
+    }
+
+    function claimUndistributedRewards(
+        uint48 epoch,
+        address rewardsToken,
+        address recipient
+    ) external onlyRole(ADMIN_ROLE) {
+        if (recipient == address(0)) revert InvalidRecipient(recipient);
+
+        // Check if epoch distribution is complete
+        DistributionBatch storage batch = distributionBatches[epoch];
+        if (!batch.isComplete) revert DistributionNotComplete(epoch);
+
+        // Check if current epoch is at least 2 epochs ahead (to ensure all claims are done)
+        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        if (currentEpoch < epoch + 2) revert EpochStillClaimable(epoch);
+
+        // Get total rewards for the epoch
+        uint256 totalRewardsForEpoch = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+        if (totalRewardsForEpoch == 0) revert NoRewardsToClaim(msg.sender);
+
+        // Calculate total distributed shares for the epoch
+        uint256 totalDistributedShares = 0;
+
+        // Sum operator shares
+        address[] memory operators = l1Middleware.getAllOperators();
+        for (uint256 i = 0; i < operators.length; i++) {
+            totalDistributedShares += operatorShares[epoch][operators[i]];
+        }
+
+        // Sum vault shares
+        address[] memory vaults = _getVaults(epoch);
+        for (uint256 i = 0; i < vaults.length; i++) {
+            totalDistributedShares += vaultShares[epoch][vaults[i]];
+        }
+
+        // Sum curator shares
+        for (uint256 i = 0; i < vaults.length; i++) {
+            address curator = VaultTokenized(vaults[i]).owner();
+            totalDistributedShares += curatorShares[epoch][curator];
+        }
+
+        // Add protocol shares
+        totalDistributedShares += protocolShares[epoch][rewardsToken];
+
+        // Calculate and transfer undistributed rewards
+        uint256 undistributedRewards =
+            totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
+
+        if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
+
+        // Clear the rewards amount to prevent double claiming
+        rewardsAmountPerTokenFromEpoch[epoch].set(rewardsToken, 0);
+
+        IERC20(rewardsToken).safeTransfer(recipient, undistributedRewards);
+
+        emit UndistributedRewardsClaimed(epoch, rewardsToken, recipient, undistributedRewards);
+    }
+
+    // Admin configuration functions
+    /// @inheritdoc IRewards
+    function setRewardsAmountForEpochs(
+        uint48 startEpoch,
+        uint48 numberOfEpochs,
+        address rewardsToken,
+        uint256 rewardsAmount
+    ) external onlyRole(ADMIN_ROLE) {
+        if (rewardsToken == address(0)) {
+            revert InvalidRewardsToken(rewardsToken);
+        }
+        if (rewardsAmount == 0) revert InvalidRewardsAmount(rewardsAmount);
+        if (numberOfEpochs == 0) revert InvalidNumberOfEpochs(numberOfEpochs);
+
+        uint256 totalRewards = rewardsAmount * numberOfEpochs;
+        IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), totalRewards);
+
+        protocolShares[startEpoch][rewardsToken] = protocolFee;
+
+        uint256 distributedRewards = rewardsAmount - Math.mulDiv(rewardsAmount, protocolFee, BASIS_POINTS_DENOMINATOR);
+        for (uint48 i = 0; i < numberOfEpochs; i++) {
+            rewardsAmountPerTokenFromEpoch[startEpoch + i].set(rewardsToken, distributedRewards);
+        }
+
+        emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsAmount);
+    }
+
+    /// @inheritdoc IRewards
+    function setRewardsShareForAssetClass(uint96 assetClass, uint16 share) external onlyRole(ADMIN_ROLE) {
+        if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
+        rewardsSharePerAssetClass[assetClass] = share;
+        emit RewardsShareUpdated(assetClass, share);
     }
 
     /// @inheritdoc IRewards
     function setMinRequiredUptime(
-        uint256 uptime
+        uint256 newMinUptime
     ) external onlyRole(ADMIN_ROLE) {
-        minRequiredUptime = uptime;
+        if (newMinUptime > epochDuration) revert InvalidMinUptime(newMinUptime);
+        minRequiredUptime = newMinUptime;
     }
 
     /// @inheritdoc IRewards
     function setAdminRole(
         address newAdmin
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        grantRole(ADMIN_ROLE, newAdmin);
-        revokeRole(ADMIN_ROLE, msg.sender);
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newAdmin == address(0)) revert InvalidRecipient(newAdmin);
+        _grantRole(ADMIN_ROLE, newAdmin);
         emit AdminRoleAssigned(newAdmin);
     }
 
     /// @inheritdoc IRewards
     function setProtocolOwner(
         address newProtocolOwner
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        grantRole(PROTOCOL_OWNER_ROLE, newProtocolOwner);
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (newProtocolOwner == address(0)) revert InvalidRecipient(newProtocolOwner);
+        _grantRole(PROTOCOL_OWNER_ROLE, newProtocolOwner);
         emit ProtocolOwnerUpdated(newProtocolOwner);
     }
 
     /// @inheritdoc IRewards
     function updateProtocolFee(
         uint16 newFee
-    ) external onlyRole(ADMIN_ROLE) {
-        if (newFee > 10_000) {
-            revert IRewards.FeePercentageTooHigh(newFee);
-        }
-
-        uint16 totalFees = newFee + operatorFee + curatorFee;
-        if (totalFees > 10_000) {
-            revert IRewards.TotalFeesExceed100(totalFees);
-        }
-
+    ) external override onlyRole(ADMIN_ROLE) {
+        if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
         protocolFee = newFee;
         emit ProtocolFeeUpdated(newFee);
     }
@@ -288,16 +389,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function updateOperatorFee(
         uint16 newFee
-    ) external onlyRole(ADMIN_ROLE) {
-        if (newFee > 10_000) {
-            revert IRewards.FeePercentageTooHigh(newFee);
-        }
-
-        uint16 totalFees = protocolFee + newFee + curatorFee;
-        if (totalFees > 10_000) {
-            revert IRewards.TotalFeesExceed100(totalFees);
-        }
-
+    ) external override onlyRole(ADMIN_ROLE) {
+        if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
         operatorFee = newFee;
         emit OperatorFeeUpdated(newFee);
     }
@@ -305,189 +398,128 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function updateCuratorFee(
         uint16 newFee
-    ) external onlyRole(ADMIN_ROLE) {
-        if (newFee > 10_000) {
-            revert IRewards.FeePercentageTooHigh(newFee);
-        }
-
-        uint16 totalFees = protocolFee + operatorFee + newFee;
-        if (totalFees > 10_000) {
-            revert IRewards.TotalFeesExceed100(totalFees);
-        }
-
+    ) external override onlyRole(ADMIN_ROLE) {
+        if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
         curatorFee = newFee;
         emit CuratorFeeUpdated(newFee);
     }
 
-    /// @inheritdoc IRewards
-    function setRewardsShareForAssetClass(
-        uint96 assetClassId,
-        uint16 rewardsPercentage
-    ) external onlyRole(ADMIN_ROLE) {
-        rewardsSharePerAssetClass[assetClassId] = rewardsPercentage;
-        emit RewardsShareUpdated(assetClassId, rewardsPercentage);
-    }
-
-    /// @inheritdoc IRewards
-    function setRewardsAmountForEpochs(
-        uint48 startEpoch,
-        uint256 numberOfEpochs,
-        address rewardsToken,
-        uint256 rewardsAmount
-    ) external onlyRole(ADMIN_ROLE) {
-        uint256 protocolRewards = (rewardsAmount * protocolFee) / BASIS_POINTS_DENOMINATOR;
-
-        for (uint48 i = 0; i < numberOfEpochs; i++) {
-            // need to transfer some funds from msg.sender to the contract
-            IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), rewardsAmount);
-            protocolRewardsAmountPerToken[rewardsToken] += protocolRewards;
-            rewardsAmountPerTokenFromEpoch[startEpoch + i].set(rewardsToken, rewardsAmount - protocolRewards);
-        }
-
-        emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsAmount);
-    }
-
+    // getter functions
     /// @inheritdoc IRewards
     function getRewardsAmountPerTokenFromEpoch(
         uint48 epoch
-    ) external view returns (address[] memory tokens, uint256[] memory amounts) {
-        uint256 length = rewardsAmountPerTokenFromEpoch[epoch].length();
-        tokens = new address[](length);
-        amounts = new uint256[](length);
-
-        for (uint256 i = 0; i < length; i++) {
-            (tokens[i], amounts[i]) = rewardsAmountPerTokenFromEpoch[epoch].at(i);
+    ) external view override returns (address[] memory tokens, uint256[] memory amounts) {
+        tokens = rewardsAmountPerTokenFromEpoch[epoch].keys();
+        amounts = new uint256[](tokens.length);
+        for (uint256 i = 0; i < tokens.length; i++) {
+            amounts[i] = rewardsAmountPerTokenFromEpoch[epoch].get(tokens[i]);
         }
     }
 
-    /**
-     * @dev Modifier to distribute epoch rewards per asset class.
-     * @param epoch The epoch for which rewards are being distributed.
-     */
-    modifier _distributeEpochRewardsPerAssetClass(
-        uint48 epoch
-    ) {
-        // fetch assetClasses from the L1 Middleware
-        uint96[] memory assetClasses = _getAssetClassIds();
-        // fetch the amount of rewards per token for the given epoch
-        EnumerableMap.AddressToUintMap storage rewards = rewardsAmountPerTokenFromEpoch[epoch];
-
-        for (uint256 i = 0; i < assetClasses.length; i++) {
-            uint16 rewardsShare = rewardsSharePerAssetClass[assetClasses[i]];
-            for (uint256 j = 0; j < rewards.length(); j++) {
-                (address rewardToken, uint256 rewardAmount) = rewards.at(j);
-
-                // compute rewards for the asset class at index i
-                uint256 assetClassRewardAmount = Math.mulDiv(rewardsShare, rewardAmount, BASIS_POINTS_DENOMINATOR);
-
-                // set the value in the mapping
-                rewardsPerAssetClassPerTokenPerEpoch[epoch][assetClasses[i]][rewardToken] = assetClassRewardAmount;
-            }
-        }
-        _;
+    function getRewardsAmountPerTokenFromEpoch(uint48 epoch, address token) external view returns (uint256) {
+        return rewardsAmountPerTokenFromEpoch[epoch].get(token);
     }
 
+    // INTERNAL FUNCTIONS
+    // Calculation functions
     /**
-     * @dev Computes the available rewards for an operator in a given epoch
-     * @param epoch The epoch for which rewards are computed
-     * @param operator The address of the operator
-     * @param rewardToken The address of the reward token
-     * @return The total rewards available for the operator in the given epoch
+     * @dev Calculates the operator share for a given epoch and operator
+     * @param epoch The epoch to calculate the operator share for
+     * @param operator The operator to calculate the share for
      */
-    function _computeAvailableRewards(
-        uint48 epoch,
-        address operator,
-        address rewardToken
-    ) internal view returns (uint256) {
-        // if operator uptime not set, reverts
-        bool isUptimeSet = uptimeTracker.isOperatorUptimeSet(epoch, operator);
-        if (!isUptimeSet) {
-            revert OperatorUptimeNotSet(operator, epoch);
-        }
-        // compute operator uptime (in basis points)
+    function _calculateOperatorShare(uint48 epoch, address operator) internal {
         uint256 uptime = uptimeTracker.operatorUptimePerEpoch(epoch, operator);
-        // if uptime less than minRequiredUptime returns 0
         if (uptime < minRequiredUptime) {
-            return 0;
+            operatorTotalShares[epoch][operator] = 0;
+            operatorShares[epoch][operator] = 0;
+            return;
         }
+
         uint256 operatorUptime = Math.mulDiv(uptime, BASIS_POINTS_DENOMINATOR, epochDuration);
-        // fetch the asset classes
+        uint256 totalShare = 0;
+
         uint96[] memory assetClasses = _getAssetClassIds();
-        // total rewards for this operator, for this epoch and reward token
-        uint256 totalRewards = 0;
-
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            // fetch amount of rewards available
-            uint256 rewards = rewardsPerAssetClassPerTokenPerEpoch[epoch][assetClasses[i]][rewardToken];
-
-            // fetch stakes
             uint256 operatorStake = _getOperatorTrueStake(epoch, operator, assetClasses[i]);
-            uint256 l1TotalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
+            uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
+            uint16 assetClassShare = rewardsSharePerAssetClass[assetClasses[i]];
 
-            // compute operator's weight on the L1 (in basis points)
-            uint256 operatorWeight = Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, l1TotalStake);
-            operatorWeight = Math.mulDiv(operatorWeight, operatorUptime, BASIS_POINTS_DENOMINATOR);
-
-            // compute operator's rewards for this asset class
-            uint256 operatorRewards = Math.mulDiv(operatorWeight, rewards, BASIS_POINTS_DENOMINATOR);
-            totalRewards += operatorRewards;
-        }
-        return totalRewards;
-    }
-
-    /**
-     * @dev Computes and distributes vault rewards for an operator
-     * @param operator The address of the operator whose vaults' rewards are being computed
-     * @param epoch The epoch for which vault rewards are being computed
-     * @param rewardsToken The address of the token in which rewards are paid
-     * @param totalVaultRewards The total amount of rewards allocated for all vaults
-     */
-    function _computeVaultsRewards(
-        address operator,
-        uint48 epoch,
-        address rewardsToken,
-        uint256 totalVaultRewards
-    ) internal {
-        // fetch the vaults
-        address[] memory vaults = _getVaults(epoch);
-        // get the epoch's start timestamp
-        uint48 epochStartTs = l1Middleware.getEpochStartTs(epoch);
-
-        // iterate through the vaults
-        for (uint256 i = 0; i < vaults.length; i++) {
-            // get the vault's asset class
-            uint96 vaultAssetClass = _getVaultAssetClassId(vaults[i]);
-            // get the vault's asset class rewards share set by the admin
-            uint16 vaultAssetClassShare = rewardsSharePerAssetClass[vaultAssetClass];
-            // get the vault's stake
-            uint256 vaultStake = BaseDelegator(IVaultTokenized(vaults[i]).delegator()).stakeAt(
-                l1Middleware.L1_VALIDATOR_MANAGER(), vaultAssetClass, operator, epochStartTs, new bytes(0)
+            uint256 shareForClass = Math.mulDiv(
+                Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
+                assetClassShare,
+                BASIS_POINTS_DENOMINATOR
             );
-            // get the operator's stake
-            uint256 operatorStake = _getOperatorTrueStake(epoch, operator, vaultAssetClass);
-            // get the weight of the vault (vaultStake compared to operatorStake)
-            uint256 vaultWeight = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorStake);
-            // get the vault's share of rewards (vaultWeight * assetClassShare)
-            uint256 vaultRewardsShare = Math.mulDiv(vaultWeight, vaultAssetClassShare, BASIS_POINTS_DENOMINATOR);
-            // compute the vault rewards
-            uint256 vaultRewards = Math.mulDiv(totalVaultRewards, vaultRewardsShare, BASIS_POINTS_DENOMINATOR);
-            // set the vault's rewards for this reward token and epoch
-            // if rewards not already distributed
-            bool rewardDistributed = vaultsRewardsDistributed[epoch][rewardsToken][vaults[i]];
-            if (!rewardDistributed) {
-                vaultsRewardsPerTokenPerEpoch[epoch][vaults[i]][rewardsToken] = vaultRewards;
-                vaultsRewardsDistributed[epoch][rewardsToken][vaults[i]] = true;
-            }
-            // link the vault to the operator
-            vaultDelegatingToOperator[epoch][vaults[i]] = operator;
+            totalShare += shareForClass;
         }
+
+        totalShare = Math.mulDiv(totalShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
+
+        // Remove protocol fee from total share
+        totalShare = Math.mulDiv(totalShare, BASIS_POINTS_DENOMINATOR - protocolFee, BASIS_POINTS_DENOMINATOR);
+
+        // Calculate operator fee share and store it
+        uint256 operatorFeeShare = Math.mulDiv(totalShare, operatorFee, BASIS_POINTS_DENOMINATOR);
+        operatorShares[epoch][operator] = operatorFeeShare;
+
+        // Remove operator fee share from total share
+        totalShare -= operatorFeeShare;
+
+        operatorTotalShares[epoch][operator] = totalShare;
     }
 
     /**
-     * @dev Fetches the active vaults for a given epoch
-     * @dev Move to vault manager
-     * @param epoch The epoch for which vaults are fetched
-     * @return An array of active vault addresses
+     * @dev Calculates and stores the vault shares for a given epoch and operator
+     * @param epoch The epoch to calculate the vault shares for
+     * @param operator The operator to calculate the vault shares for
+     */
+    function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
+        uint256 operatorShare = operatorTotalShares[epoch][operator];
+        if (operatorShare == 0) return;
+
+        address[] memory vaults = _getVaults(epoch);
+        uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
+
+        // First pass: calculate raw shares and total
+        for (uint256 i = 0; i < vaults.length; i++) {
+            address vault = vaults[i];
+            uint96 vaultAssetClass = _getVaultAssetClassId(vault);
+
+            uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
+                l1Middleware.L1_VALIDATOR_MANAGER(), vaultAssetClass, operator, epochTs, new bytes(0)
+            );
+
+            if (vaultStake > 0) {
+                vaultOperators[epoch][vault].add(operator);
+                uint256 operatorActiveStake = _getOperatorTrueStake(epoch, operator, vaultAssetClass);
+
+                uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
+                vaultShare =
+                    Math.mulDiv(vaultShare, rewardsSharePerAssetClass[vaultAssetClass], BASIS_POINTS_DENOMINATOR);
+                vaultShare = Math.mulDiv(vaultShare, operatorShare, BASIS_POINTS_DENOMINATOR);
+
+                uint256 operatorTotalStake = l1Middleware.getOperatorStake(operator, epoch, vaultAssetClass);
+
+                if (operatorTotalStake > 0) {
+                    uint256 operatorStakeRatio =
+                        Math.mulDiv(operatorActiveStake, BASIS_POINTS_DENOMINATOR, operatorTotalStake);
+                    vaultShare = Math.mulDiv(vaultShare, operatorStakeRatio, BASIS_POINTS_DENOMINATOR);
+                }
+
+                // Calculate curator share
+                uint256 curatorShare = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
+                curatorShares[epoch][VaultTokenized(vault).owner()] += curatorShare;
+
+                // Store vault share after removing curator share
+                vaultShares[epoch][vault] += vaultShare - curatorShare;
+            }
+        }
+    }
+
+    // Getter functions
+    /**
+     * @dev Gets the vaults for a given epoch
+     * @param epoch The epoch to get the vaults for
+     * @return The vaults for the given epoch
      */
     function _getVaults(
         uint48 epoch
@@ -507,10 +539,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the vaults where a staker has an active balance
-     * @param staker The address of the staker
-     * @param epoch The epoch for which vaults are fetched
-     * @return An array of vault addresses where the staker has an active balance
+     * @dev Gets the vaults for a given staker and epoch
+     * @param staker The staker to get the vaults for
+     * @param epoch The epoch to get the vaults for
+     * @return The vaults for the given staker and epoch
      */
     function _getStakerVaults(address staker, uint48 epoch) internal view returns (address[] memory) {
         address[] memory vaults = _getVaults(epoch);
@@ -543,9 +575,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the active asset class IDs from L1 Middleware
-     * @dev Move to AssetClassRegistry
-     * @return An array of asset class IDs
+     * @dev Gets the asset class ids
+     * @return The asset class ids
      */
     function _getAssetClassIds() internal view returns (uint96[] memory) {
         (uint256 primary, uint256[] memory secondaries) = l1Middleware.getActiveAssetClasses();
@@ -559,10 +590,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Fetches the asset class ID for a given vault
-     * @dev Move to middlewareVaultManager
-     * @param vault The address of the vault
-     * @return The asset class ID of the vault
+     * @dev Gets the asset class id for a given vault
+     * @param vault The vault to get the asset class id for
+     * @return The asset class id for the given vault
      */
     function _getVaultAssetClassId(
         address vault
@@ -577,10 +607,11 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /**
-     * @dev Move to avalancheL1Middleware and cache it
-     * @param epoch Epoch ID
-     * @param operator Address of the operator
-     * @param assetClass ID of the asset class
+     * @dev Gets the operator's true stake for a given epoch and asset class
+     * @param epoch The epoch to get the operator's true stake for
+     * @param operator The operator to get the true stake for
+     * @param assetClass The asset class to get the true stake for
+     * @return The operator's true stake for the given epoch and asset class
      */
     function _getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) internal view returns (uint256) {
         // primary asset class
