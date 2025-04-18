@@ -218,7 +218,7 @@ contract AvalancheL1MiddlewareTest is Test {
             operatorL1Optin: address(operatorL1OptInService),
             epochDuration: 4 hours,
             slashingWindow: 5 hours,
-            weightUpdateWindow: 3 hours
+            stakeUpdateWindow: 3 hours
         });
 
         middleware = new AvalancheL1Middleware(
@@ -307,7 +307,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(alice);
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 nodeWeight = middleware.nodeWeightCache(newEpoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(newEpoch, validationID);
         console2.log("Node weight immediately after add:", nodeWeight);
         assertGt(nodeWeight, 0, "New node weight must be positive");
     }
@@ -330,7 +330,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         console2.log("Node weight immediately:", nodeWeight);
         assertGt(nodeWeight, 0);
 
@@ -339,10 +339,10 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Move epoch +1
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after confirmation:", nodeWeight);
         assertGt(nodeWeight, 0);
     }
@@ -365,7 +365,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         console2.log("Node weight immediately:", nodeWeight);
         assertGt(nodeWeight, 0);
 
@@ -373,9 +373,9 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.completeValidatorRegistration(alice, nodeId, 0);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after next epoch:", nodeWeight);
         assertGt(nodeWeight, 0);
     }
@@ -398,7 +398,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(alice);
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         console2.log("Node weight immediately:", nodeWeight);
         assertGt(nodeWeight, 0);
 
@@ -406,27 +406,27 @@ contract AvalancheL1MiddlewareTest is Test {
         _calcAndWarpOneEpoch();
 
         // Node still not confirmed
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight second epoch (still unconfirmed):", nodeWeight);
         assertGt(nodeWeight, 0);
 
         // Confirm node
         vm.startPrank(alice);
         middleware.completeValidatorRegistration(alice, nodeId, 0);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
         vm.stopPrank();
 
         // Should be active next epoch
         _calcAndWarpOneEpoch();
         vm.prank(alice);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after full confirmation:", nodeWeight);
         assertGt(nodeWeight, 0);
     }
 
-    function test_CompleteNodeWeightUpdate() public {
+    function test_completeStakeUpdate() public {
         (depositedAmount, mintedShares) = _deposit(alice, 10 ether);
         _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
 
@@ -443,37 +443,37 @@ contract AvalancheL1MiddlewareTest is Test {
 
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         console2.log("Initial node weight:", nodeWeight);
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId, 0);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Confirmed node weight:", nodeWeight);
 
         // Decrease weight
-        uint256 newWeight = nodeWeight - 100;
+        uint256 stakeAmount = uint256(nodeWeight - 100);
         vm.prank(alice);
-        middleware.initializeValidatorUpdate(nodeId, newWeight);
-        uint256 updatedNodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.initializeValidatorStakeUpdate(nodeId, stakeAmount);
+        uint256 updatedNodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after init update (still old until next epoch):", updatedNodeWeight);
 
         vm.prank(alice);
-        middleware.completeNodeWeightUpdate(nodeId, 0);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
-        updatedNodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        updatedNodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after completion (still old until next epoch):", updatedNodeWeight);
 
         // Move to next epoch
         _calcAndWarpOneEpoch();
-        updatedNodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        updatedNodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight final:", updatedNodeWeight);
-        assertEq(updatedNodeWeight, newWeight, "Node weight should be updated");
+        assertEq(updatedNodeWeight, stakeAmount, "Node weight should be updated");
     }
 
     function test_CompleteLateNodeWeightUpdate() public {
@@ -493,39 +493,39 @@ contract AvalancheL1MiddlewareTest is Test {
 
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         console2.log("Initial node weight:", nodeWeight);
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId, 0);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after confirmation:", nodeWeight);
 
         // Decrease
-        uint256 newWeight = nodeWeight - 100;
+        uint256 stakeAmount = uint256(nodeWeight - 100);
         vm.prank(alice);
-        middleware.initializeValidatorUpdate(nodeId, newWeight);
+        middleware.initializeValidatorStakeUpdate(nodeId, stakeAmount);
 
         // Next epochs warp
         _calcAndWarpOneEpoch();
         _calcAndWarpOneEpoch();
         vm.prank(alice);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         vm.prank(alice);
-        middleware.completeNodeWeightUpdate(nodeId, 0);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         _calcAndWarpOneEpoch();
         vm.prank(alice);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        uint256 updatedNodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        uint256 updatedNodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight final:", updatedNodeWeight);
-        assertEq(updatedNodeWeight, newWeight);
+        assertEq(updatedNodeWeight, stakeAmount);
     }
 
     function test_RemoveNodeSimple() public {
@@ -546,7 +546,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         assertGt(nodeWeight, 0);
         assertEq(middleware.getOperatorNodesLength(alice), 1);
 
@@ -554,17 +554,17 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.completeValidatorRegistration(alice, nodeId, 0);
 
         _calcAndWarpOneEpoch();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertGt(nodeWeight, 0);
 
         vm.prank(alice);
         middleware.removeNode(nodeId);
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertGt(nodeWeight, 0);
         assertEq(middleware.getOperatorNodesLength(alice), 1);
 
         _calcAndWarpOneEpoch();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertEq(nodeWeight, 0);
         assertEq(middleware.getOperatorNodesLength(alice), 0);
     }
@@ -587,7 +587,7 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
 
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID);
         assertGt(nodeWeight, 0);
         assertEq(middleware.getOperatorNodesLength(alice), 1);
 
@@ -595,21 +595,21 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.completeValidatorRegistration(alice, nodeId, 0);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertGt(nodeWeight, 0);
 
         vm.prank(alice);
         middleware.removeNode(nodeId);
 
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertGt(nodeWeight, 0);
         assertTrue(middleware.nodePendingRemoval(validationID));
 
         // Next epoch
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertEq(nodeWeight, 0);
         assertFalse(middleware.nodePendingRemoval(validationID));
         assertEq(middleware.getOperatorNodesLength(alice), 0);
@@ -620,8 +620,8 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.completeValidatorRemoval(1);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         assertEq(nodeWeight, 0);
         assertFalse(middleware.nodePendingRemoval(validationID));
         assertEq(middleware.getOperatorNodesLength(alice), 0);
@@ -652,46 +652,46 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId2, blsKey2, uint64(block.timestamp + 4 days), ownerStruct2, ownerStruct2, stake1);
 
         bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
-        uint256 nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
+        uint256 nodeWeight1 = middleware.nodeStakeCache(epoch, validationID1);
         assertGt(nodeWeight1, 0);
 
         bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
-        uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        uint256 nodeWeight2 = middleware.nodeStakeCache(epoch, validationID2);
         assertGt(nodeWeight2, 0);
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId1, 0);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
-        nodeWeight1 = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID1);
+        nodeWeight1 = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID1);
         assertGt(nodeWeight1, 0);
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId2, 1);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight2 = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID2);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight2 = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID2);
         assertGt(nodeWeight2, 0);
 
         // Remove node1
         vm.prank(alice);
         middleware.removeNode(nodeId1);
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight1 = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID1);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight1 = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID1);
         assertEq(nodeWeight1, 0);
 
         vm.prank(alice);
         middleware.completeValidatorRemoval(2);
-        nodeWeight2 = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID2);
+        nodeWeight2 = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID2);
         assertGt(nodeWeight2, 0);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight1 = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID1);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight1 = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID1);
         assertEq(nodeWeight1, 0);
     }
 
@@ -710,7 +710,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         vm.prank(alice);
         middleware.addNode(nodeId1, blsKey1, uint64(block.timestamp + 4 days), ownerStruct1, ownerStruct1, stake);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId1, 0);
@@ -718,7 +718,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // 3) Move to epoch2
         _calcAndWarpOneEpoch();
         uint48 epoch2 = middleware.getCurrentEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         // 4) Add nodeId2
         bytes32 nodeId2 = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
@@ -729,7 +729,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         vm.prank(alice);
         middleware.addNode(nodeId2, blsKey2, uint64(block.timestamp + 4 days), ownerStruct2, ownerStruct2, stake);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId2, 1);
@@ -737,17 +737,17 @@ contract AvalancheL1MiddlewareTest is Test {
         // 5) Move to epoch3
         _calcAndWarpOneEpoch();
         uint48 epoch3 = middleware.getCurrentEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         // 6) Remove nodeId1
         vm.prank(alice);
         middleware.removeNode(nodeId1);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         // 7) Move to epoch4
         _calcAndWarpOneEpoch();
         uint48 epoch4 = middleware.getCurrentEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
 
         vm.prank(alice);
         middleware.completeValidatorRemoval(2);
@@ -791,27 +791,27 @@ contract AvalancheL1MiddlewareTest is Test {
 
         bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 nodeWeight = middleware.nodeWeightCache(epoch, validationID1);
+        uint256 nodeWeight = middleware.nodeStakeCache(epoch, validationID1);
         console2.log("Node weight1:", nodeWeight);
 
         bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
-        uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        uint256 nodeWeight2 = middleware.nodeStakeCache(epoch, validationID2);
         console2.log("Node weight2:", nodeWeight2);
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId1, 0);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID1);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID1);
         console2.log("Node1 weight after confirm:", nodeWeight);
 
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId2, 1);
 
         _calcAndWarpOneEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight2 = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID2);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight2 = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID2);
         console2.log("Node2 weight after confirm:", nodeWeight2);
 
         // Withdraw from vault to reduce stake
@@ -842,11 +842,11 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Claimed:", claimed);
 
         _calcAndWarpOneEpoch(1);
-        middleware.calcAndCacheNodeWeightsForAllOperators();
+        middleware.calcAndCacheNodeStakeForAllOperators();
         epoch = middleware.getCurrentEpoch();
         updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
-        nodeWeight = middleware.nodeWeightCache(epoch, validationID1);
-        nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        nodeWeight = middleware.nodeStakeCache(epoch, validationID1);
+        nodeWeight2 = middleware.nodeStakeCache(epoch, validationID2);
 
         console2.log("Final operator stake:", updatedStake);
         console2.log("Node1 weight final:", nodeWeight);
@@ -880,11 +880,11 @@ contract AvalancheL1MiddlewareTest is Test {
         middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct2, ownerStruct2, iniitialStake);
 
         bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
-        uint256 nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
+        uint256 nodeWeight1 = middleware.nodeStakeCache(epoch, validationID1);
         assertGt(nodeWeight1, 0, "Node1 weight must be positive immediately");
 
         bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
-        uint256 nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        uint256 nodeWeight2 = middleware.nodeStakeCache(epoch, validationID2);
         assertGt(nodeWeight2, 0, "Node2 weight must be positive immediately");
 
         vm.prank(alice);
@@ -895,8 +895,8 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.warp(newMiddlewareEpochStart);
 
         epoch = middleware.getCurrentEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight1 = middleware.nodeWeightCache(epoch, validationID1);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight1 = middleware.nodeStakeCache(epoch, validationID1);
         assertGt(nodeWeight1, 0);
 
         vm.prank(alice);
@@ -907,8 +907,8 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.warp(newMiddlewareEpochStart);
 
         epoch = middleware.getCurrentEpoch();
-        middleware.calcAndCacheNodeWeightsForAllOperators();
-        nodeWeight2 = middleware.nodeWeightCache(epoch, validationID2);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        nodeWeight2 = middleware.nodeStakeCache(epoch, validationID2);
         assertGt(nodeWeight2, 0);
 
         uint256 extraDeposit = 50_000_000_000_000;
@@ -925,7 +925,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
         console2.log("Operator stake after extra deposit (before forceUpdate):", updatedStake);
 
-        uint256 oldUsedStake = middleware.getOperatorUsedWeightCached(alice);
+        uint256 oldUsedStake = middleware.getOperatorUsedStakeCached(alice);
         uint256 leftover = updatedStake - oldUsedStake;
         assertGt(leftover, 0, "Expected leftover to be > 0");
 
@@ -934,7 +934,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         middleware.forceUpdateNodes(alice, 0);
 
-        uint256 newUsedStake = middleware.getOperatorUsedWeightCached(alice);
+        uint256 newUsedStake = middleware.getOperatorUsedStakeCached(alice);
         assertEq(newUsedStake, oldUsedStake, "Used stake must remain unchanged if weight only decreases");
     }
 
@@ -1068,7 +1068,7 @@ contract AvalancheL1MiddlewareTest is Test {
             vm.warp(nextEpochStartTs + 1);
 
             // 3. Do any housekeeping
-            middleware.calcAndCacheNodeWeightsForAllOperators();
+            middleware.calcAndCacheNodeStakeForAllOperators();
 
             console2.log("Current middleware epoch:", middleware.getCurrentEpoch());
             console2.log("Current vault epoch:", vault.currentEpoch());
@@ -1100,7 +1100,7 @@ contract AvalancheL1MiddlewareTest is Test {
             uint48 nextEpochIndex = middleware.getCurrentEpoch() + 1;
             uint256 nextEpochStartTs = middleware.getEpochStartTs(nextEpochIndex);
             vm.warp(nextEpochStartTs + 1);
-            middleware.calcAndCacheNodeWeightsForAllOperators();
+            middleware.calcAndCacheNodeStakeForAllOperators();
         }
     }
 

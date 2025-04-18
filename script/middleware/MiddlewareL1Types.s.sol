@@ -13,5 +13,5 @@ struct MiddlewareConfig {
     uint256 primaryAssetWeightScaleFactor;
     uint48 epochDuration;
     uint48 slashingWindow;
-    uint48 weightUpdateWindow;
+    uint48 stakeUpdateWindow;
 }

@@ -28,9 +28,9 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NoSlasher();
     error AvalancheL1Middleware__NotEnoughFreeStakeSecondaryAssetClasses();
     error AvalancheL1Middleware__NodeNotActive();
-    error AvalancheL1Middleware__NotEnoughFreeStake(uint256 newWeight);
-    error AvalancheL1Middleware__WeightTooHigh(uint256 newWeight, uint256 maxWeight);
-    error AvalancheL1Middleware__WeightTooLow(uint256 newWeight, uint256 minWeight);
+    error AvalancheL1Middleware__NotEnoughFreeStake(uint256 newStake);
+    error AvalancheL1Middleware__StakeTooHigh(uint256 newStake, uint256 maxStake);
+    error AvalancheL1Middleware__StakeTooLow(uint256 newStake, uint256 minStake);
     error AvalancheL1Middleware__OperatorGracePeriodNotPassed(uint48 disabledTime, uint48 slashingWindow);
     error AvalancheL1Middleware__OperatorAlreadyRegistered(address operator);
     error AvalancheL1Middleware__OperatorNotOptedIn(address operator, address l1ValidatorManager);
@@ -63,13 +63,13 @@ interface IAvalancheL1Middleware {
     event NodeRemoved(address indexed operator, bytes32 indexed nodeId, bytes32 indexed validationID);
 
     /**
-     * @notice Emitted when a single node's weight is updated
+     * @notice Emitted when a single node's stake is updated
      * @param operator The operator who owns the node
      * @param nodeId The ID of the node
-     * @param newStake The new weight/stake of the node
+     * @param newStake The new stake of the node
      * @param validationID The validation identifier from BalancerValidatorManager
      */
-    event NodeWeightUpdated(
+    event NodeStakeUpdated(
         address indexed operator, bytes32 indexed nodeId, uint256 newStake, bytes32 indexed validationID
     );
 
@@ -81,11 +81,11 @@ interface IAvalancheL1Middleware {
     event OperatorHasLeftoverStake(address indexed operator, uint256 leftoverStake);
 
     /**
-     * @notice Emitted when all node weights are updated for an operator
+     * @notice Emitted when all node stakes are updated for an operator
      * @param operator The operator
      * @param newStake The total new stake for the operator
      */
-    event AllNodeWeightsUpdated(address indexed operator, uint256 newStake);
+    event AllNodeStakesUpdated(address indexed operator, uint256 newStake);
 
     /**
      * @dev Simple struct to return operator stake and key.
@@ -152,7 +152,7 @@ interface IAvalancheL1Middleware {
      * @param registrationExpiry The Unix timestamp after which the reigistration is no longer valid on the P-Chain
      * @param remainingBalanceOwner The owner of a validator's remaining balance
      * @param disableOwner The owner of a validator's disable owner on the P-Chain
-     * @param initialWeight The initial weight of the node (optional)
+     * @param stakeAmount The initial stake of the node to be added(optional)
      */
     function addNode(
         bytes32 nodeId,
@@ -160,7 +160,7 @@ interface IAvalancheL1Middleware {
         uint64 registrationExpiry,
         PChainOwner calldata remainingBalanceOwner,
         PChainOwner calldata disableOwner,
-        uint256 initialWeight
+        uint256 stakeAmount
     ) external;
 
     /**
@@ -172,18 +172,18 @@ interface IAvalancheL1Middleware {
     ) external;
 
     /**
-     * @notice Rebalance node weights once per epoch for an operator.
+     * @notice Rebalance node stakes once per epoch for an operator.
      * @param operator The operator address
-     * @param limitWeight The maximum weight adjustment (add or remove) allowed per node per call.
+     * @param limitStake The maximum stake adjustment (add or remove) allowed per node per call.
      */
-    function forceUpdateNodes(address operator, uint256 limitWeight) external;
+    function forceUpdateNodes(address operator, uint256 limitStake) external;
 
     /**
-     * @notice Update the weight of a validator.
+     * @notice Update the stake of a validator.
      * @param nodeId The node ID.
-     * @param newStake The new weight.
+     * @param stakeAmount The new stake.
      */
-    function initializeValidatorUpdate(bytes32 nodeId, uint256 newStake) external;
+    function initializeValidatorStakeUpdate(bytes32 nodeId, uint256 stakeAmount) external;
 
     /**
      * @notice Finalize a pending validator registration
@@ -194,11 +194,11 @@ interface IAvalancheL1Middleware {
     function completeValidatorRegistration(address operator, bytes32 nodeId, uint32 messageIndex) external;
 
     /**
-     * @notice Finalize a pending weight update
+     * @notice Finalize a pending stake update
      * @param nodeId The node ID
      * @param messageIndex The message index
      */
-    function completeNodeWeightUpdate(bytes32 nodeId, uint32 messageIndex) external;
+    function completeStakeUpdate(bytes32 nodeId, uint32 messageIndex) external;
 
     /**
      * @notice Finalize a pending validator removal
@@ -226,9 +226,9 @@ interface IAvalancheL1Middleware {
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) external returns (uint256);
 
     /**
-     * @notice Calculates and caches node weights for all operators retroactively for all epochs
+     * @notice Calculates and caches node stakes for all operators retroactively for all epochs
      */
-    function calcAndCacheNodeWeightsForAllOperators() external;
+    function calcAndCacheNodeStakeForAllOperators() external;
 
     /**
      * @notice Fetches the primary and secondary asset classes
@@ -318,11 +318,11 @@ interface IAvalancheL1Middleware {
     ) external view returns (uint256);
 
     /**
-     * @notice Summation of node stakes from the nodeWeightCache.
+     * @notice Summation of node stakes from the nodeStakeCache.
      * @param operator The operator address.
      * @return registeredStake The sum of node stakes.
      */
-    function getOperatorUsedWeightCached(
+    function getOperatorUsedStakeCached(
         address operator
     ) external view returns (uint256);
 

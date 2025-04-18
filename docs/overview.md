@@ -148,7 +148,7 @@ Note: Hints appear accross the codebase, but the hints in themselves are not imp
        - Operators may call `forceUpdateNodes(...)` to ensure node weights align with their real available stake.  
        - The contract locks or unlocks stake accordingly.
     4. **Epoch Transitions**:  
-       - `_calcAndCacheNodeWeightsForOperatorAtEpoch` is called to carry forward or finalize node statuses.  
+       - `_calcAndCacheNodeStakeForOperatorAtEpoch` is called to carry forward or finalize node statuses.  
        - If a node ended in the previous epoch, it’s removed from arrays.  
        - If a node had a pending update, it’s now resolved.
        - If this isn't called, it implies no change was done, it can be called retroactivelly for all nodes.
@@ -196,7 +196,7 @@ Note: Hints appear accross the codebase, but the hints in themselves are not imp
    - Actual staked amounts are derived proportionally from the vault’s active stake and the L1’s stake limit.
 
 5. **Node Setup & Validation**  
-   - Operators add or update nodes in the `ValidatorManager` through the `AvalancheL1Middleware` for the new L1, with the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorUpdate`.  
+   - Operators add or update nodes in the `ValidatorManager` through the `AvalancheL1Middleware` for the new L1, with the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorStakeUpdate`.  
    - The middleware calculates node weights based on allocated stake and checks churn limits, lock/unlock rules, etc.  
    - On each epoch transition, node statuses and weights are finalized.
 

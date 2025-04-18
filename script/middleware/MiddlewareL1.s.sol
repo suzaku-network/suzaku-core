@@ -29,7 +29,7 @@ contract DeployTestAvalancheL1Middleware is Script {
                 operatorL1Optin: middlewareConfig.operatorL1OptIn,
                 epochDuration: middlewareConfig.epochDuration,
                 slashingWindow: middlewareConfig.slashingWindow,
-                weightUpdateWindow: middlewareConfig.weightUpdateWindow
+                stakeUpdateWindow: middlewareConfig.stakeUpdateWindow
             }),
             middlewareConfig.l1MiddlewareOwnerAddress, // Set the owner
             middlewareConfig.primaryAsset,
