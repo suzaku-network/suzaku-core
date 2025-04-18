@@ -43,7 +43,8 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NodeStateNotUpdated(bytes32 validationID);
     error AvalancheL1Middleware__NotEpochUpdatePeriod(uint48 timeNow, uint48 epochUpdatePeriod);
     error AvalancheL1Middleware__NotImplemented();
-
+    error AvalancheL1Middleware__NodePendingRemoval(bytes32 nodeId);
+    error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
     // Events
     /**
      * @notice Emitted when a node is added

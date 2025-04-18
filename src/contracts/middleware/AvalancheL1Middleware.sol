@@ -314,6 +314,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__NotEnoughFreeStakeSecondaryAssetClasses();
         }
 
+        bytes32 valId = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePendingRemoval(nodeId);
+        if (nodePendingUpdate[valId]) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
+
         uint256 available = _getOperatorAvailableStake(operator);
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
@@ -429,9 +433,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 newStake = 0;
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
-                _initializeValidatorStakeUpdate(
-                    operator, valID, newStake
-                );
+                _initializeValidatorStakeUpdate(operator, valID, newStake);
                 emit NodeStakeUpdated(operator, nodeId, newStake, valID);
             }
         }
@@ -461,10 +463,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (stakeAmount < minStake) {
             revert AvalancheL1Middleware__StakeTooLow(stakeAmount, minStake);
         }
-        
-        bytes32 validationID = balancerValidatorManager
-            .registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-            
+
+        bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+
         _initializeValidatorStakeUpdate(msg.sender, validationID, stakeAmount);
     }
 
@@ -588,10 +589,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 continue;
             }
 
-            if (
-                nodePendingRemoval[valID] && nodeStakeCache[epoch][valID] == 0
-                    && nodeStakeCache[prevEpoch][valID] != 0
-            ) {
+            if (nodePendingRemoval[valID] && nodeStakeCache[epoch][valID] == 0 && nodeStakeCache[prevEpoch][valID] != 0)
+            {
                 _removeNodeFromArray(operator, nodeId);
                 nodePendingRemoval[valID] = false;
             }
@@ -694,11 +693,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @param newStake The new stake for the validator
      * @dev When updating the relative weight of a validator, the operator's locked stake is increased or decreased
      */
-    function _initializeValidatorStakeUpdate(
-        address operator,
-        bytes32 validationID,
-        uint256 newStake
-    ) internal {
+    function _initializeValidatorStakeUpdate(address operator, bytes32 validationID, uint256 newStake) internal {
         uint48 currentEpoch = getCurrentEpoch();
         uint256 cachedStake = getEffectiveNodeStake(currentEpoch, validationID);
 
@@ -719,9 +714,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
         uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
 
-        balancerValidatorManager.initializeValidatorWeightUpdate(
-            validationID, scaledWeight
-        );
+        balancerValidatorManager.initializeValidatorWeightUpdate(validationID, scaledWeight);
     }
 
     function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {

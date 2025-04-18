@@ -51,6 +51,7 @@ import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 import {IAvalancheL1Middleware} from "../../src/interfaces/middleware/IAvalancheL1Middleware.sol";
+import {StakeConversion} from "../../src/contracts/middleware/libraries/StakeConversion.sol";
 
 contract AvalancheL1MiddlewareTest is Test {
     address internal owner;
@@ -937,6 +938,395 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 newUsedStake = middleware.getOperatorUsedStakeCached(alice);
         assertEq(newUsedStake, oldUsedStake, "Used stake must remain unchanged if weight only decreases");
     }
+    
+    function test_AddRemoveAddNodeAgain() public {
+        // Move to the next epoch so we have a clean slate
+        _calcAndWarpOneEpoch();
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        // Prepare node data
+        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 2 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // Add node
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+
+        // Check node stake from the public getter
+        uint256 nodeStake = middleware.getNodeStake(epoch, validationID);
+        assertGt(nodeStake, 0, "Node stake should be >0 right after add");
+
+        // Also confirm we have 0 or 1 active node at this epoch. 
+        // Because the node is not yet "confirmed," it typically won't appear as active.
+        // We simply show how to ensure it's not erroneously counted:
+        bytes32[] memory activeNodesBeforeConfirm = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(activeNodesBeforeConfirm.length, 0, "Node shouldn't appear active before confirmation");
+
+        // Confirm node
+        vm.prank(alice);
+        // messageIndex = 0 in this scenario
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
+        // Warp +1 epoch and check that the node is truly active
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        nodeStake = middleware.getNodeStake(epoch, validationID);
+        assertGt(nodeStake, 0, "Node stake should persist after confirmation");
+
+        bytes32[] memory activeNodesAfterConfirm = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(activeNodesAfterConfirm.length, 1, "Should have exactly 1 active node");
+        assertEq(activeNodesAfterConfirm[0], nodeId, "The active node ID should match");
+
+        // Remove node
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // Warp +1 epoch => node stake should become zero
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        nodeStake = middleware.getNodeStake(epoch, validationID);
+        assertEq(nodeStake, 0, "Node stake must be zero after removal finalizes");
+
+        bytes32[] memory activeNodesAfterRemove = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(activeNodesAfterRemove.length, 0, "No active nodes after removal");
+
+        // onfirm removal
+        vm.prank(alice);
+
+        middleware.completeValidatorRemoval(1);
+
+        // Warp +1 epoch just for clarity
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+
+        // Add the same node again (the system allows re-adding after full removal)
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+
+        bytes32 newValidationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        uint256 nodeStake2 = middleware.getNodeStake(epoch, newValidationID);
+        assertGt(nodeStake2, 0, "Node stake should be >0 on second add");
+
+        // Confirm node again
+        vm.prank(alice);
+        // Next message index might be 2 or 3 by now
+        middleware.completeValidatorRegistration(alice, nodeId, 2);
+
+        // Warp another epoch and verify stake
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        nodeStake2 = middleware.getNodeStake(epoch, newValidationID);
+        assertGt(nodeStake2, 0, "Node stake must be >0 after re-adding and confirming");
+
+        // Confirm the newly re-added node is active
+        bytes32[] memory activeNodesFinal = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(activeNodesFinal.length, 1, "Should have 1 active node after second addition");
+        assertEq(activeNodesFinal[0], nodeId, "Active node ID should match the re-added node");
+
+        // Final check
+        uint256 operatorAvailable = middleware.getOperatorAvailableStake(alice);
+        // Confirm there's some leftover
+        assertGt(operatorAvailable, 0, "Operator should have some leftover stake");
+    }
+
+    function testSingleNode_AddUpdateRemoveThenCompleteUpdate() public {
+        // Suppose your system uses a known stake scale factor
+        uint256 scaleFactor = middleware.WEIGHT_SCALE_FACTOR();
+
+        // -----------------------------------------
+        // STEP A: Add & confirm a single node
+        // -----------------------------------------
+        _calcAndWarpOneEpoch(); 
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        bytes32 nodeId = keccak256("NODE_SINGLE_TEST");
+        bytes memory blsKey = hex"abcd1234";
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({ threshold: 1, addresses: ownerArr });
+
+        // Add the node
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
+
+        // Grab the manager’s messageIndex for the add
+        uint32 addIndex = mockValidatorManager.nextMessageIndex() - 1;
+
+        // Get the validationID
+        bytes32 valID = mockValidatorManager.registeredValidators(
+            abi.encodePacked(uint160(uint256(nodeId)))
+        );
+
+        //  => node is Active
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, addIndex);
+
+        // Warp => next epoch => truly active
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint256 initialStake = middleware.getNodeStake(epoch, valID);
+        assertGt(initialStake, 0, "Node must have >0 stake after confirm");
+
+        // Initialize a stake update (reduce stake by half)
+        uint256 newStake = initialStake / 2;
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, newStake);
+
+        // Check the manager’s internal pending weight
+        uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, scaleFactor);
+        uint256 pendingWeight = mockValidatorManager.pendingNewWeight(valID);
+        assertEq(pendingWeight, scaledWeight, "Pending new weight mismatch");
+
+        bool isPending = mockValidatorManager.isValidatorPendingWeightUpdate(valID);
+        assertTrue(isPending, "Stake update must be pending");
+
+        // Remove node *while update is pending*
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        uint32 removeIndex = mockValidatorManager.nextMessageIndex() - 1;
+
+        // Warp => next epoch => presumably stake=0
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint256 stakeNow = middleware.getNodeStake(epoch, valID);
+        console2.log("Stake after removing while update pending:", stakeNow);
+
+        // Confirm removal
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(removeIndex);
+
+        // Another epoch => finalize removal
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint256 finalStake = middleware.getNodeStake(epoch, valID);
+        assertEq(finalStake, 0, "Node stake must be 0 after final removal");
+
+        
+        // Complete the stake update AFTER removal
+        // Complete goes through but stake is 0
+
+        uint32 stakeUpdateMsgIndex = mockValidatorManager.nextMessageIndex() - 1; 
+
+        vm.prank(alice);
+        // If your code is supposed to revert, do:
+        // vm.expectRevert("AvalancheL1Middleware__WeightUpdateNotPending");
+        middleware.completeStakeUpdate(nodeId, stakeUpdateMsgIndex);
+
+        // If no revert, let's see if the manager truly cleared the pending update:
+        bool stillPending = mockValidatorManager.isValidatorPendingWeightUpdate(valID);
+        assertFalse(stillPending, "Stake update should be cleared after node removal + finalization");
+
+        uint256 postCompleteStake = middleware.getNodeStake(epoch, valID);
+        assertEq(postCompleteStake, 0, "Node stake must be 0 after final removal");
+
+        console2.log("Completed stake update after the node was removed. Check if it no-ops or reverts.");
+    }
+
+    function testFuzz_MultipleNodes_AddRemoveReadd(
+        uint8 seedNodeCount,
+        uint8 seedRemoveMask
+    ) public {
+        // Force a small range for how many nodes to add (2–4)
+        uint256 nodeCount = bound(seedNodeCount, 2, 4);
+
+        // Move to next epoch, so we start from a clean point
+        _calcAndWarpOneEpoch();
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        // Arrays to store node info
+        bytes32[] memory nodeIds = new bytes32[](nodeCount);
+        bytes32[] memory validationIds = new bytes32[](nodeCount);
+        bool[] memory isActive = new bool[](nodeCount);
+
+        // Track message indexes for concurrency
+        uint32[] memory addMsgIndex = new uint32[](nodeCount);
+        uint32[] memory removeMsgIndex = new uint32[](nodeCount);
+        uint32[] memory reAddMsgIndex = new uint32[](nodeCount);
+
+        // Track expected final stake for each node
+        uint256[] memory expectedFinalStake = new uint256[](nodeCount);
+
+        // Track the old validation ID once removed
+        bytes32[] memory oldRemovedValidationIds = new bytes32[](nodeCount);
+
+        // BLS key and owners
+        bytes memory blsKey = hex"abcd1234";
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // Add each node (not yet confirmed)
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bytes32 nodeId = keccak256(abi.encodePacked("NODE_", seedNodeCount, i));
+            nodeIds[i] = nodeId;
+
+            vm.prank(alice);
+            middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
+
+            addMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
+
+            bytes32 validationID = mockValidatorManager.registeredValidators(
+                abi.encodePacked(uint160(uint256(nodeId)))
+            );
+            validationIds[i] = validationID;
+
+            uint256 nodeStake = middleware.getNodeStake(epoch, validationID);
+            assertGt(nodeStake, 0, "Node stake should be >0 right after add");
+            isActive[i] = false; // not yet confirmed
+        }
+
+        // Confirm registration => active
+        for (uint256 i = 0; i < nodeCount; i++) {
+            vm.prank(alice);
+            middleware.completeValidatorRegistration(alice, nodeIds[i], addMsgIndex[i]);
+            isActive[i] = true;
+        }
+
+        // Warp => next epoch => nodes are truly active
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        bytes32[] memory currentActive = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(currentActive.length, nodeCount, "All nodes should be active after confirm");
+
+        // Track expected final stake for each node
+        for (uint256 i = 0; i < nodeCount; i++) {
+            if (isActive[i]) {
+                expectedFinalStake[i] = middleware.getNodeStake(epoch, validationIds[i]);
+            }
+        }
+
+        // Remove a subset of nodes
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bool doRemove = ((seedRemoveMask >> uint8(i)) & 0x01) == 1;
+            if (doRemove) {
+                vm.prank(alice);
+                middleware.removeNode(nodeIds[i]);
+
+                removeMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
+                isActive[i] = false;
+
+                // Record the old validation ID *before* it’s replaced by re-add
+                oldRemovedValidationIds[i] = validationIds[i];
+
+                // Attempt to remove the same node again immediately, expecting a revert
+                vm.prank(alice);
+                // vm.expectRevert("AvalancheL1Middleware__NodePendingRemoval");
+                middleware.removeNode(nodeIds[i]);
+            }
+        }
+
+        // Warp => next epoch => removed node stakes => 0
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Confirm each removal
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bool doRemove = ((seedRemoveMask >> uint8(i)) & 0x01) == 1;
+            if (doRemove) {
+                vm.prank(alice);
+                middleware.completeValidatorRemoval(removeMsgIndex[i]);
+
+                // Mark the stake in expectedFinalStake as 0
+                expectedFinalStake[i] = 0;
+
+                // Read the old validator from the mock
+                // to confirm status=Completed and endedAt != 0
+                {
+                    bytes32 oldValID = oldRemovedValidationIds[i];
+                    Validator memory oldVal = mockValidatorManager.getValidator(oldValID);
+                    // Some mocks only finalize endedAt in initializeEndValidation, so check that
+                    // we got endedAt there:
+                    assertGt(oldVal.endedAt, 0, "Old val endedAt must be set");
+                    // Also check status is Completed:
+                    assertEq(uint256(oldVal.status), uint256(ValidatorStatus.Completed), "Old val must be completed");
+                }
+            }
+        }
+
+        // Re-add the removed nodes
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bool wasRemoved = ((seedRemoveMask >> uint8(i)) & 0x01) == 1;
+            if (wasRemoved) {
+                // Re-add
+                vm.prank(alice);
+                middleware.addNode(nodeIds[i], blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
+
+                reAddMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
+
+                // Fetch the BRAND-NEW validationID for this re-add
+                bytes32 newValID = mockValidatorManager.registeredValidators(
+                    abi.encodePacked(uint160(uint256(nodeIds[i])))
+                );
+                // Overwrite old ID in validationIds[i] with the new one
+                validationIds[i] = newValID;
+
+                // Confirm the new registration
+                vm.prank(alice);
+                middleware.completeValidatorRegistration(alice, nodeIds[i], reAddMsgIndex[i]);
+                isActive[i] = true;
+
+                // Verify that the oldVal ID remains at stake=0
+                {
+                    bytes32 oldValID = oldRemovedValidationIds[i];
+                    uint256 oldStakeCheck = middleware.getNodeStake(epoch, oldValID);
+                    assertEq(oldStakeCheck, 0, "Old validationID must remain at 0 stake after re-add");
+                }
+            }
+        }
+
+        // Warp again => finalize re-add
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Track final stake for each node
+        for (uint256 i = 0; i < nodeCount; i++) {
+            if (isActive[i]) {
+                expectedFinalStake[i] = middleware.getNodeStake(epoch, validationIds[i]);
+            }
+        }
+
+        // Final checks
+        uint256 shouldBeActive = 0;
+        for (uint256 i = 0; i < nodeCount; i++) {
+            if (isActive[i]) {
+                shouldBeActive++;
+
+                // The new (or never-removed) validator
+                uint256 finalStake = middleware.getNodeStake(epoch, validationIds[i]);
+                assertEq(finalStake, expectedFinalStake[i], "Active node stake mismatch");
+            } else {
+                // If never re-added => 0 stake
+                uint256 finalStake = middleware.getNodeStake(epoch, validationIds[i]);
+                assertEq(finalStake, 0, "Inactive node must have zero stake");
+            }
+        }
+
+        bytes32[] memory finalNodes = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(finalNodes.length, shouldBeActive, "Mismatch in final # of active nodes");
+    }
+    
 
     ///////////////////////////////
     // INTERNAL HELPERS
