@@ -196,7 +196,7 @@ Note: Hints appear accross the codebase, but the hints in themselves are not imp
    - Actual staked amounts are derived proportionally from the vault’s active stake and the L1’s stake limit.
 
 5. **Node Setup & Validation**  
-   - Operators add or update nodes in the `ValidatorManager` through the `AvalancheL1Middleware` for the new L1, with the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorWeightUpdateAndLock`.  
+   - Operators add or update nodes in the `ValidatorManager` through the `AvalancheL1Middleware` for the new L1, with the functions `addNode`, `removeNode`, `forceUpdateNodes` or `initializeValidatorUpdate`.  
    - The middleware calculates node weights based on allocated stake and checks churn limits, lock/unlock rules, etc.  
    - On each epoch transition, node statuses and weights are finalized.
 

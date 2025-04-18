@@ -429,8 +429,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 newWeight = 0;
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
-                _initializeValidatorWeightUpdateAndLock(
-                    operator, valID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+                _initializeValidatorUpdate(
+                    operator, valID, newWeight
                 );
                 emit NodeWeightUpdated(operator, nodeId, newWeight, valID);
             }
@@ -443,9 +443,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     /**
      * @inheritdoc IAvalancheL1Middleware
      */
-    function initializeValidatorWeightUpdateAndLock(
+    function initializeValidatorUpdate(
         bytes32 nodeId,
-        uint64 newWeight
+        uint256 newStake
     ) external updateGlobalNodeWeightsOncePerEpoch {
         if (!operatorNodes[msg.sender].contains(nodeId)) {
             revert AvalancheL1Middleware__NodeNotFound(nodeId);
@@ -454,16 +454,17 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
 
-        if (newWeight > maxStake) {
-            revert AvalancheL1Middleware__WeightTooHigh(newWeight, maxStake);
+        if (newStake > maxStake) {
+            revert AvalancheL1Middleware__WeightTooHigh(newStake, maxStake);
         }
 
-        if (newWeight < minStake) {
-            revert AvalancheL1Middleware__WeightTooLow(newWeight, minStake);
+        if (newStake < minStake) {
+            revert AvalancheL1Middleware__WeightTooLow(newStake, minStake);
         }
+
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
-        _initializeValidatorWeightUpdateAndLock(msg.sender, validationID, newWeight);
+        _initializeValidatorUpdate(msg.sender, validationID, newStake);
     }
 
     /**
@@ -691,13 +692,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @notice Sets the weight of a validator and updates the operator's locked stake accordingly.
      * @param operator The operator who owns the validator
      * @param validationID The unique ID of the validator whose weight is being updated
-     * @param newWeight The new weight for the validator
+     * @param newStake The new weight for the validator
      * @dev When updating the weight of a validator, the operator's locked stake is increased or decreased
      */
-    function _initializeValidatorWeightUpdateAndLock(
+    function _initializeValidatorUpdate(
         address operator,
         bytes32 validationID,
-        uint64 newWeight
+        uint256 newStake
     ) internal {
         uint48 currentEpoch = getCurrentEpoch();
         uint256 cachedWeight = getEffectiveNodeWeight(currentEpoch, validationID);
@@ -706,19 +707,21 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
         uint256 delta;
-        if (newWeight > cachedWeight) {
-            delta = newWeight - cachedWeight;
+        if (newStake > cachedWeight) {
+            delta = newStake - cachedWeight;
             if (delta > _getOperatorAvailableStake(operator)) {
-                revert AvalancheL1Middleware__NotEnoughFreeStake(newWeight);
+                revert AvalancheL1Middleware__NotEnoughFreeStake(newStake);
             }
         }
         operatorLockedStake[operator] += delta;
         nodePendingUpdate[validationID] = true;
-        nodeWeightCache[currentEpoch + 1][validationID] = newWeight;
-        // if newWeight < cachedWeight, no lock should happen, it's locked in the cache
+        nodeWeightCache[currentEpoch + 1][validationID] = newStake;
+        // if newStake < cachedWeight, no lock should happen, it's locked in the cache
+
+        uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
 
         balancerValidatorManager.initializeValidatorWeightUpdate(
-            validationID, StakeConversion.stakeToWeight(newWeight, WEIGHT_SCALE_FACTOR)
+            validationID, scaledWeight
         );
     }
 

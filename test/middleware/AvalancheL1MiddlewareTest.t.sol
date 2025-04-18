@@ -456,9 +456,9 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Confirmed node weight:", nodeWeight);
 
         // Decrease weight
-        uint64 newWeight = uint64(nodeWeight - 100);
+        uint256 newWeight = nodeWeight - 100;
         vm.prank(alice);
-        middleware.initializeValidatorWeightUpdateAndLock(nodeId, newWeight);
+        middleware.initializeValidatorUpdate(nodeId, newWeight);
         uint256 updatedNodeWeight = middleware.nodeWeightCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after init update (still old until next epoch):", updatedNodeWeight);
 
@@ -506,9 +506,9 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Node weight after confirmation:", nodeWeight);
 
         // Decrease
-        uint64 newWeight = uint64(nodeWeight - 100);
+        uint256 newWeight = nodeWeight - 100;
         vm.prank(alice);
-        middleware.initializeValidatorWeightUpdateAndLock(nodeId, newWeight);
+        middleware.initializeValidatorUpdate(nodeId, newWeight);
 
         // Next epochs warp
         _calcAndWarpOneEpoch();

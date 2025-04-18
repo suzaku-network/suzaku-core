@@ -181,9 +181,9 @@ interface IAvalancheL1Middleware {
     /**
      * @notice Update the weight of a validator.
      * @param nodeId The node ID.
-     * @param newWeight The new weight.
+     * @param newStake The new weight.
      */
-    function initializeValidatorWeightUpdateAndLock(bytes32 nodeId, uint64 newWeight) external;
+    function initializeValidatorUpdate(bytes32 nodeId, uint256 newStake) external;
 
     /**
      * @notice Finalize a pending validator registration
