@@ -65,7 +65,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
 
-    MiddlewareVaultManager vaultManager;
+    MiddlewareVaultManager private vaultManager;
     EnumerableMap.AddressToUintMap private operators;
     EnumerableSet.UintSet private secondaryAssetClasses;
 
