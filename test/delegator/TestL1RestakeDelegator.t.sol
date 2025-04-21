@@ -106,6 +106,19 @@ contract L1RestakeDelegatorTest is Test {
         validatorManagerAddress =
             _deployValidatorManager(validatorSettings, proxyAdminOwnerAddress, protocolOwnerAddress);
 
+        // Deploy opt-in services BEFORE middleware creation
+        operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
+            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
+            "OperatorVaultOptInService"
+        );
+
+        operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
+            address(l1Registry), // WHERE_REGISTRY (isEntity)
+            "OperatorL1OptInService"
+        );
+
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
             l1ValidatorManager: address(validatorManagerAddress),
             operatorRegistry: address(operatorRegistry),
@@ -132,19 +145,6 @@ contract L1RestakeDelegatorTest is Test {
         vm.startPrank(alice);
         middleware.setVaultManager(address(middleware));
         vm.stopPrank();
-
-        // Deploy opt-in services
-        operatorVaultOptInService = new OperatorVaultOptInService(
-            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
-            "OperatorVaultOptInService"
-        );
-
-        operatorL1OptInService = new OperatorL1OptInService(
-            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(l1Registry), // WHERE_REGISTRY (isEntity)
-            "OperatorL1OptInService"
-        );
 
         // Whitelist vault implementation
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));

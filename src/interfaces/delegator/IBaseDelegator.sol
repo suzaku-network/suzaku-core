@@ -10,7 +10,7 @@ interface IBaseDelegator {
     error BaseDelegator__NotSlasher();
     error BaseDelegator__NotVault();
     error BaseDelegator__NotInitialized();
-
+    error BaseDelegator__ZeroAddress(string name);
     /**
      * @notice Base parameters needed for delegators' deployment.
      * @param defaultAdminRoleHolder address of the initial DEFAULT_ADMIN_ROLE holder

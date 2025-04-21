@@ -86,7 +86,17 @@ contract VaultTokenizedTest is Test {
         operatorRegistry = new OperatorRegistry();
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultImpl);
+        operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry), // whoRegistry
+            address(vaultFactory), // whereRegistry
+            "OperatorVaultOptInService"
+        );
 
+        operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry), // whoRegistry
+            address(l1Registry), // whereRegistry
+            "OperatorL1OptInService"
+        );
         collateral = new Token("Token");
         feeOnTransferCollateral = new MockFeeOnTransferToken("FeeOnTransferToken");
 
@@ -95,8 +105,8 @@ contract VaultTokenizedTest is Test {
             new L1RestakeDelegator(
                 address(l1Registry),
                 address(vaultFactory),
-                address(0), // operatorVaultOptInService
-                address(0), // operatorL1OptInService
+                address(operatorVaultOptInService),
+                address(operatorL1OptInService),
                 address(delegatorFactory),
                 delegatorFactory.totalTypes() // ensures correct TYPE indexing
             )

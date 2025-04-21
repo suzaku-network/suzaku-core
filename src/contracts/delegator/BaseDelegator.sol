@@ -90,6 +90,21 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
         address delegatorFactory,
         uint64 entityType
     ) {
+        if (l1Registry == address(0)) {
+            revert BaseDelegator__ZeroAddress("l1Registry");
+        }
+        if (vaultFactory == address(0)) {
+            revert BaseDelegator__ZeroAddress("vaultFactory");
+        }
+        if (operatorVaultOptInService == address(0)) {
+            revert BaseDelegator__ZeroAddress("operatorVaultOptInService");
+        }
+        if (operatorL1OptInService == address(0)) {
+            revert BaseDelegator__ZeroAddress("operatorL1OptInService");
+        }
+        if (delegatorFactory == address(0)) {
+            revert BaseDelegator__ZeroAddress("delegatorFactory");
+        }
         _disableInitializers();
         L1_REGISTRY = l1Registry;
         VAULT_FACTORY = vaultFactory;
