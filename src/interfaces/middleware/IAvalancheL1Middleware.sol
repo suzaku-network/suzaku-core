@@ -45,6 +45,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NotImplemented();
     error AvalancheL1Middleware__NodePendingRemoval(bytes32 nodeId);
     error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
+    error AvalancheL1Middleware__ZeroAddress(string name);
     // Events
     /**
      * @notice Emitted when a node is added

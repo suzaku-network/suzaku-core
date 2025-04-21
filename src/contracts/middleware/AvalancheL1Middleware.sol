@@ -106,6 +106,24 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint256 primaryAssetMinStake,
         uint256 primaryAssetWeightScaleFactor
     ) AssetClassRegistry(owner) {
+        if (settings.l1ValidatorManager == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("l1ValidatorManager");
+        }
+        if (settings.operatorRegistry == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("operatorRegistry");
+        }
+        if (settings.vaultRegistry == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("vaultRegistry");
+        }
+        if (settings.operatorL1Optin == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("operatorL1Optin");
+        }
+                if (owner == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("owner");
+        }
+        if (primaryAsset == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("primaryAsset");
+        }
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
         }
@@ -174,6 +192,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function setVaultManager(
         address vaultManager_
     ) external onlyOwner {
+        if (vaultManager_ == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("vaultManager");
+        }
         emit VaultManagerUpdated(address(vaultManager), vaultManager_);
         vaultManager = MiddlewareVaultManager(vaultManager_);
     }
