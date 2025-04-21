@@ -23,7 +23,9 @@ abstract contract Entity is Initializable, ERC165, IEntity {
 
     constructor(address factory, uint64 type_) {
         _disableInitializers();
-
+        if (factory == address(0)) {
+            revert Entity__ZeroAddress("factory");
+        }
         FACTORY = factory;
         TYPE = type_;
     }
