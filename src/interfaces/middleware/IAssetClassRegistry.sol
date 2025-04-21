@@ -11,6 +11,7 @@ interface IAssetClassRegistry {
     error AssetClassRegistry__AssetClassNotFound();
     error AssetClassRegistry__AssetIsPrimaryAssetClass(uint256 assetClassId);
     error AssetClassRegistry__AssetsStillExist();
+    error AssetClassRegistry__InvalidStakingRequirements();
 
     event AssetClassAdded(uint256 indexed assetClassId, uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake);
     event AssetAdded(uint256 indexed assetClassId, address indexed asset);

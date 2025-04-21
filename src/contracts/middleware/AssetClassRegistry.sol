@@ -83,6 +83,9 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         if (initialAsset == address(0)) {
             revert AssetClassRegistry__InvalidAsset();
         }
+        if (assetClassId == 1 && minValidatorStake > maxValidatorStake) {
+            revert AssetClassRegistry__InvalidStakingRequirements();
+        }
 
         assetClassIds.add(assetClassId);
 
