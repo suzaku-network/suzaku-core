@@ -33,6 +33,12 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
     constructor(address vaultRegistry, address owner, address middlewareAddress) Ownable(owner) {
+        if (vaultRegistry == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("vaultRegistry");
+        }
+        if (middlewareAddress == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("middlewareAddress");
+        }
         VAULT_REGISTRY = vaultRegistry;
         middleware = AvalancheL1Middleware(middlewareAddress);
     }

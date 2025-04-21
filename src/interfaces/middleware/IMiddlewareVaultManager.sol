@@ -21,6 +21,7 @@ interface IMiddlewareVaultManager {
     error AvalancheL1Middleware__VaultGracePeriodNotPassed();
     error AvalancheL1Middleware__UnknownSlasherType();
     error AvalancheL1Middleware__VaultNotDisabled();
+    error AvalancheL1Middleware__ZeroAddress(string name);
 
     // -----------------------------------------------------------------------
     // Public state variable getters
