@@ -89,6 +89,13 @@ interface IAvalancheL1Middleware {
     event AllNodeStakesUpdated(address indexed operator, uint256 newStake);
 
     /**
+     * @notice Emitted when the Vault Manager is updated
+     * @param oldVaultManager The old Vault Manager address
+     * @param newVaultManager The new Vault Manager address
+     */
+    event VaultManagerUpdated(address indexed oldVaultManager, address indexed newVaultManager);
+
+    /**
      * @dev Simple struct to return operator stake and key.
      */
     struct OperatorData {

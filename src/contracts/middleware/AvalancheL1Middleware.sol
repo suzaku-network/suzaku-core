@@ -174,6 +174,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function setVaultManager(
         address vaultManager_
     ) external onlyOwner {
+        emit VaultManagerUpdated(address(vaultManager), vaultManager_);
         vaultManager = MiddlewareVaultManager(vaultManager_);
     }
 
