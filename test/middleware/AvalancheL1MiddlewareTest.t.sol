@@ -348,6 +348,60 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(nodeWeight, 0);
     }
 
+    function test_AddNodeStakeClamping_Adaptive() public {
+        // Get staking requirements from middleware
+        middleware.getClassStakingRequirements(1);
+        uint256 totalSupply = collateral.totalSupply();
+        console2.log("Token total supply:", totalSupply);
+
+        // Set up test values
+        uint256 feasibleMax = 10_000_000_000_000_000_000;
+        uint256 stakeWanted = feasibleMax + 1 ether;
+
+        // Fund alice and deposit to vault
+        collateral.transfer(alice, stakeWanted);
+
+        vm.startPrank(alice);
+        collateral.approve(address(vault), stakeWanted);
+        vault.deposit(alice, stakeWanted);
+        vm.stopPrank();
+
+        // Set L1 limit
+        vm.startPrank(bob);
+        delegator.setL1Limit(validatorManagerAddress, assetClassId, stakeWanted);
+        vm.stopPrank();
+
+        // Verify available stake
+        uint256 updatedAvail = middleware.getOperatorAvailableStake(alice);
+        require(updatedAvail >= stakeWanted, "Still not enough to surpass testMaxStake+1");
+
+        // Add node with stake that exceeds max
+        bytes32 nodeId = keccak256("ClampTestAdaptive");
+        console2.log("Requesting stakeWanted:", stakeWanted);
+
+        vm.prank(alice);
+        middleware.addNode(
+            nodeId,
+            hex"abcdef1234",
+            uint64(block.timestamp + 1 days),
+            PChainOwner({threshold:1, addresses:new address[](1)}),
+            PChainOwner({threshold:1, addresses:new address[](1)}),
+            stakeWanted
+        );
+
+        // Move to next epoch
+        _calcAndWarpOneEpoch();
+
+        // Verify stake was clamped to max
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32 validationID =
+            mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        uint256 finalStake = middleware.getNodeStake(epoch, validationID);
+
+        console2.log("Final stake after clamp is:", finalStake);
+        assertEq(finalStake, feasibleMax, "Expect clamp to feasibleMax in the test scenario");
+    }
+
     function test_AddNodeSecondaryAsset() public {
         _calcAndWarpOneEpoch();
         uint48 epoch = middleware.getCurrentEpoch();

@@ -338,18 +338,19 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         bytes32 valId = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        uint256 available = _getOperatorAvailableStake(operator);
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePendingRemoval(nodeId);
         if (nodePendingUpdate[valId]) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
 
-        uint256 available = _getOperatorAvailableStake(operator);
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
         uint256 newStake = (stakeAmount != 0) ? stakeAmount : available;
 
+        newStake = (newStake > maxStake) ? maxStake : newStake;
+
         if (newStake < minStake || newStake > available) {
             revert AvalancheL1Middleware__NotEnoughFreeStake(newStake);
         }
-        newStake = (newStake > maxStake) ? maxStake : newStake;
 
         ValidatorRegistrationInput memory input = ValidatorRegistrationInput({
             nodeID: abi.encodePacked(uint160(uint256(nodeId))),
