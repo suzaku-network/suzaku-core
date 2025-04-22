@@ -1019,8 +1019,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             totalStake = convertedSecurityModuleMaxWeight;
         }
 
-        // Subtract locked stake
-        return totalStake - operatorLockedStake[operator];
+        uint256 lockedStake = operatorLockedStake[operator];
+        if (totalStake <= lockedStake) {
+            return 0;
+        }
+        return totalStake - lockedStake;
     }
 
     /**
