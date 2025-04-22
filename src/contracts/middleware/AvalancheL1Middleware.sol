@@ -211,8 +211,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (assetClassId == PRIMARY_ASSET_CLASS) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
         }
-
-        secondaryAssetClasses.add(assetClassId);
+        if (!secondaryAssetClasses.add(assetClassId)) {
+            revert AssetClassRegistry__AssetClassAlreadyExists();
+        }
     }
 
     /**
