@@ -69,7 +69,7 @@ contract DeployTestAvalancheL1Middleware is Script {
                 operatorL1Optin: address(operatorL1OptIn),
                 epochDuration: 4 hours,
                 slashingWindow: 5 hours,
-                weightUpdateWindow: 3 hours
+                stakeUpdateWindow: 3 hours
             }),
             protocolOwnerAddress,
             primaryAsset,

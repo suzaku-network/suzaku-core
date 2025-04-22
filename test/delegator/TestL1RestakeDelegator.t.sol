@@ -113,7 +113,7 @@ contract L1RestakeDelegatorTest is Test {
             operatorL1Optin: address(operatorL1OptInService),
             epochDuration: 4 hours,
             slashingWindow: 5 hours,
-            weightUpdateWindow: 3 hours
+            stakeUpdateWindow: 3 hours
         });
 
         middleware = new AvalancheL1Middleware(
@@ -370,7 +370,7 @@ contract L1RestakeDelegatorTest is Test {
         vm.assume(amount2 != amount3);
         vm.assume(amount3 != amount4);
 
-        uint256 blockTimestamp = block.timestamp;
+        uint256 blockTimestamp = vm.getBlockTimestamp();
         blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
@@ -471,7 +471,7 @@ contract L1RestakeDelegatorTest is Test {
         vm.assume(amount2 != amount3);
         vm.assume(amount3 != amount4);
 
-        uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
+        uint256 blockTimestamp = vm.getBlockTimestamp() * vm.getBlockTimestamp() / vm.getBlockTimestamp() * vm.getBlockTimestamp() / vm.getBlockTimestamp();
         blockTimestamp = blockTimestamp + 1_720_700_948;
         vm.warp(blockTimestamp);
 
@@ -528,7 +528,7 @@ contract L1RestakeDelegatorTest is Test {
         amount2 = bound(amount2, 1, type(uint256).max / 2);
         vm.assume(amount3 < amount2);
 
-        uint256 blockTimestamp = block.timestamp;
+        uint256 blockTimestamp = vm.getBlockTimestamp();
         blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
@@ -567,7 +567,7 @@ contract L1RestakeDelegatorTest is Test {
         epochDuration = uint48(bound(uint256(epochDuration), 1, 100 days));
         amount1 = bound(amount1, 1, type(uint256).max / 2);
 
-        uint256 blockTimestamp = block.timestamp;
+        uint256 blockTimestamp = vm.getBlockTimestamp();
         blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
@@ -602,7 +602,7 @@ contract L1RestakeDelegatorTest is Test {
         vm.assume(maxL1Limit1 >= l1Limit1 && l1Limit1 >= maxL1Limit2);
         vm.assume(l1Limit1 != 0);
 
-        uint256 blockTimestamp = block.timestamp;
+        uint256 blockTimestamp = vm.getBlockTimestamp();
         blockTimestamp += 1_720_700_948;
         vm.warp(blockTimestamp);
 
@@ -703,7 +703,7 @@ contract L1RestakeDelegatorTest is Test {
         vm.assume(withdrawAmount <= depositAmount);
         vm.assume(operatorL1Shares2 - 1 != operatorL1Shares3);
 
-        uint256 blockTimestamp = block.timestamp;
+        uint256 blockTimestamp = vm.getBlockTimestamp();
         blockTimestamp = blockTimestamp + 1_720_700_948;
         vm.warp(blockTimestamp);
 
