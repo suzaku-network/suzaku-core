@@ -20,10 +20,10 @@ contract MockAssetClassRegistry is AssetClassRegistry {
         primaryAsset = _primaryAsset;
     }
 
-    function removeAssetFromClass(uint256 assetClassId, address asset) external override {
+    function removeAssetFromClass(uint256 assetClassId, address asset) public override {
         if (assetClassId == 1 && asset == primaryAsset) {
             revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
-        super._removeAssetFromClass(assetClassId, asset);
+        _removeAssetFromClass(assetClassId, asset);
     }
 }

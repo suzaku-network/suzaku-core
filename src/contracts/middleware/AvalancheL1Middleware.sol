@@ -241,7 +241,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function removeAssetFromClass(
         uint256 assetClassId,
         address asset
-    ) external override updateGlobalNodeStakeOncePerEpoch {
+    ) public override onlyOwner updateGlobalNodeStakeOncePerEpoch {
         if (assetClassId == 1 && asset == PRIMARY_ASSET) {
             revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
@@ -250,7 +250,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__AssetStillInUse(assetClassId);
         }
 
-        _removeAssetFromClass(assetClassId, asset);
+        super.removeAssetFromClass(assetClassId, asset);
     }
 
     /**
@@ -259,12 +259,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      */
     function removeAssetClass(
         uint256 assetClassId
-    ) external override updateGlobalNodeStakeOncePerEpoch {
+    ) public override updateGlobalNodeStakeOncePerEpoch {
         if (secondaryAssetClasses.contains(assetClassId)) {
             revert AvalancheL1Middleware__ActiveSecondaryAssetCLass(assetClassId);
         }
 
-        _removeAssetClass(assetClassId);
+        super.removeAssetClass(assetClassId);
     }
 
     /**
@@ -605,7 +605,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
-            // If no removal/update, just carry over from prevEpoch (only if we haven’t set it yet)
+            // If no removal/update, just carry over from prevEpoch (only if we haven't set it yet)
             if (!nodePendingRemoval[valID] && !nodePendingUpdate[valID]) {
                 if (nodeStakeCache[epoch][valID] == 0) {
                     nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID];

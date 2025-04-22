@@ -40,14 +40,14 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function removeAssetFromClass(uint256 assetClassId, address asset) external virtual onlyOwner {
+    function removeAssetFromClass(uint256 assetClassId, address asset) public virtual onlyOwner {
         _removeAssetFromClass(assetClassId, asset);
     }
 
     /// @inheritdoc IAssetClassRegistry
     function removeAssetClass(
         uint256 assetClassId
-    ) external virtual onlyOwner {
+    ) public virtual onlyOwner {
         _removeAssetClass(assetClassId);
     }
 
