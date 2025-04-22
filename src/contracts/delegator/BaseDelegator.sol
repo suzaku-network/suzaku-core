@@ -165,7 +165,6 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
 
         return _stake(l1, assetClass, operator);
     }
-
     /**
      * @inheritdoc IBaseDelegator
      */
@@ -174,7 +173,11 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             revert BaseDelegator__NotL1();
         }
 
-        IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
+        // Check if the middleware is registered and matches the caller
+        bool isRegisteredWithMiddleware = IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
+        if (!isRegisteredWithMiddleware) {
+            revert BaseDelegator__NotAuthorizedMiddleware();
+        }
 
         if (maxL1Limit[l1][assetClass] == amount) {
             revert BaseDelegator__AlreadySet();
