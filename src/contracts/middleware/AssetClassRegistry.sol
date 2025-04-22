@@ -35,7 +35,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function addAssetToClass(uint256 assetClassId, address asset) external {
+    function addAssetToClass(uint256 assetClassId, address asset) external onlyOwner {
         _addAssetToClass(assetClassId, asset);
     }
 
