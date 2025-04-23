@@ -605,7 +605,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
-            // If no removal/update, just carry over from prevEpoch (only if we haven't set it yet)
+            // If no removal/update, just carry over from prevEpoch (only if we haven’t set it yet)
             if (!nodePendingRemoval[valID] && !nodePendingUpdate[valID]) {
                 if (nodeStakeCache[epoch][valID] == 0) {
                     nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID];
@@ -631,7 +631,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @notice Remove a node => end its validator. Checks still to be done.
      * @param nodeId The node ID
      */
-    function _removeNode(address operator, bytes32 nodeId) internal onlyRegisteredOperatorNode(operator, nodeId) {
+    function _removeNode(address operator, bytes32 nodeId) internal {
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         _initializeEndValidationAndFlag(operator, validationID, nodeId);
     }
