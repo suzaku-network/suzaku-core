@@ -573,6 +573,7 @@ contract VaultTokenizedTest is Test {
             )
         );
 
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
 
         assertEq(vault.delegator(), address(delegator));
@@ -634,9 +635,11 @@ contract VaultTokenizedTest is Test {
             )
         );
 
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
 
         vm.expectRevert(IVaultTokenized.Vault__DelegatorAlreadyInitialized.selector);
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
     }
 
@@ -670,6 +673,7 @@ contract VaultTokenizedTest is Test {
         );
 
         vm.expectRevert(IVaultTokenized.Vault__NotDelegator.selector);
+        vm.prank(alice);
         vault.setDelegator(address(1));
     }
 
@@ -756,6 +760,7 @@ contract VaultTokenizedTest is Test {
 
         // Trying to set a delegator that belongs to another vault
         vm.expectRevert(IVaultTokenized.Vault__InvalidDelegator.selector);
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
     }
 

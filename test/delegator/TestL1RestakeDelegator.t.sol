@@ -970,6 +970,7 @@ contract L1RestakeDelegatorTest is Test {
         );
 
         d = L1RestakeDelegator(delegatorAddress);
+        vm.prank(alice);
         v.setDelegator(delegatorAddress);
 
         return (v, d);

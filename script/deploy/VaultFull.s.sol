@@ -157,9 +157,13 @@ contract VaultFull is Script {
         delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vaultTokenized, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 
-        // Set delegator in the vault
-        VaultTokenized(vaultTokenized).setDelegator(delegator);
+        // Set delegator in the vault - use the owner's account
+        vm.stopBroadcast();
 
+        // Set delegator in the vault - use the Admin Role Holder
+        vm.startBroadcast(params.owner);
+        VaultTokenized(vaultTokenized).setDelegator(delegator);
+        
         slasher;
         if (params.withSlasher) {
             slasher = slasherFactory.create(params.slasherIndex, abi.encode(vaultTokenized, params.slasherParams));

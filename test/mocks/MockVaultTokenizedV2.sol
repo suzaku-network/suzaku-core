@@ -763,7 +763,7 @@ contract MockVaultTokenizedV2 is
 
     function setDelegator(
         address delegator_
-    ) external nonReentrant {
+    ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isDelegatorInitialized) {
@@ -788,7 +788,7 @@ contract MockVaultTokenizedV2 is
 
     function setSlasher(
         address slasher_
-    ) external nonReentrant {
+    ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isSlasherInitialized) {

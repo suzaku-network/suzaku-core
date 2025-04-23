@@ -209,6 +209,7 @@ contract AvalancheL1MiddlewareTest is Test {
         delegator = L1RestakeDelegator(delegatorAddress);
 
         // Set the delegator in the vault
+        vm.prank(bob);
         vault.setDelegator(delegatorAddress);
 
         // Deploy the middleware

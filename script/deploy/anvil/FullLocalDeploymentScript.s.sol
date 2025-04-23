@@ -173,6 +173,8 @@ contract FullLocalDeploymentScript is Script {
         address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 
+        // Set delegator in the vault - use the Admin Role Holder
+        vm.prank(params.owner);
         VaultTokenized(vault).setDelegator(delegator);
 
         // If slasher included, deploy slasher
@@ -180,6 +182,8 @@ contract FullLocalDeploymentScript is Script {
         if (params.withSlasher) {
             slasher = slasherFactory.create(params.slasherIndex, abi.encode(vault, params.slasherParams));
             console2.log("Slasher deployed at:", slasher);
+            
+            vm.prank(params.owner);
             VaultTokenized(vault).setSlasher(slasher);
         }
 
