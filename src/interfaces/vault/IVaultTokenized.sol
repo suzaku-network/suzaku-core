@@ -34,7 +34,7 @@ interface IVaultTokenized {
     error Vault__TooMuchWithdraw();
     error Vault__InvalidTimestamp();
     error Vault__NoPreviousEpoch();
-
+    error Vault__MigrationNotImplemented();
     // Structs
     /**
      * @notice Initial parameters needed for a vault deployment.

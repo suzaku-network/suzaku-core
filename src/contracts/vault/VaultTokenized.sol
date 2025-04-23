@@ -223,7 +223,7 @@ contract VaultTokenized is
      */
     function _migrate(uint64, /* newVersion */ bytes calldata /* data */ ) internal virtual onlyInitializing {
         // Implement migration logic here
-        revert();
+        revert Vault__MigrationNotImplemented();
     }
 
     /**
