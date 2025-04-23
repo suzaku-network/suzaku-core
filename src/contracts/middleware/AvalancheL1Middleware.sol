@@ -222,15 +222,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function deactivateSecondaryAssetClass(
         uint256 assetClassId
     ) external onlyOwner updateGlobalNodeStakeOncePerEpoch {
-        if (!secondaryAssetClasses.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-
         if (_isUsedAssetClass(assetClassId)) {
             revert AvalancheL1Middleware__AssetStillInUse(assetClassId);
         }
 
-        secondaryAssetClasses.remove(assetClassId);
+        if (!secondaryAssetClasses.remove(assetClassId)) {
+            revert AssetClassRegistry__AssetClassNotFound();
+        }
     }
 
     /**
