@@ -19,9 +19,9 @@ interface IMiddlewareVaultManager {
     error AvalancheL1Middleware__WrongVaultAssetClass();
     error AvalancheL1Middleware__ZeroVaultMaxL1Limit();
     error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-    error AvalancheL1Middleware__UnknownSlasherType();
     error AvalancheL1Middleware__VaultNotDisabled();
     error AvalancheL1Middleware__ZeroAddress(string name);
+    error AvalancheL1Middleware__SlasherNotImplemented();
 
     // -----------------------------------------------------------------------
     // Public state variable getters
@@ -60,19 +60,8 @@ interface IMiddlewareVaultManager {
 
     /**
      * @notice Slashes a vault based on the operator’s share of stake.
-     * @param totalOperatorStake The total stake of the operator across vaults
-     * @param amount The total slash amount
-     * @param assetClassId The asset class ID
-     * @param operator The operator address being slashed
-     * @param epochStartTs The epoch start timestamp
      */
-    function slashVault(
-        uint256 totalOperatorStake,
-        uint256 amount,
-        uint96 assetClassId,
-        address operator,
-        uint48 epochStartTs
-    ) external;
+    function slashVault() external;
 
     /**
      * @notice Returns the number of vaults registered.
