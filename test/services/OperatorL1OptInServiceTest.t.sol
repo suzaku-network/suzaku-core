@@ -318,14 +318,14 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         uint48 deadline = uint48(blockTimestamp);
-        bytes32 digest = computeOptOutDigest(operator, where, 1, deadline);
+        bytes32 digest = computeOptOutDigest(operator, where, 0, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         service.optOut(operator, where, deadline, signature);
 
         assertEq(service.isOptedIn(operator, where), false);
-        assertEq(service.nonces(operator, where), 2);
+        assertEq(service.nonces(operator, where), 1);
     }
 
     function test_OptOutWithInvalidSignature() public {
