@@ -817,8 +817,9 @@ contract VaultTokenized is
         if (epoch >= currentEpoch()) {
             revert Vault__InvalidEpoch();
         }
-
-        if (vs.isWithdrawalsClaimed[epoch][msg.sender]) {
+        
+        bool alreadyClaimed = vs.isWithdrawalsClaimed[epoch][msg.sender];
+        if (alreadyClaimed) {
             revert Vault__AlreadyClaimed();
         }
 
