@@ -36,6 +36,18 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
 
     /// @inheritdoc IAssetClassRegistry
     function addAssetToClass(uint256 assetClassId, address asset) external onlyOwner {
+        if (!assetClassIds.contains(assetClassId)) {
+            revert AssetClassRegistry__AssetClassNotFound();
+        }
+        if (asset == address(0)) {
+            revert AssetClassRegistry__InvalidAsset();
+        }
+
+        AssetClass storage cls = assetClasses[assetClassId];
+        if (cls.assets.contains(asset)) {
+            revert AssetClassRegistry__AssetAlreadyRegistered();
+        }
+
         _addAssetToClass(assetClassId, asset);
     }
 
@@ -99,17 +111,8 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     }
 
     function _addAssetToClass(uint256 assetClassId, address asset) internal {
-        if (!assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-        if (asset == address(0)) {
-            revert AssetClassRegistry__InvalidAsset();
-        }
-
         AssetClass storage cls = assetClasses[assetClassId];
-        if (cls.assets.contains(asset)) {
-            revert AssetClassRegistry__AssetAlreadyRegistered();
-        }
+
         cls.assets.add(asset);
 
         emit AssetAdded(assetClassId, asset);
