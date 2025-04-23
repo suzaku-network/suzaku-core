@@ -379,7 +379,7 @@ contract VaultTokenizedTest is Test {
 
         uint64 lastVersion = vaultFactory.lastVersion();
 
-        vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
             alice,
@@ -412,7 +412,7 @@ contract VaultTokenizedTest is Test {
 
         uint64 lastVersion = vaultFactory.lastVersion();
 
-        vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
             alice,
@@ -445,7 +445,7 @@ contract VaultTokenizedTest is Test {
 
         uint64 lastVersion = vaultFactory.lastVersion();
 
-        vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
             alice,

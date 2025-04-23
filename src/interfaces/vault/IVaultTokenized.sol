@@ -26,6 +26,7 @@ interface IVaultTokenized {
     error Vault__InvalidRecipient();
     error Vault__InvalidSlasher();
     error Vault__MissingRoles();
+    error Vault__InconsistentRoles();
     error Vault__NotDelegator();
     error Vault__NotSlasher();
     error Vault__NotWhitelistedDepositor();

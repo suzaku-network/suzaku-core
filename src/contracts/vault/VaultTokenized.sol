@@ -156,7 +156,7 @@ contract VaultTokenized is
                         revert Vault__MissingRoles();
                     }
                 } else if (params.depositorWhitelistRoleHolder != address(0)) {
-                    revert Vault__MissingRoles();
+                    revert Vault__InconsistentRoles();
                 }
             }
 
@@ -166,7 +166,7 @@ contract VaultTokenized is
                         revert Vault__MissingRoles();
                     }
                 } else if (params.depositLimit != 0 || params.depositLimitSetRoleHolder != address(0)) {
-                    revert Vault__MissingRoles();
+                    revert Vault__InconsistentRoles();
                 }
             }
         }
