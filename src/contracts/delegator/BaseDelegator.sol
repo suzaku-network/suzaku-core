@@ -255,6 +255,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             revert BaseDelegator__NotVault();
         }
 
+        __AccessControl_init();
         __ReentrancyGuard_init();
 
         vault = vault_;
