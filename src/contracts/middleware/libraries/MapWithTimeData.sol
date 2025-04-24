@@ -10,24 +10,28 @@ import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap
 library MapWithTimeData {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
 
-    error AlreadyAdded();
-    error NotEnabled();
-    error AlreadyEnabled();
-
-    uint256 private constant ENABLED_TIME_MASK = 0xFFFFFFFFFFFFFFFFFFFFFFFF;
-    uint256 private constant DISABLED_TIME_MASK = 0xFFFFFFFFFFFFFFFFFFFFFFFF << 48;
+    error MapWithTimeData__AlreadyAdded();
+    error MapWithTimeData__NotEnabled();
+    error MapWithTimeData__AlreadyEnabled();
+    error MapWithTimeData__AlreadyDisabled();
 
     function add(EnumerableMap.AddressToUintMap storage self, address addr) internal {
         if (!self.set(addr, uint256(0))) {
-            revert AlreadyAdded();
+            revert MapWithTimeData__AlreadyAdded();
         }
     }
 
     function disable(EnumerableMap.AddressToUintMap storage self, address addr) internal {
         uint256 value = self.get(addr);
+        uint48 enabledTime = uint48(value);
+        uint48 disabledTime = uint48(value >> 48);
 
-        if (uint48(value) == 0 || uint48(value >> 48) != 0) {
-            revert NotEnabled();
+        if (enabledTime == 0) {
+            revert MapWithTimeData__NotEnabled();
+        }
+
+        if (disabledTime != 0) {
+            revert MapWithTimeData__AlreadyDisabled();
         }
 
         value |= uint256(Time.timestamp()) << 48;
@@ -38,7 +42,7 @@ library MapWithTimeData {
         uint256 value = self.get(addr);
 
         if (uint48(value) != 0 && uint48(value >> 48) == 0) {
-            revert AlreadyEnabled();
+            revert MapWithTimeData__AlreadyEnabled();
         }
 
         value = uint256(Time.timestamp());
