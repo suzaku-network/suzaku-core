@@ -40,7 +40,7 @@ contract L1Registry is IL1Registry {
         _;
     }
 
-    modifier isZeroAddress(
+    modifier notZeroAddress(
         address l1
     ) {
         if (l1 == address(0)) {
@@ -54,14 +54,11 @@ contract L1Registry is IL1Registry {
         address l1,
         address l1Middleware_,
         string calldata metadataURL
-    ) external isZeroAddress(l1) onlyValidatorManagerOwner(l1) {
-        if (isRegistered(l1)) {
+    ) external notZeroAddress(l1) onlyValidatorManagerOwner(l1) {
+        bool registered = l1s.add(l1);
+        if (!registered) {
             revert L1Registry__L1AlreadyRegistered();
         }
-        if (l1 == address(0)) {
-            revert L1Registry__InvalidValidatorManager(l1);
-        }
-        l1s.add(l1);
         l1Middleware[l1] = l1Middleware_;
         l1MetadataURL[l1] = metadataURL;
 
@@ -74,7 +71,7 @@ contract L1Registry is IL1Registry {
     function setL1Middleware(
         address l1,
         address l1Middleware_
-    ) external isZeroAddress(l1Middleware_) isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
+    ) external notZeroAddress(l1Middleware_) isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
         l1Middleware[l1] = l1Middleware_;
 
         emit SetL1Middleware(l1, l1Middleware_);
