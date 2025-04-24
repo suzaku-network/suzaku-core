@@ -50,7 +50,7 @@ contract VaultFull is Script {
         vaultFactory = VaultFactory(vaultConfig.factoryConfig.vaultFactory);
         delegatorFactory = DelegatorFactory(vaultConfig.factoryConfig.delegatorFactory);
         slasherFactory = SlasherFactory(vaultConfig.factoryConfig.slasherFactory);
-        l1Registry = L1Registry(vaultConfig.factoryConfig.l1Registry);
+        l1Registry = L1Registry(payable(vaultConfig.factoryConfig.l1Registry));
         operatorRegistry = OperatorRegistry(vaultConfig.factoryConfig.operatorRegistry);
 
         console2.log("Deploying core contracts...", vaultConfig.factoryConfig.vaultFactory);

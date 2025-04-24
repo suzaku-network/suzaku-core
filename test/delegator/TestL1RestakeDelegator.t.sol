@@ -51,6 +51,7 @@ contract L1RestakeDelegatorTest is Test {
     address bob;
     uint256 bobPrivateKey;
     address validatorManagerAddress;
+    address feeCollectorAddress;
 
     VaultFactory vaultFactory;
     DelegatorFactory delegatorFactory;
@@ -70,7 +71,7 @@ contract L1RestakeDelegatorTest is Test {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
-
+        feeCollectorAddress = makeAddr("feeCollector");
         // Deploy a test collateral token
         collateral = new Token("Token");
 
@@ -78,7 +79,12 @@ contract L1RestakeDelegatorTest is Test {
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
         slasherFactory = new SlasherFactory(owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(feeCollectorAddress), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            owner
+        );
         operatorRegistry = new OperatorRegistry();
 
         // Deploy middleware service
@@ -174,8 +180,14 @@ contract L1RestakeDelegatorTest is Test {
         // Register an L1 and a subnetwork for testing
         address l1 = alice;
         DummyL1 dummyL1 = new DummyL1(alice);
+        
+        // Add funds for registration fee
+        vm.deal(alice, 1 ether);
         vm.prank(alice);
-        l1Registry.registerL1(address(dummyL1), address(0), "metadataURL");
+        uint256 fee = l1Registry.registerFee();
+        vm.prank(alice);
+        l1Registry.registerL1{value: fee}(address(dummyL1), address(0), "metadataURL");
+        
         uint96 assetClass = 1;
 
         assertEq(delegator.VERSION(), 1);
@@ -985,11 +997,12 @@ contract L1RestakeDelegatorTest is Test {
     function _registerL1(address l1, address _middleware) internal returns (address) {
         DummyL1 dummyL1 = new DummyL1(l1);
 
-        // 'l1' calls registerL1 for the new contract
-        vm.prank(l1);
-        l1Registry.registerL1(address(dummyL1), _middleware, "metadataURL");
-
-        // Return the actual contract address
+        vm.deal(l1, 100 ether);
+        vm.startPrank(l1);
+        uint256 fee = l1Registry.registerFee();
+        l1Registry.registerL1{value: fee}(address(dummyL1), _middleware, "metadataURL");
+        vm.stopPrank();
+        
         return address(dummyL1);
     }
 

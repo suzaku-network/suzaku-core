@@ -59,7 +59,12 @@ contract FullLocalDeploymentScript is Script {
         vaultFactory = new VaultFactory(config.generalConfig.owner);
         delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
         slasherFactory = new SlasherFactory(config.generalConfig.owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(config.generalConfig.owner), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            config.generalConfig.owner // owner
+        );
         operatorRegistry = new OperatorRegistry();
 
         console2.log("VaultFactory deployed at:", address(vaultFactory));

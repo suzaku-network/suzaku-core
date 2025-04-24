@@ -55,7 +55,12 @@ contract DeployTestAvalancheL1Middleware is Script {
 
         address validatorManagerAddress =
             _deployValidatorManager(settings, proxyAdminOwnerAddress, protocolOwnerAddress);
-        L1Registry l1Registry = new L1Registry();
+        L1Registry l1Registry = new L1Registry(
+            payable(protocolOwnerAddress), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            protocolOwnerAddress // owner
+        );
         OperatorRegistry operatorRegistry = new OperatorRegistry();
         VaultFactory vaultFactory = new VaultFactory(protocolOwnerAddress);
         OperatorL1OptInService operatorL1OptIn =

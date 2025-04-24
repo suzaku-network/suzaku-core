@@ -70,6 +70,7 @@ contract AvalancheL1MiddlewareTest is Test {
     uint256 internal maxVaultL1Limit;
     uint256 internal depositedAmount;
     uint256 internal mintedShares;
+    address internal feeCollectorAddress;
 
     // Factories & Registries
     VaultFactory internal vaultFactory;
@@ -93,11 +94,16 @@ contract AvalancheL1MiddlewareTest is Test {
         (l1, l1PrivateKey) = makeAddrAndKey("l1");
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
-
+        feeCollectorAddress = makeAddr("feeCollector");
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
         slasherFactory = new SlasherFactory(owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(feeCollectorAddress), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            owner
+        );
         operatorRegistry = new OperatorRegistry();
 
         MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
@@ -248,6 +254,10 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Maybe not recomended, but passing the ownership to itself
         mockValidatorManager.transferOwnership(validatorManagerAddress);
+        
+        // Give validatorManager some ETH to pay the registration fee
+        vm.deal(validatorManagerAddress, 1 ether);
+        
         _registerL1(validatorManagerAddress, address(middleware));
         assetClassId = 1;
         maxVaultL1Limit = 2000 ether;
@@ -1395,7 +1405,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
     function _registerL1(address _l1, address _middleware) internal {
         vm.prank(_l1);
-        l1Registry.registerL1(_l1, _middleware, "metadataURL");
+        l1Registry.registerL1{value: 0.01 ether}(_l1, _middleware, "metadataURL");
     }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {

@@ -82,7 +82,12 @@ contract VaultTokenizedTest is Test {
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
         slasherFactory = new SlasherFactory(owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(owner), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            owner
+        );
         operatorRegistry = new OperatorRegistry();
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultImpl);

@@ -20,8 +20,16 @@ struct OptinConfig {
     address operatorL1OptInService;
 }
 
+struct L1RegistryConfig {   
+    address feeCollector;
+    uint256 initialRegisterFee;
+    uint256 maxRegisterFee;
+    address owner;
+}
+
 struct BootstraperConfig {
     GeneralConfig generalConfig;
     FactoryConfig factoryConfig;
     OptinConfig optinConfig;
+    L1RegistryConfig l1RegistryConfig;
 }

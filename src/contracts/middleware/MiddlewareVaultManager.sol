@@ -40,7 +40,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
             revert AvalancheL1Middleware__ZeroAddress("middlewareAddress");
         }
         VAULT_REGISTRY = vaultRegistry;
-        middleware = AvalancheL1Middleware(middlewareAddress);
+        middleware = AvalancheL1Middleware(payable(middlewareAddress));
     }
 
     /**

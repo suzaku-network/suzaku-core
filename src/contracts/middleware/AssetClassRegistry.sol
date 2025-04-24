@@ -163,4 +163,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         }
         return assetClasses[assetClassId].assets.contains(asset);
     }
+
+    receive() external payable {
+    }
 }
