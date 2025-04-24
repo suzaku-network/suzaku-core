@@ -134,14 +134,6 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
         return _entities.length();
     }
 
-    function _checkEntity(
-        address account
-    ) internal view {
-        if (!isEntity(account)) {
-            revert DelegatorFactory__EntityNotExist();
-        }
-    }
-
     function supportsInterface(
         bytes4 interfaceId
     ) public view override(ERC165, IDelegatorFactory) returns (bool) {
