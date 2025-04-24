@@ -11,6 +11,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 library ERC4626Math {
     using Math for uint256;
 
+    /// @dev Offset used in calculations to prevent division by zero and improve precision
+    uint256 private constant DECIMALS_OFFSET = 0;
+
     function previewDeposit(uint256 assets, uint256 totalShares, uint256 totalAssets) internal pure returns (uint256) {
         return convertToShares(assets, totalShares, totalAssets, Math.Rounding.Floor);
     }
@@ -40,7 +43,7 @@ library ERC4626Math {
         uint256 totalAssets,
         Math.Rounding rounding
     ) internal pure returns (uint256) {
-        return assets.mulDiv(totalShares + 10 ** _decimalsOffset(), totalAssets + 1, rounding);
+        return assets.mulDiv(totalShares + 10 ** DECIMALS_OFFSET, totalAssets + 1, rounding);
     }
 
     /**
@@ -52,10 +55,6 @@ library ERC4626Math {
         uint256 totalShares,
         Math.Rounding rounding
     ) internal pure returns (uint256) {
-        return shares.mulDiv(totalAssets + 1, totalShares + 10 ** _decimalsOffset(), rounding);
-    }
-
-    function _decimalsOffset() private pure returns (uint8) {
-        return 0;
+        return shares.mulDiv(totalAssets + 1, totalShares + 10 **DECIMALS_OFFSET, rounding);
     }
 }
