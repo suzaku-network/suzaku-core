@@ -49,6 +49,6 @@ abstract contract Entity is Initializable, ERC165, IEntity {
     }
 
     function _initialize(
-        bytes calldata /* data */
-    ) internal virtual {}
+        bytes calldata data
+    ) internal virtual;
 }
