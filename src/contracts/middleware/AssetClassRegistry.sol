@@ -73,14 +73,15 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         return assetClasses[assetClassId].assets.values();
     }
 
-    // @inheritdoc IAssetClassRegistry
+    /// @inheritdoc IAssetClassRegistry
     function getClassStakingRequirements(
         uint256 assetClassId
     ) external view returns (uint256 minStake, uint256 maxStake) {
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        return (assetClasses[assetClassId].minValidatorStake, assetClasses[assetClassId].maxValidatorStake);
+        AssetClass storage cls = assetClasses[assetClassId];
+        return (cls.minValidatorStake, cls.maxValidatorStake);
     }
 
     function _addAssetClass(
@@ -113,7 +114,10 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     function _addAssetToClass(uint256 assetClassId, address asset) internal {
         AssetClass storage cls = assetClasses[assetClassId];
 
-        cls.assets.add(asset);
+        bool added = cls.assets.add(asset);
+        if (!added) {
+            revert AssetClassRegistry__AssetAlreadyRegistered();
+        }
 
         emit AssetAdded(assetClassId, asset);
     }
@@ -124,10 +128,10 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         }
 
         AssetClass storage cls = assetClasses[assetClassId];
-        if (!cls.assets.contains(asset)) {
+        bool removed = cls.assets.remove(asset);
+        if (!removed) {
             revert AssetClassRegistry__AssetNotFound();
         }
-        cls.assets.remove(asset);
 
         emit AssetRemoved(assetClassId, asset);
     }
@@ -139,15 +143,15 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
             revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
 
-        if (!assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-
         if (assetClasses[assetClassId].assets.length() != 0) {
             revert AssetClassRegistry__AssetsStillExist();
         }
 
-        assetClassIds.remove(assetClassId);
+        bool removed = assetClassIds.remove(assetClassId);
+        if (!removed) {
+            revert AssetClassRegistry__AssetClassNotFound();
+        }
+        
         delete assetClasses[assetClassId];
 
         emit AssetClassRemoved(assetClassId);
