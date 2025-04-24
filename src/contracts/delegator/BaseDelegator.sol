@@ -179,7 +179,8 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             revert BaseDelegator__NotAuthorizedMiddleware();
         }
 
-        if (maxL1Limit[l1][assetClass] == amount) {
+        uint256 currentLimit = maxL1Limit[l1][assetClass];
+        if (currentLimit == amount) {
             revert BaseDelegator__AlreadySet();
         }
 
@@ -278,13 +279,13 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
         address operator,
         uint48 timestamp,
         bytes memory hints
-    ) internal view virtual returns (uint256, bytes memory) {}
+    ) internal view virtual returns (uint256, bytes memory);
 
-    function _stake(address l1, uint96 assetClass, address operator) internal view virtual returns (uint256) {}
+    function _stake(address l1, uint96 assetClass, address operator) internal view virtual returns (uint256);
 
-    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual {}
+    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual;
 
-    function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory) {}
+    function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory);
 
     function supportsInterface(
         bytes4 interfaceId
