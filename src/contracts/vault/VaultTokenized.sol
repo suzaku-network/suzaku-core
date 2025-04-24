@@ -95,7 +95,9 @@ contract VaultTokenized is
         address vaultFactory
     ) {
         _disableInitializers();
-
+        if (vaultFactory == address(0)) {
+            revert Vault__InvalidFactory();
+        }
         FACTORY = vaultFactory;
     }
 

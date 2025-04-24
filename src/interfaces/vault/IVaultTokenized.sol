@@ -36,6 +36,8 @@ interface IVaultTokenized {
     error Vault__InvalidTimestamp();
     error Vault__NoPreviousEpoch();
     error Vault__MigrationNotImplemented();
+    error Vault__InvalidFactory();
+    
     // Structs
     /**
      * @notice Initial parameters needed for a vault deployment.
