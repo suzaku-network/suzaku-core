@@ -134,14 +134,6 @@ contract SlasherFactory is ISlasherFactory, Ownable, ERC165 {
         return _entities.length();
     }
 
-    function _checkEntity(
-        address account
-    ) internal view {
-        if (!isEntity(account)) {
-            revert SlasherFactory__EntityNotExist();
-        }
-    }
-
     function supportsInterface(
         bytes4 interfaceId
     ) public view override(ERC165, ISlasherFactory) returns (bool) {
