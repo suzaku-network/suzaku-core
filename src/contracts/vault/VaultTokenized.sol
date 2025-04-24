@@ -845,7 +845,9 @@ contract VaultTokenized is
         if (timestamp < vs.epochDurationInit) {
             revert Vault__InvalidTimestamp();
         }
-        return (timestamp - vs.epochDurationInit) / vs.epochDuration;
+        unchecked {
+            return (timestamp - vs.epochDurationInit) / vs.epochDuration;
+        }
     }
 
     /**
