@@ -54,6 +54,7 @@ interface IAvalancheL1Middleware {
      * @param stake The stake assigned to the node
      * @param validationID The validation identifier from BalancerValidatorManager
      */
+
     event NodeAdded(address indexed operator, bytes32 indexed nodeId, uint256 stake, bytes32 indexed validationID);
 
     /**

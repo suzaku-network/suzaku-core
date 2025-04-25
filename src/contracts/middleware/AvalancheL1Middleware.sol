@@ -118,7 +118,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (settings.operatorL1Optin == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress("operatorL1Optin");
         }
-                if (owner == address(0)) {
+        if (owner == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress("owner");
         }
         if (primaryAsset == address(0)) {

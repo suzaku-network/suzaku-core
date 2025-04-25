@@ -34,7 +34,8 @@ interface IL1Registry {
         string calldata metadataURL
     )
         /*, uint32 messageIndex, SubnetConversionData subnetConversionData*/
-        external payable;
+        external
+        payable;
 
     /**
      * @notice Check if an address is registered as an L1

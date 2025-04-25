@@ -58,16 +58,11 @@ contract L1Registry is IL1Registry, Ownable {
         _;
     }
 
-    constructor(
-        address payable feeCollector_,
-        uint256 registerFee_,
-        uint256 MAX_FEE_,
-        address owner
-    ) Ownable(owner) {
+    constructor(address payable feeCollector_, uint256 registerFee_, uint256 MAX_FEE_, address owner) Ownable(owner) {
         feeCollector = feeCollector_;
         registerFee = registerFee_;
         MAX_FEE = MAX_FEE_;
-    }   
+    }
 
     /// @inheritdoc IL1Registry
     function registerL1(
@@ -80,10 +75,10 @@ contract L1Registry is IL1Registry, Ownable {
             if (msg.value < registerFee) {
                 revert L1Registry__InsufficientFee();
             }
-            
+
             // Transfer fee to collector if set
             if (feeCollector != address(0)) {
-                (bool success, ) = feeCollector.call{value: msg.value}("");
+                (bool success,) = feeCollector.call{value: msg.value}("");
                 if (!success) revert L1Registry__FeeTransferFailed();
             }
         }
@@ -176,20 +171,24 @@ contract L1Registry is IL1Registry, Ownable {
 
     /// @notice Adjust fee collector. Only owner can change it.
     /// @param newFeeCollector The new fee collector address
-    function setFeeCollector(address payable newFeeCollector) external onlyOwner {
+    function setFeeCollector(
+        address payable newFeeCollector
+    ) external onlyOwner {
         if (newFeeCollector == address(0)) {
             revert L1Registry__ZeroAddress("feeCollector");
         }
         feeCollector = newFeeCollector;
     }
     /// @notice Adjust fee. Only owner can change it.
-    function setRegisterFee(uint256 newFee) external onlyOwner {
+
+    function setRegisterFee(
+        uint256 newFee
+    ) external onlyOwner {
         if (newFee > MAX_FEE) {
             revert L1Registry__FeeExceedsMaximum(newFee, MAX_FEE);
         }
         registerFee = newFee;
     }
 
-    receive() external payable {
-    }
+    receive() external payable {}
 }

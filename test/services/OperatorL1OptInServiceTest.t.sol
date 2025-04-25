@@ -40,7 +40,7 @@ contract OperatorL1OptInServiceTest is Test {
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
         feeCollectorAddress = makeAddr("feeCollector");
         operatorRegistry = new OperatorRegistry();
-        
+
         // Initialize registry with constructor parameters
         l1Registry = new L1Registry(
             payable(feeCollectorAddress), // fee collector

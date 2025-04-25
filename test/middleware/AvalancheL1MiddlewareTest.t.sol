@@ -254,10 +254,10 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Maybe not recomended, but passing the ownership to itself
         mockValidatorManager.transferOwnership(validatorManagerAddress);
-        
+
         // Give validatorManager some ETH to pay the registration fee
         vm.deal(validatorManagerAddress, 1 ether);
-        
+
         _registerL1(validatorManagerAddress, address(middleware));
         assetClassId = 1;
         maxVaultL1Limit = 2000 ether;
@@ -395,8 +395,8 @@ contract AvalancheL1MiddlewareTest is Test {
             nodeId,
             hex"abcdef1234",
             uint64(block.timestamp + 1 days),
-            PChainOwner({threshold:1, addresses:new address[](1)}),
-            PChainOwner({threshold:1, addresses:new address[](1)}),
+            PChainOwner({threshold: 1, addresses: new address[](1)}),
+            PChainOwner({threshold: 1, addresses: new address[](1)}),
             stakeWanted
         );
 
@@ -405,8 +405,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Verify stake was clamped to max
         uint48 epoch = middleware.getCurrentEpoch();
-        bytes32 validationID =
-            mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 finalStake = middleware.getNodeStake(epoch, validationID);
 
         console2.log("Final stake after clamp is:", finalStake);
@@ -1003,7 +1002,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 newUsedStake = middleware.getOperatorUsedStakeCached(alice);
         assertEq(newUsedStake, oldUsedStake, "Used stake must remain unchanged if weight only decreases");
     }
-    
+
     function test_AddRemoveAddNodeAgain() public {
         // Move to the next epoch so we have a clean slate
         _calcAndWarpOneEpoch();
@@ -1026,7 +1025,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 nodeStake = middleware.getNodeStake(epoch, validationID);
         assertGt(nodeStake, 0, "Node stake should be >0 right after add");
 
-        // Also confirm we have 0 or 1 active node at this epoch. 
+        // Also confirm we have 0 or 1 active node at this epoch.
         // Because the node is not yet "confirmed," it typically won't appear as active.
         // We simply show how to ensure it's not erroneously counted:
         bytes32[] memory activeNodesBeforeConfirm = middleware.getActiveNodesForEpoch(alice, epoch);
@@ -1112,14 +1111,14 @@ contract AvalancheL1MiddlewareTest is Test {
         // -----------------------------------------
         // STEP A: Add & confirm a single node
         // -----------------------------------------
-        _calcAndWarpOneEpoch(); 
+        _calcAndWarpOneEpoch();
         uint48 epoch = middleware.getCurrentEpoch();
 
         bytes32 nodeId = keccak256("NODE_SINGLE_TEST");
         bytes memory blsKey = hex"abcd1234";
         address[] memory ownerArr = new address[](1);
         ownerArr[0] = alice;
-        PChainOwner memory ownerStruct = PChainOwner({ threshold: 1, addresses: ownerArr });
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
 
         // Add the node
         vm.prank(alice);
@@ -1129,9 +1128,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint32 addIndex = mockValidatorManager.nextMessageIndex() - 1;
 
         // Get the validationID
-        bytes32 valID = mockValidatorManager.registeredValidators(
-            abi.encodePacked(uint160(uint256(nodeId)))
-        );
+        bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
         //  => node is Active
         vm.prank(alice);
@@ -1184,11 +1181,10 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 finalStake = middleware.getNodeStake(epoch, valID);
         assertEq(finalStake, 0, "Node stake must be 0 after final removal");
 
-        
         // Complete the stake update AFTER removal
         // Complete goes through but stake is 0
 
-        uint32 stakeUpdateMsgIndex = mockValidatorManager.nextMessageIndex() - 1; 
+        uint32 stakeUpdateMsgIndex = mockValidatorManager.nextMessageIndex() - 1;
 
         vm.prank(alice);
         // If your code is supposed to revert, do:
@@ -1205,10 +1201,7 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Completed stake update after the node was removed. Check if it no-ops or reverts.");
     }
 
-    function testFuzz_MultipleNodes_AddRemoveReadd(
-        uint8 seedNodeCount,
-        uint8 seedRemoveMask
-    ) public {
+    function testFuzz_MultipleNodes_AddRemoveReadd(uint8 seedNodeCount, uint8 seedRemoveMask) public {
         // Force a small range for how many nodes to add (2–4)
         uint256 nodeCount = bound(seedNodeCount, 2, 4);
 
@@ -1248,9 +1241,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
             addMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
 
-            bytes32 validationID = mockValidatorManager.registeredValidators(
-                abi.encodePacked(uint160(uint256(nodeId)))
-            );
+            bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             validationIds[i] = validationID;
 
             uint256 nodeStake = middleware.getNodeStake(epoch, validationID);
@@ -1340,9 +1331,8 @@ contract AvalancheL1MiddlewareTest is Test {
                 reAddMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
 
                 // Fetch the BRAND-NEW validationID for this re-add
-                bytes32 newValID = mockValidatorManager.registeredValidators(
-                    abi.encodePacked(uint160(uint256(nodeIds[i])))
-                );
+                bytes32 newValID =
+                    mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
                 // Overwrite old ID in validationIds[i] with the new one
                 validationIds[i] = newValID;
 
@@ -1391,7 +1381,6 @@ contract AvalancheL1MiddlewareTest is Test {
         bytes32[] memory finalNodes = middleware.getActiveNodesForEpoch(alice, epoch);
         assertEq(finalNodes.length, shouldBeActive, "Mismatch in final # of active nodes");
     }
-    
 
     ///////////////////////////////
     // INTERNAL HELPERS

@@ -168,6 +168,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
     /**
      * @inheritdoc IBaseDelegator
      */
+
     function setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) external nonReentrant {
         if (!IL1Registry(L1_REGISTRY).isRegistered(l1)) {
             revert BaseDelegator__NotL1();

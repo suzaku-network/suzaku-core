@@ -36,7 +36,6 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     uint208 private constant OPT_IN_VALUE = 1;
     uint208 private constant OPT_OUT_VALUE = 0;
 
-
     /**
      * @inheritdoc IOptInService
      */

@@ -12,6 +12,7 @@ interface IEntity is IERC165 {
      * @notice Get the factory's address.
      * @return address of the factory
      */
+
     function FACTORY() external view returns (address);
 
     /**

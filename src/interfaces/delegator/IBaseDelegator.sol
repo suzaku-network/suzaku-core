@@ -18,6 +18,7 @@ interface IBaseDelegator {
      * @param hook address of the hook contract
      * @param hookSetRoleHolder address of the initial HOOK_SET_ROLE holder
      */
+
     struct BaseParams {
         address defaultAdminRoleHolder;
         address hook;
