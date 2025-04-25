@@ -77,7 +77,9 @@ contract L1RegistryTest is Test {
     function testRegister() public {
         // l1Middleware1 registers as an L1
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         assertEq(registry.isRegistered(address(mockACP99Manager)), true);
     }
@@ -85,12 +87,16 @@ contract L1RegistryTest is Test {
     function testRegisterRevertAlreadyRegistered() public {
         // Register l1Middleware1
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         // l1Middleware1 tries to register again and it should revert
         vm.prank(l1Middleware1);
         vm.expectRevert(IL1Registry.L1Registry__L1AlreadyRegistered.selector);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
     }
 
     function testRegisterWithZeroAddress() public {
@@ -104,14 +110,18 @@ contract L1RegistryTest is Test {
     function testRegisterMultipleL1s() public {
         // l1Middleware1 registers
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         // Create a new mock manager for l1Middleware2
         MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
 
         // l1Middleware2 registers
         vm.prank(l1Middleware2);
-        registry.registerL1{value: registerFee}(address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL
+        );
 
         // Check that both managers are registered
         assertEq(registry.totalL1s(), 2);
@@ -122,11 +132,15 @@ contract L1RegistryTest is Test {
     function testGetL1s() public {
         // Register l1Middleware1 and l1Middleware2
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
         vm.prank(l1Middleware2);
-        registry.registerL1{value: registerFee}(address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL
+        );
 
         // Check that both managers are registered
         (address[] memory allL1s, address[] memory middlewares, string[] memory metadataURLs) = registry.getAllL1s();
@@ -142,11 +156,15 @@ contract L1RegistryTest is Test {
     function testGetL1At() public {
         // Register l1Middleware1 and l1Middleware2
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
         vm.prank(l1Middleware2);
-        registry.registerL1{value: registerFee}(address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL
+        );
 
         // Check the addresses and metadata URLs at specific indexes
         (address l10, address middleware0, string memory metadataURL0) = registry.getL1At(0);
@@ -179,7 +197,9 @@ contract L1RegistryTest is Test {
 
         // Register l1Middleware1
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
     }
 
     function testLargeNumberOfRegistrations() public {
@@ -201,7 +221,9 @@ contract L1RegistryTest is Test {
     function testSetL1Middleware() public {
         // First register an L1
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         // Make your "newMiddleware" an Ownable contract if you want to pass the second check
         DummySecurityModule newMiddle = new DummySecurityModule(l1Middleware1);
@@ -224,7 +246,9 @@ contract L1RegistryTest is Test {
     function testSetL1MiddlewareEmitsEvent() public {
         // Register L1 first
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         string memory newMetadataURL = "https://newmetadata.com";
 
@@ -239,7 +263,9 @@ contract L1RegistryTest is Test {
     function testSetMetadataURL() public {
         // Register from l1Middleware1
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         // Now also call setMetadataURL(...) from l1Middleware1
         vm.prank(l1Middleware1);
@@ -260,7 +286,9 @@ contract L1RegistryTest is Test {
     function testSetMetadataURLEmitsEvent() public {
         // Register from l1Middleware1
         vm.prank(l1Middleware1);
-        registry.registerL1{value: registerFee}(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
 
         // Expect the event
         vm.expectEmit(true, true, true, true);
@@ -276,9 +304,7 @@ contract L1RegistryTest is Test {
         vm.prank(l1Middleware1);
         vm.expectRevert(IL1Registry.L1Registry__InsufficientFee.selector);
         registry.registerL1{value: registerFee - 1 wei}(
-            address(mockACP99Manager),
-            l1Middleware1SecurityModule,
-            l1Middleware1MetadataURL
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
         );
     }
 
@@ -286,9 +312,7 @@ contract L1RegistryTest is Test {
         // Register with exact fee
         vm.prank(l1Middleware1);
         registry.registerL1{value: registerFee}(
-            address(mockACP99Manager),
-            l1Middleware1SecurityModule,
-            l1Middleware1MetadataURL
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
         );
 
         // Verify registration
@@ -305,9 +329,7 @@ contract L1RegistryTest is Test {
         // Perform registration
         vm.prank(l1Middleware1);
         registry.registerL1{value: overPaid}(
-            address(mockACP99Manager),
-            l1Middleware1SecurityModule,
-            l1Middleware1MetadataURL
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
         );
 
         // Verify registration
@@ -324,18 +346,13 @@ contract L1RegistryTest is Test {
 
         // Then no fee is required to register
         vm.prank(l1Middleware1);
-        registry.registerL1(
-            address(mockACP99Manager),
-            l1Middleware1SecurityModule,
-            l1Middleware1MetadataURL
-        );
+        registry.registerL1(address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL);
 
         // Verify registration
         assertEq(registry.isRegistered(address(mockACP99Manager)), true);
     }
 
     function testFeeTransferFailsReverts() public {
-
         RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
 
         // Set it as the fee collector
@@ -346,9 +363,7 @@ contract L1RegistryTest is Test {
         vm.prank(l1Middleware1);
         vm.expectRevert(IL1Registry.L1Registry__FeeTransferFailed.selector);
         registry.registerL1{value: registerFee}(
-            address(mockACP99Manager),
-            l1Middleware1SecurityModule,
-            l1Middleware1MetadataURL
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
         );
     }
 }

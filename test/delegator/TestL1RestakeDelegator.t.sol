@@ -180,14 +180,14 @@ contract L1RestakeDelegatorTest is Test {
         // Register an L1 and a subnetwork for testing
         address l1 = alice;
         DummyL1 dummyL1 = new DummyL1(alice);
-        
+
         // Add funds for registration fee
         vm.deal(alice, 1 ether);
         vm.prank(alice);
         uint256 fee = l1Registry.registerFee();
         vm.prank(alice);
         l1Registry.registerL1{value: fee}(address(dummyL1), address(0), "metadataURL");
-        
+
         uint96 assetClass = 1;
 
         assertEq(delegator.VERSION(), 1);
@@ -483,7 +483,8 @@ contract L1RestakeDelegatorTest is Test {
         vm.assume(amount2 != amount3);
         vm.assume(amount3 != amount4);
 
-        uint256 blockTimestamp = vm.getBlockTimestamp() * vm.getBlockTimestamp() / vm.getBlockTimestamp() * vm.getBlockTimestamp() / vm.getBlockTimestamp();
+        uint256 blockTimestamp = vm.getBlockTimestamp() * vm.getBlockTimestamp() / vm.getBlockTimestamp()
+            * vm.getBlockTimestamp() / vm.getBlockTimestamp();
         blockTimestamp = blockTimestamp + 1_720_700_948;
         vm.warp(blockTimestamp);
 
@@ -1002,7 +1003,7 @@ contract L1RestakeDelegatorTest is Test {
         uint256 fee = l1Registry.registerFee();
         l1Registry.registerL1{value: fee}(address(dummyL1), _middleware, "metadataURL");
         vm.stopPrank();
-        
+
         return address(dummyL1);
     }
 

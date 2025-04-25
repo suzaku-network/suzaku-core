@@ -151,7 +151,7 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         if (!removed) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        
+
         delete assetClasses[assetClassId];
 
         emit AssetClassRemoved(assetClassId);
@@ -164,6 +164,5 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         return assetClasses[assetClassId].assets.contains(asset);
     }
 
-    receive() external payable {
-    }
+    receive() external payable {}
 }
