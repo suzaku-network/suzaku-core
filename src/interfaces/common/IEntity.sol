@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 interface IEntity is IERC165 {
     error Entity__NotInitialized();
-
+    error Entity__ZeroAddress(string name);
     /**
      * @notice Get the factory's address.
      * @return address of the factory

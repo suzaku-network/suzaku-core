@@ -95,7 +95,9 @@ contract VaultTokenized is
         address vaultFactory
     ) {
         _disableInitializers();
-
+        if (vaultFactory == address(0)) {
+            revert Vault__InvalidFactory();
+        }
         FACTORY = vaultFactory;
     }
 
@@ -156,7 +158,7 @@ contract VaultTokenized is
                         revert Vault__MissingRoles();
                     }
                 } else if (params.depositorWhitelistRoleHolder != address(0)) {
-                    revert Vault__MissingRoles();
+                    revert Vault__InconsistentRoles();
                 }
             }
 
@@ -166,7 +168,7 @@ contract VaultTokenized is
                         revert Vault__MissingRoles();
                     }
                 } else if (params.depositLimit != 0 || params.depositLimitSetRoleHolder != address(0)) {
-                    revert Vault__MissingRoles();
+                    revert Vault__InconsistentRoles();
                 }
             }
         }
@@ -223,7 +225,7 @@ contract VaultTokenized is
      */
     function _migrate(uint64, /* newVersion */ bytes calldata /* data */ ) internal virtual onlyInitializing {
         // Implement migration logic here
-        revert();
+        revert Vault__MigrationNotImplemented();
     }
 
     /**
@@ -735,7 +737,7 @@ contract VaultTokenized is
 
     function setDelegator(
         address delegator_
-    ) external nonReentrant {
+    ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isDelegatorInitialized) {
@@ -760,7 +762,7 @@ contract VaultTokenized is
 
     function setSlasher(
         address slasher_
-    ) external nonReentrant {
+    ) external nonReentrant onlyRole(DEFAULT_ADMIN_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isSlasherInitialized) {
@@ -817,8 +819,9 @@ contract VaultTokenized is
         if (epoch >= currentEpoch()) {
             revert Vault__InvalidEpoch();
         }
-
-        if (vs.isWithdrawalsClaimed[epoch][msg.sender]) {
+        
+        bool alreadyClaimed = vs.isWithdrawalsClaimed[epoch][msg.sender];
+        if (alreadyClaimed) {
             revert Vault__AlreadyClaimed();
         }
 
@@ -842,7 +845,9 @@ contract VaultTokenized is
         if (timestamp < vs.epochDurationInit) {
             revert Vault__InvalidTimestamp();
         }
-        return (timestamp - vs.epochDurationInit) / vs.epochDuration;
+        unchecked {
+            return (timestamp - vs.epochDurationInit) / vs.epochDuration;
+        }
     }
 
     /**

@@ -33,8 +33,14 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
     constructor(address vaultRegistry, address owner, address middlewareAddress) Ownable(owner) {
+        if (vaultRegistry == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("vaultRegistry");
+        }
+        if (middlewareAddress == address(0)) {
+            revert AvalancheL1Middleware__ZeroAddress("middlewareAddress");
+        }
         VAULT_REGISTRY = vaultRegistry;
-        middleware = AvalancheL1Middleware(middlewareAddress);
+        middleware = AvalancheL1Middleware(payable(middlewareAddress));
     }
 
     /**
@@ -138,60 +144,8 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), assetClassId, amount);
     }
 
-    /**
-     * @notice Helper that slashes a vault based on slasher type and if it's initialized
-     * @param timestamp The epoch start timestamp
-     * @param vault The vault address
-     * @param assetClass The asset class ID
-     * @param operator The operator address
-     * @param amount The slash amount
-     */
-    function _slashVault(uint48 timestamp, address vault, uint8 assetClass, address operator, uint256 amount) private {
-        if (!IVaultTokenized(vault).isSlasherInitialized()) {
-            revert IAvalancheL1Middleware.AvalancheL1Middleware__NoSlasher();
-        }
-        address slasher = IVaultTokenized(vault).slasher();
-        uint256 slasherType = IEntity(slasher).TYPE();
-        if (slasherType == INSTANT_SLASHER_TYPE) {
-            ISlasher(slasher).slash(
-                middleware.L1_VALIDATOR_MANAGER(), assetClass, operator, amount, timestamp, new bytes(0)
-            );
-        } else if (slasherType == VETO_SLASHER_TYPE) {
-            IVetoSlasher(slasher).requestSlash(
-                middleware.L1_VALIDATOR_MANAGER(), assetClass, operator, amount, timestamp, new bytes(0)
-            );
-        } else {
-            revert AvalancheL1Middleware__UnknownSlasherType();
-        }
-    }
-
-    function slashVault(
-        uint256 totalOperatorStake,
-        uint256 amount,
-        uint96 assetClassId,
-        address operator,
-        uint48 epochStartTs
-    ) external {
-        // Simple pro-rata slash
-        for (uint256 i; i < vaults.length(); ++i) {
-            (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
-            if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                continue;
-            }
-
-            if (vaultToAssetClass[vault] != assetClassId) {
-                continue;
-            }
-
-            uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                middleware.L1_VALIDATOR_MANAGER(), assetClassId, operator, epochStartTs, new bytes(0)
-            );
-
-            if (vaultStake == 0) continue;
-
-            uint256 slashAmt = (amount * vaultStake) / totalOperatorStake;
-            _slashVault(epochStartTs, vault, uint8(assetClassId), operator, slashAmt);
-        }
+    function slashVault() external pure {
+        revert AvalancheL1Middleware__SlasherNotImplemented();
     }
 
     function getVaultCount() external view returns (uint256) {

@@ -112,10 +112,11 @@ contract L1RestakeDelegator is BaseDelegator, IL1RestakeDelegator {
      * @inheritdoc IL1RestakeDelegator
      */
     function setL1Limit(address l1, uint96 assetClass, uint256 amount) external onlyRole(L1_LIMIT_SET_ROLE) {
-        if (maxL1Limit[l1][assetClass] == 0) {
+        uint256 maxLimit = maxL1Limit[l1][assetClass];
+        if (maxLimit == 0) {
             revert L1RestakeDelegator__MaxL1LimitNotSet();
         }
-        if (amount > maxL1Limit[l1][assetClass]) {
+        if (amount > maxLimit) {
             revert L1RestakeDelegator__ExceedsMaxL1Limit();
         }
 

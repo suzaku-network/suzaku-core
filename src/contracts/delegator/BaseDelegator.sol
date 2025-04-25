@@ -90,6 +90,21 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
         address delegatorFactory,
         uint64 entityType
     ) {
+        if (l1Registry == address(0)) {
+            revert BaseDelegator__ZeroAddress("l1Registry");
+        }
+        if (vaultFactory == address(0)) {
+            revert BaseDelegator__ZeroAddress("vaultFactory");
+        }
+        if (operatorVaultOptInService == address(0)) {
+            revert BaseDelegator__ZeroAddress("operatorVaultOptInService");
+        }
+        if (operatorL1OptInService == address(0)) {
+            revert BaseDelegator__ZeroAddress("operatorL1OptInService");
+        }
+        if (delegatorFactory == address(0)) {
+            revert BaseDelegator__ZeroAddress("delegatorFactory");
+        }
         _disableInitializers();
         L1_REGISTRY = l1Registry;
         VAULT_FACTORY = vaultFactory;
@@ -150,7 +165,6 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
 
         return _stake(l1, assetClass, operator);
     }
-
     /**
      * @inheritdoc IBaseDelegator
      */
@@ -159,9 +173,14 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             revert BaseDelegator__NotL1();
         }
 
-        IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
+        // Check if the middleware is registered and matches the caller
+        bool isRegisteredWithMiddleware = IL1Registry(L1_REGISTRY).isRegisteredWithMiddleware(l1, msg.sender);
+        if (!isRegisteredWithMiddleware) {
+            revert BaseDelegator__NotAuthorizedMiddleware();
+        }
 
-        if (maxL1Limit[l1][assetClass] == amount) {
+        uint256 currentLimit = maxL1Limit[l1][assetClass];
+        if (currentLimit == amount) {
             revert BaseDelegator__AlreadySet();
         }
 
@@ -237,6 +256,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             revert BaseDelegator__NotVault();
         }
 
+        __AccessControl_init();
         __ReentrancyGuard_init();
 
         vault = vault_;
@@ -259,13 +279,13 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
         address operator,
         uint48 timestamp,
         bytes memory hints
-    ) internal view virtual returns (uint256, bytes memory) {}
+    ) internal view virtual returns (uint256, bytes memory);
 
-    function _stake(address l1, uint96 assetClass, address operator) internal view virtual returns (uint256) {}
+    function _stake(address l1, uint96 assetClass, address operator) internal view virtual returns (uint256);
 
-    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual {}
+    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual;
 
-    function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory) {}
+    function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory);
 
     function supportsInterface(
         bytes4 interfaceId

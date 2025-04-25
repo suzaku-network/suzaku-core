@@ -82,11 +82,26 @@ contract VaultTokenizedTest is Test {
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
         slasherFactory = new SlasherFactory(owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(owner), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            owner
+        );
         operatorRegistry = new OperatorRegistry();
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultImpl);
+        operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry), // whoRegistry
+            address(vaultFactory), // whereRegistry
+            "OperatorVaultOptInService"
+        );
 
+        operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry), // whoRegistry
+            address(l1Registry), // whereRegistry
+            "OperatorL1OptInService"
+        );
         collateral = new Token("Token");
         feeOnTransferCollateral = new MockFeeOnTransferToken("FeeOnTransferToken");
 
@@ -95,8 +110,8 @@ contract VaultTokenizedTest is Test {
             new L1RestakeDelegator(
                 address(l1Registry),
                 address(vaultFactory),
-                address(0), // operatorVaultOptInService
-                address(0), // operatorL1OptInService
+                address(operatorVaultOptInService),
+                address(operatorL1OptInService),
                 address(delegatorFactory),
                 delegatorFactory.totalTypes() // ensures correct TYPE indexing
             )
@@ -369,7 +384,7 @@ contract VaultTokenizedTest is Test {
 
         uint64 lastVersion = vaultFactory.lastVersion();
 
-        vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
             alice,
@@ -402,7 +417,7 @@ contract VaultTokenizedTest is Test {
 
         uint64 lastVersion = vaultFactory.lastVersion();
 
-        vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
             alice,
@@ -435,7 +450,7 @@ contract VaultTokenizedTest is Test {
 
         uint64 lastVersion = vaultFactory.lastVersion();
 
-        vm.expectRevert(IVaultTokenized.Vault__MissingRoles.selector);
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
             alice,
@@ -563,6 +578,7 @@ contract VaultTokenizedTest is Test {
             )
         );
 
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
 
         assertEq(vault.delegator(), address(delegator));
@@ -624,9 +640,11 @@ contract VaultTokenizedTest is Test {
             )
         );
 
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
 
         vm.expectRevert(IVaultTokenized.Vault__DelegatorAlreadyInitialized.selector);
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
     }
 
@@ -660,6 +678,7 @@ contract VaultTokenizedTest is Test {
         );
 
         vm.expectRevert(IVaultTokenized.Vault__NotDelegator.selector);
+        vm.prank(alice);
         vault.setDelegator(address(1));
     }
 
@@ -746,6 +765,7 @@ contract VaultTokenizedTest is Test {
 
         // Trying to set a delegator that belongs to another vault
         vm.expectRevert(IVaultTokenized.Vault__InvalidDelegator.selector);
+        vm.prank(alice);
         vault.setDelegator(address(delegator));
     }
 

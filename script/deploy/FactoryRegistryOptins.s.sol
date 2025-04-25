@@ -43,7 +43,12 @@ contract DeployFactoriesRegistriesOptIns is Script {
         vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);
         delegatorFactory = new DelegatorFactory(bootstraperConfig.generalConfig.owner);
         slasherFactory = new SlasherFactory(bootstraperConfig.generalConfig.owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(bootstraperConfig.l1RegistryConfig.feeCollector), // fee collector
+            bootstraperConfig.l1RegistryConfig.initialRegisterFee, // initial register fee
+            bootstraperConfig.l1RegistryConfig.maxRegisterFee, // MAX_FEE
+            bootstraperConfig.l1RegistryConfig.owner // owner
+        );
         operatorRegistry = new OperatorRegistry();
 
         OperatorVaultOptInService operatorVaultOptInService =

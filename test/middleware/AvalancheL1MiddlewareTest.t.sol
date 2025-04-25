@@ -70,6 +70,7 @@ contract AvalancheL1MiddlewareTest is Test {
     uint256 internal maxVaultL1Limit;
     uint256 internal depositedAmount;
     uint256 internal mintedShares;
+    address internal feeCollectorAddress;
 
     // Factories & Registries
     VaultFactory internal vaultFactory;
@@ -93,11 +94,16 @@ contract AvalancheL1MiddlewareTest is Test {
         (l1, l1PrivateKey) = makeAddrAndKey("l1");
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
-
+        feeCollectorAddress = makeAddr("feeCollector");
         vaultFactory = new VaultFactory(owner);
         delegatorFactory = new DelegatorFactory(owner);
         slasherFactory = new SlasherFactory(owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(feeCollectorAddress), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            owner
+        );
         operatorRegistry = new OperatorRegistry();
 
         MiddlewareHelperConfig helperConfig = new MiddlewareHelperConfig();
@@ -209,6 +215,7 @@ contract AvalancheL1MiddlewareTest is Test {
         delegator = L1RestakeDelegator(delegatorAddress);
 
         // Set the delegator in the vault
+        vm.prank(bob);
         vault.setDelegator(delegatorAddress);
 
         // Deploy the middleware
@@ -247,6 +254,10 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Maybe not recomended, but passing the ownership to itself
         mockValidatorManager.transferOwnership(validatorManagerAddress);
+        
+        // Give validatorManager some ETH to pay the registration fee
+        vm.deal(validatorManagerAddress, 1 ether);
+        
         _registerL1(validatorManagerAddress, address(middleware));
         assetClassId = 1;
         maxVaultL1Limit = 2000 ether;
@@ -346,6 +357,60 @@ contract AvalancheL1MiddlewareTest is Test {
         nodeWeight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
         console2.log("Node weight after confirmation:", nodeWeight);
         assertGt(nodeWeight, 0);
+    }
+
+    function test_AddNodeStakeClamping_Adaptive() public {
+        // Get staking requirements from middleware
+        middleware.getClassStakingRequirements(1);
+        uint256 totalSupply = collateral.totalSupply();
+        console2.log("Token total supply:", totalSupply);
+
+        // Set up test values
+        uint256 feasibleMax = 10_000_000_000_000_000_000;
+        uint256 stakeWanted = feasibleMax + 1 ether;
+
+        // Fund alice and deposit to vault
+        collateral.transfer(alice, stakeWanted);
+
+        vm.startPrank(alice);
+        collateral.approve(address(vault), stakeWanted);
+        vault.deposit(alice, stakeWanted);
+        vm.stopPrank();
+
+        // Set L1 limit
+        vm.startPrank(bob);
+        delegator.setL1Limit(validatorManagerAddress, assetClassId, stakeWanted);
+        vm.stopPrank();
+
+        // Verify available stake
+        uint256 updatedAvail = middleware.getOperatorAvailableStake(alice);
+        require(updatedAvail >= stakeWanted, "Still not enough to surpass testMaxStake+1");
+
+        // Add node with stake that exceeds max
+        bytes32 nodeId = keccak256("ClampTestAdaptive");
+        console2.log("Requesting stakeWanted:", stakeWanted);
+
+        vm.prank(alice);
+        middleware.addNode(
+            nodeId,
+            hex"abcdef1234",
+            uint64(block.timestamp + 1 days),
+            PChainOwner({threshold:1, addresses:new address[](1)}),
+            PChainOwner({threshold:1, addresses:new address[](1)}),
+            stakeWanted
+        );
+
+        // Move to next epoch
+        _calcAndWarpOneEpoch();
+
+        // Verify stake was clamped to max
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32 validationID =
+            mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        uint256 finalStake = middleware.getNodeStake(epoch, validationID);
+
+        console2.log("Final stake after clamp is:", finalStake);
+        assertEq(finalStake, feasibleMax, "Expect clamp to feasibleMax in the test scenario");
     }
 
     function test_AddNodeSecondaryAsset() public {
@@ -1340,7 +1405,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
     function _registerL1(address _l1, address _middleware) internal {
         vm.prank(_l1);
-        l1Registry.registerL1(_l1, _middleware, "metadataURL");
+        l1Registry.registerL1{value: 0.01 ether}(_l1, _middleware, "metadataURL");
     }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {

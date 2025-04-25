@@ -27,6 +27,7 @@ contract OperatorL1OptInServiceTest is Test {
     uint256 alicePrivateKey;
     address bob;
     uint256 bobPrivateKey;
+    address feeCollectorAddress;
 
     OperatorRegistry operatorRegistry;
     L1Registry l1Registry;
@@ -37,9 +38,16 @@ contract OperatorL1OptInServiceTest is Test {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
-
+        feeCollectorAddress = makeAddr("feeCollector");
         operatorRegistry = new OperatorRegistry();
-        l1Registry = new L1Registry();
+        
+        // Initialize registry with constructor parameters
+        l1Registry = new L1Registry(
+            payable(feeCollectorAddress), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            owner
+        );
 
         // Deploy service for Operator-L1 optin
         service = new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "OperatorL1OptInService");
@@ -65,9 +73,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         service.optIn(where);
@@ -117,9 +123,7 @@ contract OperatorL1OptInServiceTest is Test {
         address where = address(dummyWhere);
 
         // L1 registered, operator not
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         vm.expectRevert(IOptInService.OptInService__NotWho.selector);
@@ -152,9 +156,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         service.optIn(where);
@@ -175,9 +177,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         vm.expectRevert(IOptInService.OptInService__NotOptedIn.selector);
@@ -197,9 +197,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         uint48 deadline = uint48(blockTimestamp);
         bytes32 digest = computeOptInDigest(operator, where, 0, deadline);
@@ -224,9 +222,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         uint48 deadline = uint48(blockTimestamp);
         bytes32 digest = computeOptInDigest(operator, where, 0, deadline);
@@ -249,9 +245,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         uint48 deadline = uint48(blockTimestamp - 1);
         bytes32 digest = computeOptInDigest(operator, where, 0, deadline);
@@ -274,9 +268,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         uint48 deadline = uint48(blockTimestamp);
         bytes32 digest = computeOptInDigest(operator, where, 0, deadline);
@@ -306,9 +298,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         service.optIn(where);
@@ -318,14 +308,14 @@ contract OperatorL1OptInServiceTest is Test {
         vm.warp(blockTimestamp);
 
         uint48 deadline = uint48(blockTimestamp);
-        bytes32 digest = computeOptOutDigest(operator, where, 1, deadline);
+        bytes32 digest = computeOptOutDigest(operator, where, 0, deadline);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(alicePrivateKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
         service.optOut(operator, where, deadline, signature);
 
         assertEq(service.isOptedIn(operator, where), false);
-        assertEq(service.nonces(operator, where), 2);
+        assertEq(service.nonces(operator, where), 1);
     }
 
     function test_OptOutWithInvalidSignature() public {
@@ -341,9 +331,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         service.optIn(where);
@@ -374,9 +362,7 @@ contract OperatorL1OptInServiceTest is Test {
         operatorRegistry.registerOperator("operatorMetadata");
         vm.stopPrank();
 
-        vm.startPrank(bob);
-        l1Registry.registerL1(where, where, "metadataURL");
-        vm.stopPrank();
+        registerL1_ownerMiddleware(where, bob);
 
         vm.startPrank(operator);
         service.optIn(where);
@@ -434,5 +420,14 @@ contract OperatorL1OptInServiceTest is Test {
         uint256 chainId = block.chainid;
 
         return keccak256(abi.encode(DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH, chainId, _service));
+    }
+
+    // Helper function to register an L1
+    function registerL1_ownerMiddleware(address where, address ownerMiddleware) internal {
+        vm.startPrank(ownerMiddleware);
+        vm.deal(ownerMiddleware, 1 ether); // ensure bob has ETH
+        uint256 fee = l1Registry.registerFee();
+        l1Registry.registerL1{value: fee}(where, where, "metadataURL");
+        vm.stopPrank();
     }
 }

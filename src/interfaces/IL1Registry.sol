@@ -14,6 +14,10 @@ interface IL1Registry {
     error L1Registry__InvalidL1Middleware();
     error L1Registry__NotValidatorManagerOwner(address caller, address expectedOwner);
     error L1Registry__NotMiddlewareOwner(address caller, address expectedOwner);
+    error L1Registry__InsufficientFee();
+    error L1Registry__FeeTransferFailed();
+    error L1Registry__FeeExceedsMaximum(uint256 newFee, uint256 maxFee);
+    error L1Registry__ZeroAddress(string name);
 
     /**
      * @notice Register an Avalanche L1
@@ -30,7 +34,7 @@ interface IL1Registry {
         string calldata metadataURL
     )
         /*, uint32 messageIndex, SubnetConversionData subnetConversionData*/
-        external;
+        external payable;
 
     /**
      * @notice Check if an address is registered as an L1

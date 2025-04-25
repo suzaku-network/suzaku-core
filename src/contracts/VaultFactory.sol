@@ -67,7 +67,9 @@ contract VaultFactory is Ownable, IMigratablesFactory {
     function implementation(
         uint64 version
     ) public view checkVersion(version) returns (address) {
-        return _whitelistedImplementations.at(version - 1);
+        unchecked {
+            return _whitelistedImplementations.at(version - 1);
+        }
     }
 
     /**

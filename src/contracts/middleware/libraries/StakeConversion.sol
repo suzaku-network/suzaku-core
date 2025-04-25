@@ -30,9 +30,13 @@ library StakeConversion {
      * @dev Matches logic from _removeNodeFromArray() unchanged.
      */
     function removeNodeFromArray(bytes32[] storage arr, bytes32 nodeId) internal {
-        for (uint256 i = 0; i < arr.length; i++) {
+        uint256 arrLength = arr.length;
+        for (uint256 i = 0; i < arrLength; i++) {
             if (arr[i] == nodeId) {
-                uint256 lastIndex = arr.length - 1;
+                uint256 lastIndex;
+                unchecked {
+                    lastIndex = arrLength - 1;
+                }
                 if (i != lastIndex) {
                     arr[i] = arr[lastIndex];
                 }

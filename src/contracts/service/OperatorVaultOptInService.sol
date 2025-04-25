@@ -33,6 +33,10 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
     bytes32 private constant OPT_OUT_TYPEHASH =
         keccak256("OptOut(address who,address where,uint256 nonce,uint48 deadline)");
 
+    uint208 private constant OPT_IN_VALUE = 1;
+    uint208 private constant OPT_OUT_VALUE = 0;
+
+
     /**
      * @inheritdoc IOptInService
      */
@@ -62,14 +66,14 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
         uint48 timestamp,
         bytes calldata hint
     ) external view returns (bool) {
-        return _isOptedIn[who][where].upperLookupRecent(timestamp, hint) == 1;
+        return _isOptedIn[who][where].upperLookupRecent(timestamp, hint) == OPT_IN_VALUE;
     }
 
     /**
      * @inheritdoc IOptInService
      */
     function isOptedIn(address who, address where) public view returns (bool) {
-        return _isOptedIn[who][where].latest() == 1;
+        return _isOptedIn[who][where].latest() == OPT_IN_VALUE;
     }
 
     /**
@@ -95,6 +99,8 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
         }
 
         _optIn(who, where);
+
+        _increaseNonce(who, where);
     }
 
     /**
@@ -120,6 +126,8 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
         }
 
         _optOut(who, where);
+
+        _increaseNonce(who, where);
     }
 
     /**
@@ -144,15 +152,14 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
             revert OptInService__AlreadyOptedIn();
         }
 
-        _isOptedIn[who][where].push(Time.timestamp(), 1);
-
-        _increaseNonce(who, where);
+        _isOptedIn[who][where].push(Time.timestamp(), OPT_IN_VALUE);
 
         emit OptIn(who, where);
     }
 
     function _optOut(address who, address where) internal {
-        (, uint48 latestTimestamp, uint208 latestValue) = _isOptedIn[who][where].latestCheckpoint();
+        ExtendedCheckpoints.Trace208 storage trace = _isOptedIn[who][where];
+        (, uint48 latestTimestamp, uint208 latestValue) = trace.latestCheckpoint();
 
         if (latestValue == 0) {
             revert OptInService__NotOptedIn();
@@ -162,9 +169,7 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
             revert OptInService__OptOutCooldown();
         }
 
-        _isOptedIn[who][where].push(Time.timestamp(), 0);
-
-        _increaseNonce(who, where);
+        _isOptedIn[who][where].push(Time.timestamp(), OPT_OUT_VALUE);
 
         emit OptOut(who, where);
     }

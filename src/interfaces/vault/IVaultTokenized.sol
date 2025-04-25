@@ -26,6 +26,7 @@ interface IVaultTokenized {
     error Vault__InvalidRecipient();
     error Vault__InvalidSlasher();
     error Vault__MissingRoles();
+    error Vault__InconsistentRoles();
     error Vault__NotDelegator();
     error Vault__NotSlasher();
     error Vault__NotWhitelistedDepositor();
@@ -34,7 +35,9 @@ interface IVaultTokenized {
     error Vault__TooMuchWithdraw();
     error Vault__InvalidTimestamp();
     error Vault__NoPreviousEpoch();
-
+    error Vault__MigrationNotImplemented();
+    error Vault__InvalidFactory();
+    
     // Structs
     /**
      * @notice Initial parameters needed for a vault deployment.

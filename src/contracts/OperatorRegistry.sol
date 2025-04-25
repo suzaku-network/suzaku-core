@@ -22,11 +22,11 @@ contract OperatorRegistry is IOperatorRegistry {
     function registerOperator(
         string calldata metadataURL
     ) external {
-        if (isRegistered(msg.sender)) {
+        bool registered = operators.add(msg.sender);
+        if (!registered) {
             revert OperatorRegistry__OperatorAlreadyRegistered();
         }
 
-        operators.add(msg.sender);
         operatorMetadataURL[msg.sender] = metadataURL;
 
         emit RegisterOperator(msg.sender);

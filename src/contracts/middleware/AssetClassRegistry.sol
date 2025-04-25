@@ -35,19 +35,31 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function addAssetToClass(uint256 assetClassId, address asset) external {
+    function addAssetToClass(uint256 assetClassId, address asset) external onlyOwner {
+        if (!assetClassIds.contains(assetClassId)) {
+            revert AssetClassRegistry__AssetClassNotFound();
+        }
+        if (asset == address(0)) {
+            revert AssetClassRegistry__InvalidAsset();
+        }
+
+        AssetClass storage cls = assetClasses[assetClassId];
+        if (cls.assets.contains(asset)) {
+            revert AssetClassRegistry__AssetAlreadyRegistered();
+        }
+
         _addAssetToClass(assetClassId, asset);
     }
 
     /// @inheritdoc IAssetClassRegistry
-    function removeAssetFromClass(uint256 assetClassId, address asset) external virtual onlyOwner {
+    function removeAssetFromClass(uint256 assetClassId, address asset) public virtual onlyOwner {
         _removeAssetFromClass(assetClassId, asset);
     }
 
     /// @inheritdoc IAssetClassRegistry
     function removeAssetClass(
         uint256 assetClassId
-    ) external virtual onlyOwner {
+    ) public virtual onlyOwner {
         _removeAssetClass(assetClassId);
     }
 
@@ -61,14 +73,15 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         return assetClasses[assetClassId].assets.values();
     }
 
-    // @inheritdoc IAssetClassRegistry
+    /// @inheritdoc IAssetClassRegistry
     function getClassStakingRequirements(
         uint256 assetClassId
     ) external view returns (uint256 minStake, uint256 maxStake) {
         if (!assetClassIds.contains(assetClassId)) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
-        return (assetClasses[assetClassId].minValidatorStake, assetClasses[assetClassId].maxValidatorStake);
+        AssetClass storage cls = assetClasses[assetClassId];
+        return (cls.minValidatorStake, cls.maxValidatorStake);
     }
 
     function _addAssetClass(
@@ -83,6 +96,9 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         if (initialAsset == address(0)) {
             revert AssetClassRegistry__InvalidAsset();
         }
+        if (assetClassId == 1 && minValidatorStake > maxValidatorStake) {
+            revert AssetClassRegistry__InvalidStakingRequirements();
+        }
 
         assetClassIds.add(assetClassId);
 
@@ -96,18 +112,12 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     }
 
     function _addAssetToClass(uint256 assetClassId, address asset) internal {
-        if (!assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-        if (asset == address(0)) {
-            revert AssetClassRegistry__InvalidAsset();
-        }
-
         AssetClass storage cls = assetClasses[assetClassId];
-        if (cls.assets.contains(asset)) {
+
+        bool added = cls.assets.add(asset);
+        if (!added) {
             revert AssetClassRegistry__AssetAlreadyRegistered();
         }
-        cls.assets.add(asset);
 
         emit AssetAdded(assetClassId, asset);
     }
@@ -118,10 +128,10 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         }
 
         AssetClass storage cls = assetClasses[assetClassId];
-        if (!cls.assets.contains(asset)) {
+        bool removed = cls.assets.remove(asset);
+        if (!removed) {
             revert AssetClassRegistry__AssetNotFound();
         }
-        cls.assets.remove(asset);
 
         emit AssetRemoved(assetClassId, asset);
     }
@@ -133,15 +143,15 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
             revert AssetClassRegistry__AssetIsPrimaryAssetClass(assetClassId);
         }
 
-        if (!assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-
         if (assetClasses[assetClassId].assets.length() != 0) {
             revert AssetClassRegistry__AssetsStillExist();
         }
 
-        assetClassIds.remove(assetClassId);
+        bool removed = assetClassIds.remove(assetClassId);
+        if (!removed) {
+            revert AssetClassRegistry__AssetClassNotFound();
+        }
+        
         delete assetClasses[assetClassId];
 
         emit AssetClassRemoved(assetClassId);
@@ -152,5 +162,8 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
             revert AssetClassRegistry__AssetClassNotFound();
         }
         return assetClasses[assetClassId].assets.contains(asset);
+    }
+
+    receive() external payable {
     }
 }

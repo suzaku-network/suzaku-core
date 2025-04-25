@@ -59,7 +59,12 @@ contract FullLocalDeploymentScript is Script {
         vaultFactory = new VaultFactory(config.generalConfig.owner);
         delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
         slasherFactory = new SlasherFactory(config.generalConfig.owner);
-        l1Registry = new L1Registry();
+        l1Registry = new L1Registry(
+            payable(config.generalConfig.owner), // fee collector
+            0.01 ether, // initial register fee
+            1 ether, // MAX_FEE
+            config.generalConfig.owner // owner
+        );
         operatorRegistry = new OperatorRegistry();
 
         console2.log("VaultFactory deployed at:", address(vaultFactory));
@@ -173,6 +178,8 @@ contract FullLocalDeploymentScript is Script {
         address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
         console2.log("Delegator deployed at:", delegator);
 
+        // Set delegator in the vault - use the Admin Role Holder
+        vm.prank(params.owner);
         VaultTokenized(vault).setDelegator(delegator);
 
         // If slasher included, deploy slasher
@@ -180,6 +187,8 @@ contract FullLocalDeploymentScript is Script {
         if (params.withSlasher) {
             slasher = slasherFactory.create(params.slasherIndex, abi.encode(vault, params.slasherParams));
             console2.log("Slasher deployed at:", slasher);
+            
+            vm.prank(params.owner);
             VaultTokenized(vault).setSlasher(slasher);
         }
 
