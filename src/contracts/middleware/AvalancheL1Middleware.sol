@@ -620,8 +620,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             // If there was a pending update, finalize and clear the pending markers
             if (nodePendingUpdate[valID]) {
                 nodePendingUpdate[valID] = false;
-                operatorLockedStake[operator] = 0;
             }
+        }
+        
+        // Reset operator locked stake once per epoch
+        if (operatorLockedStake[operator] > 0) {
+            operatorLockedStake[operator] = 0;
         }
     }
 
