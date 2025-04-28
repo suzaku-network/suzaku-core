@@ -42,7 +42,7 @@ contract MiddlewareHelperConfig is Script {
             churnPeriodSeconds: 1 hours,
             maximumChurnPercentage: 20,
             primaryAsset: address(localToken),
-            primaryAssetMaxStake: 10_000_000_000_000_000_000,
+            primaryAssetMaxStake: 100_000_000_000_000_000_000,
             primaryAssetMinStake: 100_000_000_000_000,
             primaryAssetWeightScaleFactor: 1e8
         });

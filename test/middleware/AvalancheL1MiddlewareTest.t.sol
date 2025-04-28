@@ -366,7 +366,7 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Token total supply:", totalSupply);
 
         // Set up test values
-        uint256 feasibleMax = 10_000_000_000_000_000_000;
+        uint256 feasibleMax = 100_000_000_000_000_000_000;
         uint256 stakeWanted = feasibleMax + 1 ether;
 
         // Fund alice and deposit to vault
@@ -491,7 +491,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(nodeWeight, 0);
     }
 
-    function test_completeStakeUpdate() public {
+    function test_CompleteStakeUpdate() public {
         (depositedAmount, mintedShares) = _deposit(alice, 10 ether);
         _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
 
@@ -692,7 +692,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.getOperatorNodesLength(alice), 0);
     }
 
-    function test_multipleNodes() public {
+    function test_MultipleNodes() public {
         _calcAndWarpOneEpoch();
         uint48 epoch = middleware.getCurrentEpoch();
         uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
@@ -836,7 +836,7 @@ contract AvalancheL1MiddlewareTest is Test {
         }
     }
 
-    function test_forceUpdate() public {
+    function test_ForceUpdate() public {
         _calcAndWarpOneEpoch();
         bytes32 nodeId1 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey1 = hex"1234";
@@ -918,7 +918,7 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Node2 weight final:", nodeWeight2);
     }
 
-    function test_forceUpdateWithAdditionalStake() public {
+    function test_ForceUpdateWithAdditionalStake() public {
         _calcAndWarpOneEpoch();
 
         uint48 epoch = middleware.getCurrentEpoch();
@@ -1104,13 +1104,10 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(operatorAvailable, 0, "Operator should have some leftover stake");
     }
 
-    function testSingleNode_AddUpdateRemoveThenCompleteUpdate() public {
-        // Suppose your system uses a known stake scale factor
+    function test_SingleNode_AddUpdateRemoveThenCompleteUpdate() public {
         uint256 scaleFactor = middleware.WEIGHT_SCALE_FACTOR();
 
-        // -----------------------------------------
-        // STEP A: Add & confirm a single node
-        // -----------------------------------------
+        // Add & confirm a node
         _calcAndWarpOneEpoch();
         uint48 epoch = middleware.getCurrentEpoch();
 
@@ -1120,21 +1117,15 @@ contract AvalancheL1MiddlewareTest is Test {
         ownerArr[0] = alice;
         PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
 
-        // Add the node
         vm.prank(alice);
         middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
-
-        // Grab the manager’s messageIndex for the add
         uint32 addIndex = mockValidatorManager.nextMessageIndex() - 1;
-
-        // Get the validationID
         bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
-        //  => node is Active
         vm.prank(alice);
         middleware.completeValidatorRegistration(alice, nodeId, addIndex);
 
-        // Warp => next epoch => truly active
+        // Move to next epoch
         _calcAndWarpOneEpoch();
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeStakeForAllOperators();
@@ -1142,26 +1133,24 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 initialStake = middleware.getNodeStake(epoch, valID);
         assertGt(initialStake, 0, "Node must have >0 stake after confirm");
 
-        // Initialize a stake update (reduce stake by half)
+        // Initialize stake update (reduce by half)
         uint256 newStake = initialStake / 2;
         vm.prank(alice);
         middleware.initializeValidatorStakeUpdate(nodeId, newStake);
 
-        // Check the manager’s internal pending weight
+        // Verify pending update in manager
         uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, scaleFactor);
         uint256 pendingWeight = mockValidatorManager.pendingNewWeight(valID);
         assertEq(pendingWeight, scaledWeight, "Pending new weight mismatch");
-
         bool isPending = mockValidatorManager.isValidatorPendingWeightUpdate(valID);
         assertTrue(isPending, "Stake update must be pending");
 
-        // Remove node *while update is pending*
+        // Remove node while update is pending
         vm.prank(alice);
         middleware.removeNode(nodeId);
-
         uint32 removeIndex = mockValidatorManager.nextMessageIndex() - 1;
 
-        // Warp => next epoch => presumably stake=0
+        // Move to next epoch
         _calcAndWarpOneEpoch();
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeStakeForAllOperators();
@@ -1173,7 +1162,7 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(alice);
         middleware.completeValidatorRemoval(removeIndex);
 
-        // Another epoch => finalize removal
+        // Move to next epoch
         _calcAndWarpOneEpoch();
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeStakeForAllOperators();
@@ -1181,27 +1170,19 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 finalStake = middleware.getNodeStake(epoch, valID);
         assertEq(finalStake, 0, "Node stake must be 0 after final removal");
 
-        // Complete the stake update AFTER removal
-        // Complete goes through but stake is 0
-
+        // Complete stake update after removal
         uint32 stakeUpdateMsgIndex = mockValidatorManager.nextMessageIndex() - 1;
-
         vm.prank(alice);
-        // If your code is supposed to revert, do:
-        // vm.expectRevert("AvalancheL1Middleware__WeightUpdateNotPending");
         middleware.completeStakeUpdate(nodeId, stakeUpdateMsgIndex);
 
-        // If no revert, let's see if the manager truly cleared the pending update:
+        // Verify update was processed
         bool stillPending = mockValidatorManager.isValidatorPendingWeightUpdate(valID);
-        assertFalse(stillPending, "Stake update should be cleared after node removal + finalization");
-
+        assertFalse(stillPending, "Stake update should be cleared after removal");
         uint256 postCompleteStake = middleware.getNodeStake(epoch, valID);
-        assertEq(postCompleteStake, 0, "Node stake must be 0 after final removal");
-
-        console2.log("Completed stake update after the node was removed. Check if it no-ops or reverts.");
+        assertEq(postCompleteStake, 0, "Node stake must be 0 after removal");
     }
 
-    function testFuzz_MultipleNodes_AddRemoveReadd(uint8 seedNodeCount, uint8 seedRemoveMask) public {
+    function testFuzz_MultipleNodes_AddRemoveReAdd(uint8 seedNodeCount, uint8 seedRemoveMask) public {
         // Force a small range for how many nodes to add (2–4)
         uint256 nodeCount = bound(seedNodeCount, 2, 4);
 
@@ -1281,7 +1262,7 @@ contract AvalancheL1MiddlewareTest is Test {
                 removeMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
                 isActive[i] = false;
 
-                // Record the old validation ID *before* it’s replaced by re-add
+                // Record the old validation ID *before* it's replaced by re-add
                 oldRemovedValidationIds[i] = validationIds[i];
 
                 // Attempt to remove the same node again immediately, expecting a revert
@@ -1380,6 +1361,415 @@ contract AvalancheL1MiddlewareTest is Test {
 
         bytes32[] memory finalNodes = middleware.getActiveNodesForEpoch(alice, epoch);
         assertEq(finalNodes.length, shouldBeActive, "Mismatch in final # of active nodes");
+    }
+
+    function testFuzz_StakeUpDownForceUpdateRandNodes(
+        uint8 seedNodeCount, // used to pick how many nodes to create
+        uint8 stakeDeltaMask, // which nodes get stake up vs. down
+        uint8 removeMask // which nodes get removed
+    ) public {
+        // Decide how many nodes to create (2-5)
+        uint256 nodeCount = bound(seedNodeCount, 2, 5);
+
+        // Warp to start fresh
+        _calcAndWarpOneEpoch();
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        // Prepare arrays
+        bytes32[] memory nodeIds = new bytes32[](nodeCount);
+        bytes32[] memory validationIds = new bytes32[](nodeCount);
+        bool[] memory isActive = new bool[](nodeCount);
+        uint32[] memory addMsgIdx = new uint32[](nodeCount);
+
+        // Operator deposit (50-100 ETH)
+        uint256 depositAmount = bound(uint256(seedNodeCount) * 10, 50 ether, 100 ether);
+        (uint256 depositUsed, uint256 mintedShares_) = _deposit(alice, depositAmount);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsed);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares_);
+
+        // Create nodes (unconfirmed)
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bytes32 nodeId = keccak256(abi.encodePacked("Node", i, block.timestamp));
+            nodeIds[i] = nodeId;
+
+            vm.prank(alice);
+            middleware.addNode(
+                nodeId,
+                hex"1234ABCD", // dummy BLS
+                uint64(block.timestamp + 1 days),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                0
+            );
+            addMsgIdx[i] = mockValidatorManager.nextMessageIndex() - 1;
+
+            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+            validationIds[i] = valID;
+            isActive[i] = false;
+        }
+
+        // Confirm nodes => warp => truly active
+        for (uint256 i = 0; i < nodeCount; i++) {
+            vm.prank(alice);
+            middleware.completeValidatorRegistration(alice, nodeIds[i], addMsgIdx[i]);
+            isActive[i] = true;
+        }
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Verify all nodes active
+        {
+            bytes32[] memory activeNodes = middleware.getActiveNodesForEpoch(alice, epoch);
+            assertEq(activeNodes.length, nodeCount, "All newly confirmed nodes must show as active");
+        }
+        
+        // Verify sum of stakes matches operator used stake
+        {
+            uint256 sumOfStakes;
+            for (uint256 i = 0; i < nodeCount; i++) {
+                sumOfStakes += middleware.getNodeStake(epoch, validationIds[i]);
+            }
+            uint256 operatorUsed = middleware.getOperatorUsedStakeCached(alice);
+            assertEq(sumOfStakes, operatorUsed, "Operator used stake must match sum of node stakes after confirm");
+        }
+
+        // Fuzz stake up/down or remove nodes
+        (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
+
+        for (uint256 i = 0; i < nodeCount; i++) {
+            if (!isActive[i]) continue;
+
+            bool doRemove = ((removeMask >> i) & 0x01) == 1;
+            if (doRemove) {
+                vm.prank(alice);
+                middleware.removeNode(nodeIds[i]);
+                isActive[i] = false;
+                continue;
+            }
+
+            bool stakeDown = ((stakeDeltaMask >> i) & 0x01) == 1;
+            uint256 currentStake = middleware.getNodeStake(epoch, validationIds[i]);
+            if (currentStake == 0) continue;
+
+            // Calculate new stake
+            uint256 newStake;
+            if (stakeDown) {
+                newStake = currentStake / 2;
+            } else {
+                uint256 upAmount = currentStake / 2;
+                newStake = currentStake + upAmount;
+                uint256 avail = middleware.getOperatorAvailableStake(alice);
+                if (newStake > currentStake + avail) {
+                    newStake = currentStake + avail;
+                }
+            }
+
+            if (newStake >= minStake) {
+                vm.prank(alice);
+                middleware.initializeValidatorStakeUpdate(nodeIds[i], newStake);
+                uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
+
+                vm.prank(alice);
+                middleware.completeStakeUpdate(nodeIds[i], stakeMsgIdx);
+            }
+        }
+
+        // Warp to next epoch to finalize changes
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Verify sum of stakes matches operator used stake
+        {
+            uint256 sumOfStakes;
+            for (uint256 i = 0; i < nodeCount; i++) {
+                if (isActive[i]) {
+                    sumOfStakes += middleware.getNodeStake(epoch, validationIds[i]);
+                }
+            }
+            uint256 operatorUsed = middleware.getOperatorUsedStakeCached(alice);
+            assertEq(sumOfStakes, operatorUsed, "Sum of node stakes should match operator used stake after updates");
+        }
+
+        // Warp to final window => forceUpdate
+        _warpToLastHourOfCurrentEpoch();
+        middleware.forceUpdateNodes(alice, 0);
+
+        // Final epoch => finalize forced updates
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Check node stakes
+        for (uint256 i = 0; i < nodeCount; i++) {
+            uint256 finalStake = middleware.getNodeStake(epoch, validationIds[i]);
+
+            if (isActive[i]) {
+                bool forciblyRemoved = (finalStake == 0);
+                if (forciblyRemoved) {
+                    assertEq(finalStake, 0, "Node forcibly removed by forceUpdate");
+                } else {
+                    assertGt(finalStake, 0, "Node stake must remain > 0 if not forcibly removed");
+                }
+            } else {
+                assertEq(finalStake, 0, "Node that was removed must have 0 stake");
+            }
+        }
+
+        // Final check: sum of stakes matches operator used
+        {
+            uint256 sumOfStakes;
+            for (uint256 i = 0; i < nodeCount; i++) {
+                sumOfStakes += middleware.getNodeStake(epoch, validationIds[i]);
+            }
+            uint256 operatorUsed = middleware.getOperatorUsedStakeCached(alice);
+            assertEq(sumOfStakes, operatorUsed, "Final sum of node stakes must match operator used stake");
+        }
+    }
+
+    function testFuzz_TwoOperatorsMultipleNodes(
+        uint8 seedNodeCountA,
+        uint8 stakeDeltaMaskA,
+        uint8 removeMaskA,
+        uint8 seedNodeCountB,
+        uint8 stakeDeltaMaskB,
+        uint8 removeMaskB
+    ) public {
+        // Setup operators A (alice) and B (bob)
+        uint256 nodeCountA = bound(seedNodeCountA, 2, 5);
+        uint256 nodeCountB = bound(seedNodeCountB, 2, 5);
+
+        // Warp to start fresh
+        _calcAndWarpOneEpoch();
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        // Setup arrays for each operator
+        bytes32[] memory nodeIdsA = new bytes32[](nodeCountA);
+        bytes32[] memory validationIdsA = new bytes32[](nodeCountA);
+        bool[] memory isActiveA = new bool[](nodeCountA);
+        uint32[] memory addMsgIdxA = new uint32[](nodeCountA);
+
+        bytes32[] memory nodeIdsB = new bytes32[](nodeCountB);
+        bytes32[] memory validationIdsB = new bytes32[](nodeCountB);
+        bool[] memory isActiveB = new bool[](nodeCountB);
+        uint32[] memory addMsgIdxB = new uint32[](nodeCountB);
+
+        // Operator deposits
+        uint256 depositAmountA = bound(uint256(seedNodeCountA) * 10, 50 ether, 100 ether);
+        (uint256 depositUsedA, uint256 mintedSharesA) = _deposit(alice, depositAmountA);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedSharesA);
+
+        _registerOperator(bob, "metadata");
+        _optInOperatorL1(bob, validatorManagerAddress);
+        _optInOperatorVault(bob);
+        vm.startPrank(validatorManagerAddress);
+        middleware.registerOperator(bob);
+        vm.stopPrank();
+        uint256 depositAmountB = bound(uint256(seedNodeCountB) * 10, 50 ether, 100 ether);
+        (uint256 depositUsedB, uint256 mintedSharesB) = _deposit(bob, depositAmountB);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsedA + depositUsedB);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, bob, mintedSharesB);
+        _calcAndWarpOneEpoch();
+
+        // Create nodes for operator A
+        for (uint256 i = 0; i < nodeCountA; i++) {
+            bytes32 nodeId = keccak256(abi.encodePacked("NodeA", i, block.timestamp));
+            nodeIdsA[i] = nodeId;
+
+            vm.prank(alice);
+            middleware.addNode(
+                nodeId,
+                hex"1234ABCD",
+                uint64(block.timestamp + 1 days),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                0
+            );
+            addMsgIdxA[i] = mockValidatorManager.nextMessageIndex() - 1;
+
+            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+            validationIdsA[i] = valID;
+            isActiveA[i] = false;
+        }
+
+        // Create nodes for operator B
+        for (uint256 i = 0; i < nodeCountB; i++) {
+            bytes32 nodeId = keccak256(abi.encodePacked("NodeB", i, block.timestamp));
+            nodeIdsB[i] = nodeId;
+
+            vm.prank(bob);
+            middleware.addNode(
+                nodeId,
+                hex"9999DDDD",
+                uint64(block.timestamp + 1 days),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                0
+            );
+            addMsgIdxB[i] = mockValidatorManager.nextMessageIndex() - 1;
+
+            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+            validationIdsB[i] = valID;
+            isActiveB[i] = false;
+        }
+
+        // Confirm nodes for both operators
+        for (uint256 i = 0; i < nodeCountA; i++) {
+            vm.prank(alice);
+            middleware.completeValidatorRegistration(alice, nodeIdsA[i], addMsgIdxA[i]);
+            isActiveA[i] = true;
+        }
+        
+        for (uint256 i = 0; i < nodeCountB; i++) {
+            vm.prank(bob);
+            middleware.completeValidatorRegistration(bob, nodeIdsB[i], addMsgIdxB[i]);
+            isActiveB[i] = true;
+        }
+
+        // Warp to next epoch
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Fuzz stake changes for both operators
+        (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
+
+        // Operator A stake changes
+        for (uint256 i = 0; i < nodeCountA; i++) {
+            if (!isActiveA[i]) continue;
+
+            bool doRemove = ((removeMaskA >> i) & 0x01) == 1;
+            if (doRemove) {
+                vm.prank(alice);
+                middleware.removeNode(nodeIdsA[i]);
+                isActiveA[i] = false;
+                continue;
+            }
+
+            bool stakeDown = ((stakeDeltaMaskA >> i) & 0x01) == 1;
+            uint256 currentStake = middleware.getNodeStake(epoch, validationIdsA[i]);
+            if (currentStake == 0) continue;
+
+            uint256 newStake;
+            if (stakeDown) {
+                newStake = currentStake / 2;
+            } else {
+                uint256 upAmt = currentStake / 2;
+                newStake = currentStake + upAmt;
+                uint256 avail = middleware.getOperatorAvailableStake(alice);
+                if (newStake > currentStake + avail) {
+                    newStake = currentStake + avail;
+                }
+            }
+            
+            if (newStake >= minStake) {
+                vm.prank(alice);
+                middleware.initializeValidatorStakeUpdate(nodeIdsA[i], newStake);
+                uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
+
+                vm.prank(alice);
+                middleware.completeStakeUpdate(nodeIdsA[i], stakeMsgIdx);
+            }
+        }
+
+        // Operator B stake changes
+        for (uint256 i = 0; i < nodeCountB; i++) {
+            if (!isActiveB[i]) continue;
+
+            bool doRemove = ((removeMaskB >> i) & 0x01) == 1;
+            if (doRemove) {
+                vm.prank(bob);
+                middleware.removeNode(nodeIdsB[i]);
+                isActiveB[i] = false;
+                continue;
+            }
+
+            bool stakeDown = ((stakeDeltaMaskB >> i) & 0x01) == 1;
+            uint256 currentStake = middleware.getNodeStake(epoch, validationIdsB[i]);
+            if (currentStake == 0) continue;
+
+            uint256 newStake;
+            if (stakeDown) {
+                newStake = currentStake / 2;
+            } else {
+                uint256 upAmt = currentStake / 2;
+                newStake = currentStake + upAmt;
+                uint256 avail = middleware.getOperatorAvailableStake(bob);
+                if (newStake > currentStake + avail) {
+                    newStake = currentStake + avail;
+                }
+            }
+            
+            if (newStake >= minStake) {
+                vm.prank(bob);
+                middleware.initializeValidatorStakeUpdate(nodeIdsB[i], newStake);
+                uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
+
+                vm.prank(bob);
+                middleware.completeStakeUpdate(nodeIdsB[i], stakeMsgIdx);
+            }
+        }
+
+        // Warp to next epoch
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Force update both operators
+        _warpToLastHourOfCurrentEpoch();
+        middleware.forceUpdateNodes(alice, 0);
+        middleware.forceUpdateNodes(bob, 0);
+
+        // Final epoch
+        _calcAndWarpOneEpoch();
+        epoch = middleware.getCurrentEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Check final stakes for operator A
+        for (uint256 i = 0; i < nodeCountA; i++) {
+            uint256 finalStake = middleware.getNodeStake(epoch, validationIdsA[i]);
+            if (isActiveA[i]) {
+                if (finalStake == 0) {
+                    assertEq(finalStake, 0, "Node forcibly removed by forceUpdate for operator A");
+                } else {
+                    assertGt(finalStake, 0, "Node stake must remain > 0 if not forcibly removed (operator A)");
+                }
+            } else {
+                assertEq(finalStake, 0, "Removed node must have 0 stake (operator A)");
+            }
+        }
+
+        // Check final stakes for operator B
+        for (uint256 i = 0; i < nodeCountB; i++) {
+            uint256 finalStake = middleware.getNodeStake(epoch, validationIdsB[i]);
+            if (isActiveB[i]) {
+                if (finalStake == 0) {
+                    assertEq(finalStake, 0, "Node forcibly removed by forceUpdate for operator B");
+                } else {
+                    assertGt(finalStake, 0, "Node stake must remain > 0 if not forcibly removed (operator B)");
+                }
+            } else {
+                assertEq(finalStake, 0, "Removed node must have 0 stake (operator B)");
+            }
+        }
+
+        // Verify sum of stakes matches operator used stake
+        {
+            uint256 sumOfStakesA;
+            for (uint256 i = 0; i < nodeCountA; i++) {
+                sumOfStakesA += middleware.getNodeStake(epoch, validationIdsA[i]);
+            }
+            uint256 operatorAUsed = middleware.getOperatorUsedStakeCached(alice);
+            assertEq(sumOfStakesA, operatorAUsed, "Final sum of node stakes must match operator A used stake");
+
+            uint256 sumOfStakesB;
+            for (uint256 i = 0; i < nodeCountB; i++) {
+                sumOfStakesB += middleware.getNodeStake(epoch, validationIdsB[i]);
+            }
+            uint256 operatorBUsed = middleware.getOperatorUsedStakeCached(bob);
+            assertEq(sumOfStakesB, operatorBUsed, "Final sum of node stakes must match operator B used stake");
+        }
     }
 
     ///////////////////////////////
@@ -1507,7 +1897,7 @@ contract AvalancheL1MiddlewareTest is Test {
             // 1. Figure out what the *next* epoch index would be
             uint48 nextEpochIndex = middleware.getCurrentEpoch() + 1;
 
-            // 2. Warp to *just after* that epoch’s start
+            // 2. Warp to *just after* that epoch's start
             uint256 nextEpochStartTs = middleware.getEpochStartTs(nextEpochIndex);
             vm.warp(nextEpochStartTs + 1);
 
@@ -1523,7 +1913,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint48 currentEpoch = middleware.getCurrentEpoch();
         uint48 currentEpochTs = middleware.getEpochStartTs(currentEpoch);
 
-        // The final “window” starts at (epoch end - weightUpdateGracePeriod)
+        // The final "window" starts at (epoch end - weightUpdateGracePeriod)
         uint256 finalHourStartTs = currentEpochTs + middleware.UPDATE_WINDOW();
 
         // If we want to be safe, warp a few seconds into that window
