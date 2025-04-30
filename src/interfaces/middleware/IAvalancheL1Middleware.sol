@@ -46,6 +46,8 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NodePendingRemoval(bytes32 nodeId);
     error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
     error AvalancheL1Middleware__ZeroAddress(string name);
+    error AvalancheL1Middleware__InvalidScaleFactor();
+    
     // Events
     /**
      * @notice Emitted when a node is added

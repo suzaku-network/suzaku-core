@@ -8,18 +8,15 @@ import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 import {
-    IValidatorManager,
     Validator,
     ValidatorStatus,
     ValidatorRegistrationInput,
     PChainOwner
 } from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {ValidatorManager} from "@avalabs/teleporter/validator-manager/ValidatorManager.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
 
 import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
-import {IRegistry} from "../../interfaces/common/IRegistry.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
 import {IOptInService} from "../../interfaces/service/IOptInService.sol";
@@ -55,7 +52,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     address public immutable OPERATOR_REGISTRY;
     address public immutable OPERATOR_L1_OPTIN;
     address public immutable PRIMARY_ASSET;
-    address public immutable BALANCER_VALIDATOR_MANAGER;
     uint48 public immutable EPOCH_DURATION;
     uint48 public immutable SLASHING_WINDOW;
     uint48 public immutable START_TIME;
@@ -127,6 +123,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
         }
+        if (primaryAssetWeightScaleFactor == 0) {
+            revert AvalancheL1Middleware__InvalidScaleFactor();
+        }
 
         START_TIME = Time.timestamp();
         EPOCH_DURATION = settings.epochDuration;
@@ -136,7 +135,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         SLASHING_WINDOW = settings.slashingWindow;
         PRIMARY_ASSET = primaryAsset;
         UPDATE_WINDOW = settings.stakeUpdateWindow;
-        require(primaryAssetWeightScaleFactor > 0, "Invalid scale factor");
         WEIGHT_SCALE_FACTOR = primaryAssetWeightScaleFactor;
 
         balancerValidatorManager = BalancerValidatorManager(settings.l1ValidatorManager);
