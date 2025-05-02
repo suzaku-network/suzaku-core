@@ -10,7 +10,19 @@ struct LastUptimeCheckpoint {
 }
 
 interface IUptimeTracker {
+    /**
+     * @dev Error thrown when a validator's uptime is not recorded for a given epoch
+     * @param epoch Epoch for which uptime was not recorded
+     * @param validator Validator's unique validation ID
+     */
     error UptimeTracker__ValidatorUptimeNotRecorded(uint48 epoch, bytes32 validator);
+
+    /**
+     * @dev Error thrown when an operator has no validators for a given epoch
+     * @param operator Operator's address
+     * @param epoch Epoch for which uptime was not recorded
+     */
+    error UptimeTracker__NoValidators(address operator, uint48 epoch);
 
     /**
      * @notice Emitted when a validator's uptime is computed.
