@@ -35,7 +35,7 @@ contract UptimeTracker is IUptimeTracker {
     mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
     constructor(
-        address l1Middleware_
+        address payable l1Middleware_
     ) {
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
         epochDuration = l1Middleware.EPOCH_DURATION();

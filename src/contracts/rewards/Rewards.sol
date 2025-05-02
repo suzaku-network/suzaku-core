@@ -21,8 +21,6 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    event DEBUG(uint256 vaultShare);
-
     // Constants
     uint16 public constant BASIS_POINTS_DENOMINATOR = 10_000;
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -50,7 +48,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorShares;
     mapping(uint48 epoch => mapping(address vault => uint256 share)) public vaultShares;
     mapping(uint48 epoch => mapping(address curator => uint256 share)) public curatorShares;
-    mapping(uint48 epoch => mapping(address protocolOwner => uint256 share)) public protocolShares;
+
+    // Protocol rewards
+    mapping(address rewardsToken => uint256 rewardsAmount) public protocolRewards;
 
     // Reward token amounts per epoch
     mapping(uint48 epoch => EnumerableMap.AddressToUintMap rewardsTokenToAmount) private rewardsAmountPerTokenFromEpoch;
@@ -71,19 +71,23 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     function initialize(
         address admin_,
         address protocolOwner_,
-        address l1Middleware_,
-        address middlewareVaultManager_,
+        address payable l1Middleware_,
         address uptimeTracker_,
         uint16 protocolFee_,
         uint16 operatorFee_,
         uint16 curatorFee_
     ) public initializer {
+        if (l1Middleware_ == address(0)) revert InvalidL1Middleware(l1Middleware_);
+        if (uptimeTracker_ == address(0)) revert InvalidUptimeTracker(uptimeTracker_);
+        if (admin_ == address(0)) revert InvalidAdmin(admin_);
+        if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
+
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
         _grantRole(ADMIN_ROLE, admin_);
         _grantRole(PROTOCOL_OWNER_ROLE, protocolOwner_);
 
-        middlewareVaultManager = MiddlewareVaultManager(middlewareVaultManager_);
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
+        middlewareVaultManager = MiddlewareVaultManager(l1Middleware.getVaultManager());
         uptimeTracker = UptimeTracker(uptimeTracker_);
         epochDuration = l1Middleware.EPOCH_DURATION();
 
@@ -142,22 +146,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
                 uint256 vaultShare = vaultShares[epoch][vault];
                 if (vaultShare == 0) continue;
 
-                // Calculate staker's share of vault rewards at claim time
-                uint256 stakerStake = IVaultTokenized(vault).activeBalanceOfAt(msg.sender, epochTs, new bytes(0));
+                // Get staker's share of the vault
+                uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0));
 
-                // Calculate total vault stake as sum of stakes delegated to all operators
-                uint256 totalVaultStake = 0;
-                address[] memory operators = vaultOperators[epoch][vault].values();
-                for (uint256 j = 0; j < operators.length; j++) {
-                    totalVaultStake += BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                        l1Middleware.L1_VALIDATOR_MANAGER(),
-                        _getVaultAssetClassId(vault),
-                        operators[j],
-                        epochTs,
-                        new bytes(0)
-                    );
-                }
-                uint256 stakerShare = Math.mulDiv(stakerStake, vaultShare, totalVaultStake);
+                uint256 stakerShare = Math.mulDiv(stakerVaultShare, vaultShare, BASIS_POINTS_DENOMINATOR);
                 if (stakerShare == 0) continue;
 
                 uint256 epochRewards = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
@@ -236,30 +228,14 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     function claimProtocolFee(address rewardsToken, address recipient) external onlyRole(PROTOCOL_OWNER_ROLE) {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
-        uint48 lastClaimedEpoch = lastEpochClaimedProtocol[msg.sender];
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint256 rewards = protocolRewards[rewardsToken];
+        if (rewards == 0) revert NoRewardsToClaim(msg.sender);
 
-        if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
-            revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
-        }
-
-        uint256 totalProtocolRewards = 0;
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
-            uint256 protocolShare = protocolShares[epoch][rewardsToken];
-            if (protocolShare == 0) continue;
-
-            uint256 rewardsAmount = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
-            if (rewardsAmount == 0) continue;
-
-            uint256 protocolRewards = Math.mulDiv(rewardsAmount, protocolShare, BASIS_POINTS_DENOMINATOR);
-            totalProtocolRewards += protocolRewards;
-        }
-        if (totalProtocolRewards == 0) revert NoRewardsToClaim(msg.sender);
-
-        IERC20(rewardsToken).safeTransfer(recipient, totalProtocolRewards);
-        lastEpochClaimedProtocol[msg.sender] = currentEpoch - 1;
+        IERC20(rewardsToken).safeTransfer(recipient, rewards);
+        protocolRewards[rewardsToken] = 0;
     }
 
+    /// @inheritdoc IRewards
     function claimUndistributedRewards(
         uint48 epoch,
         address rewardsToken,
@@ -300,9 +276,6 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             totalDistributedShares += curatorShares[epoch][curator];
         }
 
-        // Add protocol shares
-        totalDistributedShares += protocolShares[epoch][rewardsToken];
-
         // Calculate and transfer undistributed rewards
         uint256 undistributedRewards =
             totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
@@ -334,11 +307,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint256 totalRewards = rewardsAmount * numberOfEpochs;
         IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), totalRewards);
 
-        protocolShares[startEpoch][rewardsToken] = protocolFee;
+        uint256 protocolRewardsAmount = Math.mulDiv(totalRewards, protocolFee, BASIS_POINTS_DENOMINATOR);
+        protocolRewards[rewardsToken] += protocolRewardsAmount;
 
-        uint256 distributedRewards = rewardsAmount - Math.mulDiv(rewardsAmount, protocolFee, BASIS_POINTS_DENOMINATOR);
+        rewardsAmount -= Math.mulDiv(rewardsAmount, protocolFee, BASIS_POINTS_DENOMINATOR);
+
         for (uint48 i = 0; i < numberOfEpochs; i++) {
-            rewardsAmountPerTokenFromEpoch[startEpoch + i].set(rewardsToken, distributedRewards);
+            rewardsAmountPerTokenFromEpoch[startEpoch + i].set(rewardsToken, rewardsAmount);
         }
 
         emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsAmount);
@@ -453,9 +428,6 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         }
 
         totalShare = Math.mulDiv(totalShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
-
-        // Remove protocol fee from total share
-        totalShare = Math.mulDiv(totalShare, BASIS_POINTS_DENOMINATOR - protocolFee, BASIS_POINTS_DENOMINATOR);
 
         // Calculate operator fee share and store it
         uint256 operatorFeeShare = Math.mulDiv(totalShare, operatorFee, BASIS_POINTS_DENOMINATOR);

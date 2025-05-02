@@ -79,6 +79,36 @@ interface IRewards {
     error InvalidFee(uint16 fee);
 
     /**
+     * @dev Error thrown when an invalid operator address is provided
+     * @param operator Invalid operator address
+     */
+    error InvalidOperator(address operator);
+
+    /**
+     * @dev Error thrown when an invalid l1 middleware address is provided
+     * @param l1Middleware Invalid l1 middleware address
+     */
+    error InvalidL1Middleware(address l1Middleware);
+
+    /**
+     * @dev Error thrown when an invalid uptime tracker address is provided
+     * @param uptimeTracker Invalid uptime tracker address
+     */
+    error InvalidUptimeTracker(address uptimeTracker);
+
+    /**
+     * @dev Error thrown when an invalid admin address is provided
+     * @param admin Invalid admin address
+     */
+    error InvalidAdmin(address admin);
+
+    /**
+     * @dev Error thrown when an invalid protocol owner address is provided
+     * @param protocolOwner Invalid protocol owner address
+     */
+    error InvalidProtocolOwner(address protocolOwner);
+
+    /**
      * @dev Error thrown when an invalid minimum uptime is provided
      * @param minUptime Invalid minimum uptime
      */
@@ -95,12 +125,6 @@ interface IRewards {
      * @param epoch Unfinished epoch
      */
     error EpochNotFinished(uint48 epoch);
-
-    /**
-     * @dev Error thrown when an invalid operator address is provided
-     * @param operator Invalid operator address
-     */
-    error InvalidOperator(address operator);
 
     /**
      * @dev Error thrown when the operator does not have uptime set for the epoch
@@ -285,6 +309,15 @@ interface IRewards {
      * @param recipient Address receiving the protocol fee
      */
     function claimProtocolFee(address rewardsToken, address recipient) external;
+
+    /**
+     * @notice Claims undistributed rewards for a given epoch
+     * @dev Only callable by an address with the ADMIN_ROLE
+     * @param epoch Epoch for which undistributed rewards should be claimed
+     * @param rewardsToken Address of the reward token
+     * @param recipient Address receiving the undistributed rewards
+     */
+    function claimUndistributedRewards(uint48 epoch, address rewardsToken, address recipient) external;
 
     /**
      * @notice Grants the admin role to a new address

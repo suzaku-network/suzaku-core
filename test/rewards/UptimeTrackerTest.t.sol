@@ -32,8 +32,8 @@ contract UptimeTrackerTest is Test {
 
         // Initialize contracts
         validatorManager = new MockBalancerValidatorManager();
-        middleware = new MockAvalancheL1Middleware(1, nodesPerOperator, address(validatorManager));
-        uptimeTracker = new UptimeTracker(address(middleware));
+        middleware = new MockAvalancheL1Middleware(1, nodesPerOperator, address(validatorManager), address(0));
+        uptimeTracker = new UptimeTracker(payable(address(middleware)));
 
         // Get operator
         operator = middleware.getAllOperators()[0];

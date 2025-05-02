@@ -56,12 +56,12 @@ contract RewardsTest is Test {
 
         // deploy mock contracts
         console2.log("Deploying mock contracts...");
-        middleware = new MockAvalancheL1Middleware(operatorCount, nodesPerOperator, address(0));
+        vaultManager = new MockVaultManager();
+        console2.log("Vault manager deployed");
+        middleware = new MockAvalancheL1Middleware(operatorCount, nodesPerOperator, address(0), address(vaultManager));
         console2.log("Middleware deployed");
         uptimeTracker = new MockUptimeTracker();
         console2.log("Uptime tracker deployed");
-        vaultManager = new MockVaultManager();
-        console2.log("Vault manager deployed");
 
         // Deploy RewardsV2 contract
         console2.log("Deploying Rewards contract...");
@@ -77,8 +77,7 @@ contract RewardsTest is Test {
         rewards.initialize(
             ADMIN,
             PROTOCOL_OWNER,
-            address(middleware),
-            address(vaultManager),
+            payable(address(middleware)),
             address(uptimeTracker),
             protocolFee,
             operatorFee,
@@ -172,7 +171,7 @@ contract RewardsTest is Test {
         assertTrue(isComplete, "Distribution should be complete");
 
         // Log rewards distribution
-        uint256 totalShares = rewards.protocolShares(epoch, address(rewardsToken));
+        uint256 totalShares;
         for (uint256 i = 0; i < operators.length; i++) {
             uint256 operatorShare = rewards.operatorShares(epoch, operators[i]);
             totalShares += operatorShare;
@@ -387,7 +386,7 @@ contract RewardsTest is Test {
         assertTrue(isComplete, "Distribution should be complete");
 
         // Calculate and verify total shares
-        uint256 totalShares = rewards.protocolFee();
+        uint256 totalShares;
 
         // Sum operator shares
         for (uint256 i = 0; i < operators.length; i++) {

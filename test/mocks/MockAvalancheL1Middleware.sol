@@ -7,6 +7,7 @@ contract MockAvalancheL1Middleware {
     uint48 public constant EPOCH_DURATION = 4 hours;
     address public immutable BALANCER_VALIDATOR_MANAGER;
     address public constant L1_VALIDATOR_MANAGER = address(0x123);
+    address public immutable VAULT_MANAGER;
 
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStake;
     mapping(uint48 => mapping(uint96 => uint256)) public totalStakeCache;
@@ -23,11 +24,17 @@ contract MockAvalancheL1Middleware {
     uint96 primaryAssetClass = 1;
     uint96[] secondaryAssetClasses = [2, 3];
 
-    constructor(uint256 operatorCount, uint256[] memory nodesPerOperator, address balancerValidatorManager) {
+    constructor(
+        uint256 operatorCount,
+        uint256[] memory nodesPerOperator,
+        address balancerValidatorManager,
+        address vaultManager
+    ) {
         require(operatorCount > 0, "At least one operator required");
         require(operatorCount == nodesPerOperator.length, "Arrays length mismatch");
 
         BALANCER_VALIDATOR_MANAGER = balancerValidatorManager;
+        VAULT_MANAGER = vaultManager;
 
         // Generate operators
         for (uint256 i = 0; i < operatorCount; i++) {
@@ -126,5 +133,9 @@ contract MockAvalancheL1Middleware {
 
     function setAssetInAssetClass(uint96 assetClass, address asset) external {
         assetClassAsset[asset] = assetClass;
+    }
+
+    function getVaultManager() external view returns (address) {
+        return VAULT_MANAGER;
     }
 }
