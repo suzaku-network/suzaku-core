@@ -62,6 +62,10 @@ contract AvalancheL1MiddlewareTest is Test {
     uint256 internal bobPrivateKey;
     address internal charlie;
     uint256 internal charliePrivateKey;
+    address internal dave;
+    uint256 internal davePrivateKey;
+    address internal staker;
+    uint256 internal stakerPrivateKey;
     address internal tokenA;
     address internal tokenB;
     address internal l1;
@@ -81,16 +85,24 @@ contract AvalancheL1MiddlewareTest is Test {
     OperatorVaultOptInService internal operatorVaultOptInService;
     OperatorL1OptInService internal operatorL1OptInService;
     VaultTokenized internal vault;
+    VaultTokenized internal vault2;  // New vault using same collateral
+    VaultTokenized internal vault3;  // New vault using new collateral
     L1RestakeDelegator internal delegator;
+    L1RestakeDelegator internal delegator2;  // Delegator for vault2
+    L1RestakeDelegator internal delegator3;  // Delegator for vault3
     AvalancheL1Middleware internal middleware;
     MiddlewareVaultManager internal vaultManager;
     Token internal collateral;
+    Token internal collateral2;      // New collateral token
     MockBalancerValidatorManager internal mockValidatorManager;
 
     function setUp() public {
         owner = address(this);
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
+        (charlie, charliePrivateKey) = makeAddrAndKey("charlie");
+        (dave, davePrivateKey) = makeAddrAndKey("dave");
+        (staker, stakerPrivateKey) = makeAddrAndKey("staker");
         (l1, l1PrivateKey) = makeAddrAndKey("l1");
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
@@ -153,6 +165,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Create a test collateral token
         collateral = new Token("MockCollateral");
+        collateral2 = new Token("MockCollateral2");
         primaryAsset = address(collateral);
 
         uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
@@ -188,7 +201,61 @@ contract AvalancheL1MiddlewareTest is Test {
 
         vault = VaultTokenized(vaultAddress);
 
-        // Deploy delegator
+        // Deploy vault2 (using same collateral)
+        address vault2Address = vaultFactory.create(
+            lastVersion,
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "Test2",
+                    symbol: "TEST2"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+
+        vault2 = VaultTokenized(vault2Address);
+
+        // Deploy vault3 (using new collateral)
+        address vault3Address = vaultFactory.create(
+            lastVersion,
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral2),
+                    burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "Test3",
+                    symbol: "TEST3"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+
+        vault3 = VaultTokenized(vault3Address);
+
+        // Setup delegator for vault1
         address[] memory l1LimitSetRoleHolders = new address[](1);
         l1LimitSetRoleHolders[0] = bob;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
@@ -214,9 +281,59 @@ contract AvalancheL1MiddlewareTest is Test {
 
         delegator = L1RestakeDelegator(delegatorAddress);
 
-        // Set the delegator in the vault
+        // Setup delegator for vault2
+        address delegator2Address = delegatorFactory.create(
+            0,
+            abi.encode(
+                address(vault2),
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                    })
+                )
+            )
+        );
+
+        delegator2 = L1RestakeDelegator(delegator2Address);
+
+        // Setup delegator for vault3
+        address delegator3Address = delegatorFactory.create(
+            0,
+            abi.encode(
+                address(vault3),
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                    })
+                )
+            )
+        );
+
+        delegator3 = L1RestakeDelegator(delegator3Address);
+
+        // Set the delegator in vault1
         vm.prank(bob);
         vault.setDelegator(delegatorAddress);
+
+        // Set the delegator in vault2
+        vm.prank(bob);
+        vault2.setDelegator(delegator2Address);
+
+        // Set the delegator in vault3
+        vm.prank(bob);
+        vault3.setDelegator(delegator3Address);
 
         // Deploy the middleware
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
@@ -260,24 +377,124 @@ contract AvalancheL1MiddlewareTest is Test {
 
         _registerL1(validatorManagerAddress, address(middleware));
         assetClassId = 1;
-        maxVaultL1Limit = 2000 ether;
+        maxVaultL1Limit = 3000 ether;
+        
         vm.startPrank(validatorManagerAddress);
         vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
         vm.stopPrank();
 
+        // Register all operators
         _registerOperator(alice, "alice metadata");
+        _registerOperator(charlie, "charlie metadata");
+        _registerOperator(dave, "dave metadata");
+        
+        // Opt-in operators for L1
         _optInOperatorL1(alice, validatorManagerAddress);
-        _optInOperatorVault(alice);
+        _optInOperatorL1(charlie, validatorManagerAddress);
+        _optInOperatorL1(dave, validatorManagerAddress);
+        
+        // Opt-in operators for vaults
+        _optInOperatorVault(alice, address(vault));
+        _optInOperatorVault(alice, address(vault3));
+        _optInOperatorVault(charlie, address(vault));
+        _optInOperatorVault(charlie, address(vault2));
+        _optInOperatorVault(charlie, address(vault3));
+        _optInOperatorVault(dave, address(vault2));
+        _optInOperatorVault(dave, address(vault3));
 
+        // Register operators with middleware
         vm.startPrank(validatorManagerAddress);
         middleware.registerOperator(alice);
+        middleware.registerOperator(charlie);
+        middleware.registerOperator(dave);
         vm.stopPrank();
 
-        _grantDepositorWhitelistRole(bob, alice);
-        (depositedAmount, mintedShares) = _deposit(alice, 200_000_000_002_000);
-        uint256 l1Limit = 1500 ether;
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares);
+        // Grant whitelist deposit role to staker
+        _grantDepositorWhitelistRole(bob, staker);
+        
+        uint256 l1Limit = 2500 ether;
+
+        // Setup Alice as operator for vault1 only
+        // Use staker to deposit on behalf of Alice
+        collateral.transfer(staker, 200_000_000_002_000);
+        vm.startPrank(staker);
+        collateral.approve(address(vault), 200_000_000_002_000);
+        (depositedAmount, mintedShares) = vault.deposit(staker, 200_000_000_002_000);
+        vm.stopPrank();
+        
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares, delegator);
+
+        // Setup Charlie as operator for both vault1 and vault2
+        // First deposit to vault1
+        uint256 charlieVault1DepositAmount = 150_000_000_000_000;
+        collateral.transfer(staker, charlieVault1DepositAmount);
+        vm.startPrank(staker);
+        collateral.approve(address(vault), charlieVault1DepositAmount);
+        ( , uint256 charlieVault1Shares) = vault.deposit(staker, charlieVault1DepositAmount);
+        vm.stopPrank();
+
+        // Add Charlie's shares from vault1 (existing limit is already set)
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, charlieVault1Shares, delegator);
+        
+        // Then deposit to vault2
+        uint256 charlieVault2DepositAmount = 120_000_000_000_000;
+        collateral.transfer(staker, charlieVault2DepositAmount);
+        vm.startPrank(staker);
+        collateral.approve(address(vault2), charlieVault2DepositAmount);
+        ( , uint256 charlieVault2Shares) = vault2.deposit(staker, charlieVault2DepositAmount);
+        vm.stopPrank();
+
+        // Set L1 shares for Charlie from vault2
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, charlieVault2Shares, delegator2);
+
+        // Setup Dave as operator for vault2
+        uint256 daveVault2DepositAmount = 200_000_000_000_000;
+        collateral.transfer(staker, daveVault2DepositAmount);
+        vm.startPrank(staker);
+        collateral.approve(address(vault2), daveVault2DepositAmount);
+        ( , uint256 daveVault2Shares) = vault2.deposit(staker, daveVault2DepositAmount);
+        vm.stopPrank();
+
+        // Set L1 shares for Dave from vault2
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, dave, daveVault2Shares, delegator2);
+
+        // Setup vault3 with new collateral for Alice, Charlie and Dave
+        uint256 vault3DepositAmount = 100_000_000_000_000;
+        
+        // Deposit for Alice
+        collateral2.transfer(staker, vault3DepositAmount);
+        vm.startPrank(staker);
+        collateral2.approve(address(vault3), vault3DepositAmount);
+        ( , uint256 aliceVault3MintedShares) = vault3.deposit(staker, vault3DepositAmount);
+        vm.stopPrank();
+        
+        // Deposit for Charlie
+        collateral2.transfer(staker, vault3DepositAmount);
+        vm.startPrank(staker);
+        collateral2.approve(address(vault3), vault3DepositAmount);
+        ( , uint256 charlieVault3MintedShares) = vault3.deposit(staker, vault3DepositAmount);
+        vm.stopPrank();
+        
+        // Deposit for Dave
+        collateral2.transfer(staker, vault3DepositAmount);
+        vm.startPrank(staker);
+        collateral2.approve(address(vault3), vault3DepositAmount);
+        ( , uint256 daveVault3MintedShares) = vault3.deposit(staker, vault3DepositAmount);
+        vm.stopPrank();
+
+        // Set L1 shares for all three operators from vault3
+        _setOperatorL1Shares(bob, validatorManagerAddress, 2, alice, aliceVault3MintedShares, delegator3);
+        _setOperatorL1Shares(bob, validatorManagerAddress, 2, charlie, charlieVault3MintedShares, delegator3);
+        _setOperatorL1Shares(bob, validatorManagerAddress, 2, dave, daveVault3MintedShares, delegator3);
+
+        // Alice Operator for vault1 has 200_000_000_002_000 deposited
+        // Alice Operator for vault3 has 100_000_000_000_000 deposited
+        // Charlie Operator for vault1 has 150_000_000_000_000 deposited
+        // Charlie Operator for vault2 has 120_000_000_000_000 deposited
+        // Charlie Operator for vault3 has 100_000_000_000_000 deposited
+        // Dave Operator for vault3 has 100_000_000_000_000 deposited
+        // Dave Operator for vault2 has 160_000_000_000_000 deposited
     }
 
     function test_DepositAndGetOperatorStake() public view {
@@ -367,24 +584,30 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Set up test values
         uint256 feasibleMax = 100_000_000_000_000_000_000;
-        uint256 stakeWanted = feasibleMax + 1 ether;
+        uint256 stakeWanted = feasibleMax + 20 ether;
 
-        // Fund alice and deposit to vault
-        collateral.transfer(alice, stakeWanted);
+        uint256 depositAmount = stakeWanted + 2 ether; // 2 ether extra to cover the deposit fee
+        // Fund staker and deposit to vault
+        collateral.transfer(staker, depositAmount);
 
-        vm.startPrank(alice);
-        collateral.approve(address(vault), stakeWanted);
-        vault.deposit(alice, stakeWanted);
+        vm.startPrank(staker);
+        collateral.approve(address(vault), depositAmount);
+        vault.deposit(staker, depositAmount);
         vm.stopPrank();
 
         // Set L1 limit
         vm.startPrank(bob);
-        delegator.setL1Limit(validatorManagerAddress, assetClassId, stakeWanted);
+        delegator.setL1Limit(validatorManagerAddress, assetClassId, depositAmount);
         vm.stopPrank();
+
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, stakeWanted, delegator);
+
+        // travel to next epoch
+        _calcAndWarpOneEpoch();
 
         // Verify available stake
         uint256 updatedAvail = middleware.getOperatorAvailableStake(alice);
-        require(updatedAvail >= stakeWanted, "Still not enough to surpass testMaxStake+1");
+        require(updatedAvail >= stakeWanted, string(abi.encodePacked("Available: ", vm.toString(updatedAvail), ", Wanted: ", vm.toString(stakeWanted), ", Missing: ", vm.toString(stakeWanted > updatedAvail ? stakeWanted - updatedAvail : 0))));
 
         // Add node with stake that exceeds max
         bytes32 nodeId = keccak256("ClampTestAdaptive");
@@ -492,8 +715,8 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     function test_CompleteStakeUpdate() public {
-        (depositedAmount, mintedShares) = _deposit(alice, 10 ether);
-        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+        (depositedAmount, mintedShares) = _deposit(staker, 10 ether);
+        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount, delegator);
 
         _calcAndWarpOneEpoch();
         bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
@@ -542,8 +765,8 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     function test_CompleteLateNodeWeightUpdate() public {
-        (depositedAmount, mintedShares) = _deposit(alice, 10 ether);
-        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount);
+        (depositedAmount, mintedShares) = _deposit(staker, 10 ether);
+        _setL1Limit(bob, validatorManagerAddress, 1, depositedAmount, delegator);
 
         _calcAndWarpOneEpoch();
         bytes32 nodeId = 0x000000000000000000000000ece08438df2c7c362e75b02337dce4cf644a2ce2;
@@ -882,7 +1105,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Withdraw from vault to reduce stake
         _calcAndWarpOneEpoch(2);
         uint256 withdrawAmount = 50_000_000_000_000;
-        _withdraw(alice, withdrawAmount);
+        _withdraw(staker, withdrawAmount);
 
         // Move to next epoch
         _calcAndWarpOneEpoch(1);
@@ -903,7 +1126,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Claim
         _calcAndWarpOneEpoch(2);
         uint256 claimEpoch = vault.currentEpoch() - 1;
-        uint256 claimed = _claim(alice, claimEpoch);
+        uint256 claimed = _claim(staker, claimEpoch);
         console2.log("Claimed:", claimed);
 
         _calcAndWarpOneEpoch(1);
@@ -978,9 +1201,9 @@ contract AvalancheL1MiddlewareTest is Test {
 
         uint256 extraDeposit = 50_000_000_000_000;
         console2.log("Making additional deposit:", extraDeposit);
-        (uint256 newDeposit, uint256 newShares) = _deposit(alice, extraDeposit);
+        (uint256 newDeposit, uint256 newShares) = _deposit(staker, extraDeposit);
         uint256 totalShares = mintedShares + newShares;
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalShares);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalShares, delegator);
         console2.log("Additional deposit made. Amount:", newDeposit, "Shares:", newShares);
 
         _moveToNextEpochAndCalc(3);
@@ -1383,9 +1606,9 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Operator deposit (50-100 ETH)
         uint256 depositAmount = bound(uint256(seedNodeCount) * 10, 50 ether, 100 ether);
-        (uint256 depositUsed, uint256 mintedShares_) = _deposit(alice, depositAmount);
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsed);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares_);
+        (uint256 depositUsed, uint256 mintedShares_) = _deposit(staker, depositAmount);
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsed, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares_, delegator);
 
         // Create nodes (unconfirmed)
         for (uint256 i = 0; i < nodeCount; i++) {
@@ -1536,7 +1759,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint8 stakeDeltaMaskB,
         uint8 removeMaskB
     ) public {
-        // Setup operators A (alice) and B (bob)
+        // Setup operators A (alice) and B (charlie) - using our pre-configured operators
         uint256 nodeCountA = bound(seedNodeCountA, 2, 5);
         uint256 nodeCountB = bound(seedNodeCountB, 2, 5);
 
@@ -1557,22 +1780,28 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Operator deposits
         uint256 depositAmountA = bound(uint256(seedNodeCountA) * 10, 50 ether, 100 ether);
-        (uint256 depositUsedA, uint256 mintedSharesA) = _deposit(alice, depositAmountA);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedSharesA);
-
-        _registerOperator(bob, "metadata");
-        _optInOperatorL1(bob, validatorManagerAddress);
-        _optInOperatorVault(bob);
-        vm.startPrank(validatorManagerAddress);
-        middleware.registerOperator(bob);
+        // Use staker to deposit for Alice
+        collateral.transfer(staker, depositAmountA);
+        vm.startPrank(staker);
+        collateral.approve(address(vault), depositAmountA);
+        (uint256 depositUsedA, uint256 mintedSharesA) = vault.deposit(staker, depositAmountA);
         vm.stopPrank();
+        
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedSharesA, delegator);
+
         uint256 depositAmountB = bound(uint256(seedNodeCountB) * 10, 50 ether, 100 ether);
-        (uint256 depositUsedB, uint256 mintedSharesB) = _deposit(bob, depositAmountB);
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsedA + depositUsedB);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, bob, mintedSharesB);
+        // Use staker to deposit for Charlie
+        collateral.transfer(staker, depositAmountB);
+        vm.startPrank(staker);
+        collateral.approve(address(vault), depositAmountB);
+        (uint256 depositUsedB, uint256 mintedSharesB) = vault.deposit(staker, depositAmountB);
+        vm.stopPrank();
+        
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsedA + depositUsedB, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, mintedSharesB, delegator);
         _calcAndWarpOneEpoch();
 
-        // Create nodes for operator A
+        // Create nodes for operator A (Alice)
         for (uint256 i = 0; i < nodeCountA; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked("NodeA", i, block.timestamp));
             nodeIdsA[i] = nodeId;
@@ -1593,12 +1822,12 @@ contract AvalancheL1MiddlewareTest is Test {
             isActiveA[i] = false;
         }
 
-        // Create nodes for operator B
+        // Create nodes for operator B (Charlie)
         for (uint256 i = 0; i < nodeCountB; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked("NodeB", i, block.timestamp));
             nodeIdsB[i] = nodeId;
 
-            vm.prank(bob);
+            vm.prank(charlie);
             middleware.addNode(
                 nodeId,
                 hex"9999DDDD",
@@ -1622,8 +1851,8 @@ contract AvalancheL1MiddlewareTest is Test {
         }
         
         for (uint256 i = 0; i < nodeCountB; i++) {
-            vm.prank(bob);
-            middleware.completeValidatorRegistration(bob, nodeIdsB[i], addMsgIdxB[i]);
+            vm.prank(charlie);
+            middleware.completeValidatorRegistration(charlie, nodeIdsB[i], addMsgIdxB[i]);
             isActiveB[i] = true;
         }
 
@@ -1635,7 +1864,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Fuzz stake changes for both operators
         (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
 
-        // Operator A stake changes
+        // Operator A (Alice) stake changes
         for (uint256 i = 0; i < nodeCountA; i++) {
             if (!isActiveA[i]) continue;
 
@@ -1673,13 +1902,13 @@ contract AvalancheL1MiddlewareTest is Test {
             }
         }
 
-        // Operator B stake changes
+        // Operator B (Charlie) stake changes
         for (uint256 i = 0; i < nodeCountB; i++) {
             if (!isActiveB[i]) continue;
 
             bool doRemove = ((removeMaskB >> i) & 0x01) == 1;
             if (doRemove) {
-                vm.prank(bob);
+                vm.prank(charlie);
                 middleware.removeNode(nodeIdsB[i]);
                 isActiveB[i] = false;
                 continue;
@@ -1695,18 +1924,18 @@ contract AvalancheL1MiddlewareTest is Test {
             } else {
                 uint256 upAmt = currentStake / 2;
                 newStake = currentStake + upAmt;
-                uint256 avail = middleware.getOperatorAvailableStake(bob);
+                uint256 avail = middleware.getOperatorAvailableStake(charlie);
                 if (newStake > currentStake + avail) {
                     newStake = currentStake + avail;
                 }
             }
             
             if (newStake >= minStake) {
-                vm.prank(bob);
+                vm.prank(charlie);
                 middleware.initializeValidatorStakeUpdate(nodeIdsB[i], newStake);
                 uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
 
-                vm.prank(bob);
+                vm.prank(charlie);
                 middleware.completeStakeUpdate(nodeIdsB[i], stakeMsgIdx);
             }
         }
@@ -1719,14 +1948,14 @@ contract AvalancheL1MiddlewareTest is Test {
         // Force update both operators
         _warpToLastHourOfCurrentEpoch();
         middleware.forceUpdateNodes(alice, 0);
-        middleware.forceUpdateNodes(bob, 0);
+        middleware.forceUpdateNodes(charlie, 0);
 
         // Final epoch
         _calcAndWarpOneEpoch();
         epoch = middleware.getCurrentEpoch();
         middleware.calcAndCacheNodeStakeForAllOperators();
 
-        // Check final stakes for operator A
+        // Check final stakes for operator A (Alice)
         for (uint256 i = 0; i < nodeCountA; i++) {
             uint256 finalStake = middleware.getNodeStake(epoch, validationIdsA[i]);
             if (isActiveA[i]) {
@@ -1740,7 +1969,7 @@ contract AvalancheL1MiddlewareTest is Test {
             }
         }
 
-        // Check final stakes for operator B
+        // Check final stakes for operator B (Charlie)
         for (uint256 i = 0; i < nodeCountB; i++) {
             uint256 finalStake = middleware.getNodeStake(epoch, validationIdsB[i]);
             if (isActiveB[i]) {
@@ -1767,9 +1996,79 @@ contract AvalancheL1MiddlewareTest is Test {
             for (uint256 i = 0; i < nodeCountB; i++) {
                 sumOfStakesB += middleware.getNodeStake(epoch, validationIdsB[i]);
             }
-            uint256 operatorBUsed = middleware.getOperatorUsedStakeCached(bob);
+            uint256 operatorBUsed = middleware.getOperatorUsedStakeCached(charlie);
             assertEq(sumOfStakesB, operatorBUsed, "Final sum of node stakes must match operator B used stake");
         }
+    }
+
+    function testFuzz_ThreeVaultsThreeOperators(
+        uint8 nodeCountAlice,
+        uint8 nodeCountCharlie,
+        uint8 nodeCountDave,
+        uint8 stakeDeltaMaskAlice,
+        uint8 stakeDeltaMaskCharlie,
+        uint8 stakeDeltaMaskDave,
+        uint8 removeMaskAlice,
+        uint8 removeMaskCharlie,
+        uint8 removeMaskDave
+    ) public {
+
+        // Alice Operator for vault1 has 200_000_000_002_000 deposited
+        // Alice Operator for vault3 has 100_000_000_000_000 deposited
+        // Charlie Operator for vault1 has 150_000_000_000_000 deposited
+        // Charlie Operator for vault2 has 120_000_000_000_000 deposited
+        // Charlie Operator for vault3 has 100_000_000_000_000 deposited
+        // Dave Operator for vault3 has 100_000_000_000_000 deposited
+        // Dave Operator for vault2 has 160_000_000_000_000 deposited
+
+        vm.startPrank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault2), 1, 3000 ether);
+        vm.stopPrank();
+        _setL1Limit(bob, validatorManagerAddress, 1, 2500 ether, delegator2);
+
+        // Add collateral2 to assetClassId = 2
+        _setupAssetClassAndRegisterVault(2, 1, collateral2, vault3, 3000 ether, 2500 ether, delegator3);
+
+        // Advance epoch so that new stakes are recognized
+        _calcAndWarpOneEpoch();
+
+        // Now we do random node creation for each operator
+        uint256 nA = bound(nodeCountAlice, 1, 6);
+        uint256 nC = bound(nodeCountCharlie, 1, 6);
+        uint256 nD = bound(nodeCountDave, 1, 6);
+
+        // Create & confirm nodes for each operator
+        bytes32[] memory nodeIdsAlice = _createAndConfirmNodes(alice, nA);
+        bytes32[] memory nodeIdsCharlie = _createAndConfirmNodes(charlie, nC);
+        bytes32[] memory nodeIdsDave = _createAndConfirmNodes(dave, nD);
+
+        // Move to next epoch
+        _calcAndWarpOneEpoch();
+
+        // Fuzz: stakeDeltaMaskX, removeMaskX => operator modifies node stakes or removes them
+        _stakeOrRemoveNodes(alice, nodeIdsAlice, stakeDeltaMaskAlice, removeMaskAlice);
+        _stakeOrRemoveNodes(charlie, nodeIdsCharlie, stakeDeltaMaskCharlie, removeMaskCharlie);
+        _stakeOrRemoveNodes(dave, nodeIdsDave, stakeDeltaMaskDave, removeMaskDave);
+
+        // Warp => next epoch => finalize updates
+        _calcAndWarpOneEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Force update each operator
+        _warpToLastHourOfCurrentEpoch();
+        middleware.forceUpdateNodes(alice, 0);
+        middleware.forceUpdateNodes(charlie, 0);
+        middleware.forceUpdateNodes(dave, 0);
+
+        // Another epoch to ensure everything finalizes
+        _calcAndWarpOneEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // That’s it. Optionally, verify final aggregator of node stakes == operatorUsedStake
+        // for each operator. Just a quick check:
+        _checkSumMatchesOperatorUsed(alice, nodeIdsAlice);
+        _checkSumMatchesOperatorUsed(charlie, nodeIdsCharlie);
+        _checkSumMatchesOperatorUsed(dave, nodeIdsDave);
     }
 
     ///////////////////////////////
@@ -1803,8 +2102,8 @@ contract AvalancheL1MiddlewareTest is Test {
         address user,
         uint256 amount
     ) internal returns (uint256 depositedAmount_, uint256 mintedShares_) {
-        collateral.transfer(user, amount);
-        vm.startPrank(user);
+        collateral.transfer(staker, amount);
+        vm.startPrank(staker);
         collateral.approve(address(vault), amount);
         (depositedAmount_, mintedShares_) = vault.deposit(user, amount);
         vm.stopPrank();
@@ -1829,10 +2128,11 @@ contract AvalancheL1MiddlewareTest is Test {
     }
 
     function _optInOperatorVault(
-        address user
+        address user,
+        address vault_
     ) internal {
         vm.startPrank(user);
-        operatorVaultOptInService.optIn(address(vault));
+        operatorVaultOptInService.optIn(address(vault_));
         vm.stopPrank();
     }
 
@@ -1856,9 +2156,9 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
     }
 
-    function _setL1Limit(address user, address _l1, uint96 assetClass, uint256 amount) internal {
+    function _setL1Limit(address user, address _l1, uint96 assetClass, uint256 amount, L1RestakeDelegator delegator_) internal {
         vm.startPrank(user);
-        delegator.setL1Limit(_l1, assetClass, amount);
+        delegator_.setL1Limit(_l1, assetClass, amount);
         vm.stopPrank();
     }
 
@@ -1867,10 +2167,11 @@ contract AvalancheL1MiddlewareTest is Test {
         address _l1,
         uint96 assetClass,
         address operator,
-        uint256 shares
+        uint256 shares,
+        L1RestakeDelegator delegator_
     ) internal {
         vm.startPrank(user);
-        delegator.setOperatorL1Shares(_l1, assetClass, operator, shares);
+        delegator_.setOperatorL1Shares(_l1, assetClass, operator, shares);
         vm.stopPrank();
     }
 
@@ -1909,6 +2210,24 @@ contract AvalancheL1MiddlewareTest is Test {
         }
     }
 
+    // Create a new asset class and register vault3 with it
+    function _setupAssetClassAndRegisterVault(
+        uint96 assetClassId_,
+        uint256 minValidatorStake_,
+        Token collateral_,
+        VaultTokenized vault_,
+        uint256 maxVaultLimit_,
+        uint256 l1Limit_,
+        L1RestakeDelegator delegator_
+    ) internal {
+        vm.startPrank(validatorManagerAddress);
+        middleware.addAssetClass(assetClassId_, minValidatorStake_, 0, address(collateral_));
+        middleware.activateSecondaryAssetClass(assetClassId_);
+        vaultManager.registerVault(address(vault_), assetClassId_, maxVaultLimit_);
+        vm.stopPrank();
+        _setL1Limit(bob, validatorManagerAddress, assetClassId_, l1Limit_, delegator_);
+    }
+
     function _warpToLastHourOfCurrentEpoch() internal {
         uint48 currentEpoch = middleware.getCurrentEpoch();
         uint48 currentEpochTs = middleware.getEpochStartTs(currentEpoch);
@@ -1940,5 +2259,87 @@ contract AvalancheL1MiddlewareTest is Test {
 
     function _calcAndWarpOneEpoch() internal {
         _calcAndWarpOneEpoch(1);
+    }
+
+    function _createAndConfirmNodes(address operator, uint256 nodeCount)
+        internal
+        returns (bytes32[] memory nodeIds)
+    {
+        nodeIds = new bytes32[](nodeCount);
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
+            nodeIds[i] = nodeId;
+
+            vm.prank(operator);
+            middleware.addNode(
+                nodeId,
+                hex"ABABABAB", // dummy BLS
+                uint64(block.timestamp + 2 days),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                0
+            );
+            uint32 msgIdx = mockValidatorManager.nextMessageIndex() - 1;
+
+            vm.prank(operator);
+            middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
+        }
+    }
+
+    function _stakeOrRemoveNodes(
+        address operator,
+        bytes32[] memory nodeIds,
+        uint8 stakeDeltaMask,
+        uint8 removeMask
+    ) internal {
+        (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        for (uint256 i = 0; i < nodeIds.length; i++) {
+            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
+            uint256 currentStake = middleware.getNodeStake(epoch, valID);
+            if (currentStake == 0) {
+                continue;
+            }
+            bool doRemove = ((removeMask >> i) & 0x01) == 1;
+            if (doRemove) {
+                vm.prank(operator);
+                middleware.removeNode(nodeIds[i]);
+                continue;
+            }
+            bool stakeDown = ((stakeDeltaMask >> i) & 0x01) == 1;
+            uint256 newStake;
+            if (stakeDown) {
+                newStake = currentStake / 2;
+            } else {
+                uint256 upAmt = currentStake / 2;
+                newStake = currentStake + upAmt;
+                // Check operator leftover
+                uint256 avail = middleware.getOperatorAvailableStake(operator);
+                if (newStake > currentStake + avail) {
+                    newStake = currentStake + avail;
+                }
+            }
+            if (newStake >= minStake) {
+                vm.prank(operator);
+                middleware.initializeValidatorStakeUpdate(nodeIds[i], newStake);
+
+                uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
+                vm.prank(operator);
+                middleware.completeStakeUpdate(nodeIds[i], stakeMsgIdx);
+            }
+        }
+    }
+
+    function _checkSumMatchesOperatorUsed(address operator, bytes32[] memory nodeIds) internal view {
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 sumStakes;
+        for (uint256 i = 0; i < nodeIds.length; i++) {
+            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
+            sumStakes += middleware.getNodeStake(epoch, valID);
+        }
+        uint256 operatorUsed = middleware.getOperatorUsedStakeCached(operator);
+        console2.log("Operator used vs. sumStakes =>", operator, operatorUsed, sumStakes);
+        require(sumStakes == operatorUsed, "Mismatch in final operator used stake sum");
     }
 }
