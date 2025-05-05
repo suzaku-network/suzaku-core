@@ -18,7 +18,7 @@ contract DeployRewards is Script {
 
         // Deploy UptimeTracker first
         UptimeTracker uptimeTrackerContract = new UptimeTracker(
-            config.l1Middleware
+            payable(config.l1Middleware)
         );
 
         // Deploy Rewards contract
@@ -28,8 +28,7 @@ contract DeployRewards is Script {
         rewardsContract.initialize(
             config.admin,
             config.protocolOwner,
-            config.l1Middleware,
-            config.middlewareVaultManager,
+            payable(config.l1Middleware),
             address(uptimeTrackerContract),
             config.protocolFee,
             config.operatorFee,
@@ -45,6 +44,5 @@ contract DeployRewards is Script {
         console2.log("Rewards deployed at:", rewards);
         console2.log("UptimeTracker deployed at:", uptimeTracker);
         console2.log("Using L1Middleware:", config.l1Middleware);
-        console2.log("Using MiddlewareVaultManager:", config.middlewareVaultManager);
     }
 } 
