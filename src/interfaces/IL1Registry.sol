@@ -13,11 +13,12 @@ interface IL1Registry {
     error L1Registry__InvalidValidatorManager(address l1);
     error L1Registry__InvalidL1Middleware();
     error L1Registry__NotValidatorManagerOwner(address caller, address expectedOwner);
-    error L1Registry__NotMiddlewareOwner(address caller, address expectedOwner);
     error L1Registry__InsufficientFee();
     error L1Registry__FeeTransferFailed();
     error L1Registry__FeeExceedsMaximum(uint256 newFee, uint256 maxFee);
     error L1Registry__ZeroAddress(string name);
+    error L1Registry__NotFeeCollector(address caller);
+    error L1Registry__NoFeesToWithdraw();
 
     /**
      * @notice Register an Avalanche L1
