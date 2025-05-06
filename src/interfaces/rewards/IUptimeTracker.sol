@@ -25,6 +25,23 @@ interface IUptimeTracker {
     error UptimeTracker__NoValidators(address operator, uint48 epoch);
 
     /**
+     * @dev Error thrown when a warp message has an invalid origin sender address
+     * @param senderAddress Sender address of the warp message
+     */
+    error InvalidWarpOriginSenderAddress(address senderAddress);
+
+    /**
+     * @dev Error thrown when a warp message has an invalid source chain ID
+     * @param sourceChainID Source chain ID of the warp message
+     */
+    error InvalidWarpSourceChainID(bytes32 sourceChainID);
+
+    /**
+     * @dev Error thrown when a warp message is invalid
+     */
+    error InvalidWarpMessage();
+
+    /**
      * @notice Emitted when a validator's uptime is computed.
      * @param validationID Unique ID of the validator's validation period.
      * @param firstEpoch First epoch included in this uptime calculation.
@@ -46,13 +63,14 @@ interface IUptimeTracker {
     /**
      * @notice Computes and records the validator's uptime for each epoch.
      * @dev TODO: get the (`validationID`, `uptime`) from a ValidationUptimeMessage or make this function permissioned as last resort
-     * @param validationID ID of the validation period of a validator.
-     * @param uptime Current uptime recorded.
+     * @param messageIndex The index of the uptime message in the WarpMessenger.
      */
-    function computeValidatorUptime(bytes32 validationID, uint256 uptime) external;
+    function computeValidatorUptime(
+        uint32 messageIndex
+    ) external;
 
     /**
-     * @notice Computes and records an operator’s uptime for a given epoch.
+     * @notice Computes and records an operato  r’s uptime for a given epoch.
      * @dev Aggregates uptime from all validators operated by the given operator for a given epoch.
      * @param operator Address of the operator.
      * @param epoch Epoch for which uptime is computed.

@@ -7,7 +7,11 @@ import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 import {IUptimeTracker, LastUptimeCheckpoint} from "../../interfaces/rewards/IUptimeTracker.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
-import {Validator} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManager.sol";
+import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
+import {
+    IWarpMessenger, WarpMessage
+} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
 
 /**
  * @title UptimeTracker
@@ -18,6 +22,9 @@ contract UptimeTracker is IUptimeTracker {
     uint48 private immutable epochDuration;
     AvalancheL1Middleware private immutable l1Middleware;
     BalancerValidatorManager private immutable validatorManager;
+
+    bytes32 public constant P_CHAIN_BLOCKCHAIN_ID = bytes32(0);
+    IWarpMessenger public constant WARP_MESSENGER = IWarpMessenger(0x0200000000000000000000000000000000000005);
 
     /// @notice Mapping of validation ID to the last recorded uptime checkpoint.
     mapping(bytes32 validationID => LastUptimeCheckpoint lastUptimeCheckpoint) public validatorLastUptimeCheckpoint;
@@ -45,7 +52,13 @@ contract UptimeTracker is IUptimeTracker {
     /**
      * @inheritdoc IUptimeTracker
      */
-    function computeValidatorUptime(bytes32 validationID, uint256 uptime) external {
+    function computeValidatorUptime(
+        uint32 messageIndex
+    ) external {
+        WarpMessage memory uptimeMessage = _getPChainWarpMessage(messageIndex);
+        // Unpack the uptime message
+        (bytes32 validationID, uint256 uptime) = ValidatorMessages.unpackValidationUptimeMessage(uptimeMessage.payload);
+
         LastUptimeCheckpoint storage lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
 
         // No timestamp means no initial checkpoint
@@ -69,8 +82,10 @@ contract UptimeTracker is IUptimeTracker {
 
         // Calculate the recorded uptime since the last checkpoint
         uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
+
         // Calculate the elapsed time between the last recorded epoch and the current epoch
         uint256 elapsedTime = currentEpochStart - lastUptimeEpochStart;
+
         // Determine how many full epochs have passed
         uint256 elapsedEpochs = elapsedTime / epochDuration;
 
@@ -129,5 +144,23 @@ contract UptimeTracker is IUptimeTracker {
         bytes32 validationID
     ) external view returns (LastUptimeCheckpoint memory) {
         return validatorLastUptimeCheckpoint[validationID];
+    }
+
+    function _getPChainWarpMessage(
+        uint32 messageIndex
+    ) internal view returns (WarpMessage memory) {
+        (WarpMessage memory warpMessage, bool valid) = WARP_MESSENGER.getVerifiedWarpMessage(messageIndex);
+        if (!valid) {
+            revert InvalidWarpMessage();
+        }
+        // Must match to P-Chain blockchain id, which is 0.
+        if (warpMessage.sourceChainID != P_CHAIN_BLOCKCHAIN_ID) {
+            revert InvalidWarpSourceChainID(warpMessage.sourceChainID);
+        }
+        if (warpMessage.originSenderAddress != address(0)) {
+            revert InvalidWarpOriginSenderAddress(warpMessage.originSenderAddress);
+        }
+
+        return warpMessage;
     }
 }
