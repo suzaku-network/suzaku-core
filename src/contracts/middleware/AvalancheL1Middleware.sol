@@ -621,7 +621,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 nodePendingUpdate[valID] = false;
             }
         }
-        
+
         // Reset operator locked stake once per epoch
         if (operatorLockedStake[operator] > 0) {
             operatorLockedStake[operator] = 0;
@@ -1006,7 +1006,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 Validator memory validator = balancerValidatorManager.getValidator(validationID);
 
                 if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
-                    operatorStake += getEffectiveNodeWeight(epoch, validationID);
+                    operatorStake += getEffectiveNodeStake(epoch, validationID);
                 }
             }
             return operatorStake;
