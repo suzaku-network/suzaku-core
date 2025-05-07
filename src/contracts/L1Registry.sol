@@ -20,14 +20,17 @@ contract L1Registry is IL1Registry, Ownable {
     /// @notice The metadata URL for each L1
     mapping(address => string) public l1MetadataURL;
 
-    /// @notice The fee collector address (can be changed later). Anyone can set it, if desired.
+    /// @notice The fee collector address (can be changed later).
     address payable public feeCollector;
 
-    /// @notice The adjustable fee (in wei) for registerL1. Anyone can set it, if desired.
+    /// @notice The adjustable fee (in wei) for registerL1.
     uint256 public registerFee;
 
     /// @notice MAX_FEE is the maximum fee that can be set by the owner.
     uint256 immutable MAX_FEE;
+
+    /// @notice Tracks the total unclaimed fees in the contract
+    uint256 public unclaimedFees;
 
     modifier onlyValidatorManagerOwner(
         address l1
@@ -59,6 +62,9 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     constructor(address payable feeCollector_, uint256 registerFee_, uint256 MAX_FEE_, address owner) Ownable(owner) {
+        if (feeCollector_ == address(0)) {
+            revert L1Registry__ZeroAddress("feeCollector");
+        }
         feeCollector = feeCollector_;
         registerFee = registerFee_;
         MAX_FEE = MAX_FEE_;
@@ -76,10 +82,10 @@ contract L1Registry is IL1Registry, Ownable {
                 revert L1Registry__InsufficientFee();
             }
 
-            // Transfer fee to collector if set
-            if (feeCollector != address(0)) {
-                (bool success,) = feeCollector.call{value: msg.value}("");
-                if (!success) revert L1Registry__FeeTransferFailed();
+            // Transfer fee to collector (feeCollector is guaranteed to be non-zero)
+            (bool success,) = feeCollector.call{value: msg.value}("");
+            if (!success) {
+                unclaimedFees += msg.value;
             }
         }
 
@@ -177,10 +183,25 @@ contract L1Registry is IL1Registry, Ownable {
         if (newFeeCollector == address(0)) {
             revert L1Registry__ZeroAddress("feeCollector");
         }
+        
+        // Try to disburse any accumulated fees to the new collector
+        uint256 feesToSend = unclaimedFees;
+        if (feesToSend > 0) {
+            // Reset unclaimed fees before transfer to prevent reentrancy issues
+            unclaimedFees = 0;
+            
+            (bool success,) = newFeeCollector.call{value: feesToSend}("");
+            if (!success) {
+                // If transfer fails, restore the unclaimed fees amount
+                // but continue execution so that feeCollector is still updated
+                unclaimedFees = feesToSend;
+            }
+        }
+        
         feeCollector = newFeeCollector;
     }
-    /// @notice Adjust fee. Only owner can change it.
 
+    /// @notice Adjust fee. Only owner can change it.
     function setRegisterFee(
         uint256 newFee
     ) external onlyOwner {
@@ -188,6 +209,28 @@ contract L1Registry is IL1Registry, Ownable {
             revert L1Registry__FeeExceedsMaximum(newFee, MAX_FEE);
         }
         registerFee = newFee;
+    }
+
+    /// @notice Allows the fee collector to withdraw accumulated fees
+    function withdrawFees() external {
+        if (msg.sender != feeCollector) {
+            revert L1Registry__NotFeeCollector(msg.sender);
+        }
+        
+        uint256 feesToSend = unclaimedFees;
+        if (feesToSend == 0) {
+            revert L1Registry__NoFeesToWithdraw();
+        }
+        
+        // Reset unclaimed fees before transfer to prevent reentrancy issues
+        unclaimedFees = 0;
+        
+        (bool success,) = feeCollector.call{value: feesToSend}("");
+        if (!success) {
+            // If transfer fails, restore the unclaimed fees amount
+            unclaimedFees = feesToSend;
+            revert L1Registry__FeeTransferFailed();
+        }
     }
 
     receive() external payable {}

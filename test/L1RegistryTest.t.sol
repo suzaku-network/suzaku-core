@@ -352,18 +352,200 @@ contract L1RegistryTest is Test {
         assertEq(registry.isRegistered(address(mockACP99Manager)), true);
     }
 
-    function testFeeTransferFailsReverts() public {
+    function testFeeTransferFailsDoesNotRevert() public {
         RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
 
         // Set it as the fee collector
         vm.prank(owner);
         registry.setFeeCollector(payable(address(revertingCollector)));
 
-        // Attempt registration with fee
+        // Attempt registration with fee - this should now succeed
         vm.prank(l1Middleware1);
-        vm.expectRevert(IL1Registry.L1Registry__FeeTransferFailed.selector);
         registry.registerL1{value: registerFee}(
             address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
         );
+        
+        // Verify registration succeeded
+        assertEq(registry.isRegistered(address(mockACP99Manager)), true);
+    }
+
+    function testSetFeeCollectorToZeroAddressReverts() public {
+        // Attempt to set the fee collector to address(0), which should revert
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__ZeroAddress.selector, "feeCollector"));
+        registry.setFeeCollector(payable(address(0)));
+    }
+
+    function testConstructorWithZeroFeeCollectorReverts() public {
+        // Attempt to create a registry with address(0) as fee collector, which should revert
+        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__ZeroAddress.selector, "feeCollector"));
+        new L1Registry(payable(address(0)), registerFee, 1 ether, owner);
+    }
+
+    function testFeeTransferFailsButRegistrationSucceeds() public {
+        RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
+
+        // Set it as the fee collector
+        vm.prank(owner);
+        registry.setFeeCollector(payable(address(revertingCollector)));
+
+        // Initially there should be no unclaimed fees
+        assertEq(registry.unclaimedFees(), 0);
+
+        // Attempt registration with fee - now this should succeed unlike before
+        vm.prank(l1Middleware1);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+        
+        // Registration was successful despite fee transfer failing
+        assertEq(registry.isRegistered(address(mockACP99Manager)), true);
+        
+        // Unclaimed fees should now be tracked
+        assertEq(registry.unclaimedFees(), registerFee);
+        
+        // Total contract balance should include these fees
+        assertEq(address(registry).balance, registerFee);
+    }
+    
+    function testWithdrawFees() public {
+        // First setup the scenario with trapped fees
+        RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
+        vm.prank(owner);
+        registry.setFeeCollector(payable(address(revertingCollector)));
+        
+        // Register and trap the fees
+        vm.prank(l1Middleware1);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+        
+        // Change to a working fee collector
+        address payable newCollector = payable(makeAddr("newCollector"));
+        uint256 newCollectorBalanceBefore = newCollector.balance;
+        
+        vm.prank(owner);
+        registry.setFeeCollector(newCollector);
+        
+        // Fees should have been automatically transferred during setFeeCollector
+        assertEq(registry.unclaimedFees(), 0);
+        assertEq(newCollector.balance, newCollectorBalanceBefore + registerFee);
+    }
+    
+    function testWithdrawFeesDirectly() public {
+        // First setup the scenario with trapped fees
+        RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
+        vm.prank(owner);
+        registry.setFeeCollector(payable(address(revertingCollector)));
+        
+        // Register and trap the fees
+        vm.prank(l1Middleware1);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+        
+        // At this point unclaimedFees should be registerFee
+        assertEq(registry.unclaimedFees(), registerFee);
+        
+        // Change to a controllable fee collector
+        address payable newCollector = payable(makeAddr("newCollector"));
+        uint256 newCollectorBalanceBefore = newCollector.balance;
+        
+        vm.prank(owner);
+        registry.setFeeCollector(newCollector);
+        
+        // Fees should be transferred during setFeeCollector
+        assertEq(registry.unclaimedFees(), 0);
+        assertEq(newCollector.balance, newCollectorBalanceBefore + registerFee);
+        
+        // Try to withdraw fees - should fail since there are none left
+        vm.expectRevert(IL1Registry.L1Registry__NoFeesToWithdraw.selector);
+        vm.prank(newCollector);
+        registry.withdrawFees();
+        
+        // Set the collector back to the reverting one to trap fees again
+        vm.prank(owner);
+        registry.setFeeCollector(payable(address(revertingCollector)));
+        
+        // Now register another L1 to accumulate more fees
+        MockACP99Manager l1Middleware2Manager = new MockACP99Manager(l1Middleware2);
+        vm.prank(l1Middleware2);
+        registry.registerL1{value: registerFee}(
+            address(l1Middleware2Manager), l1Middleware2SecurityModule, l1Middleware2MetadataURL
+        );
+        
+        // Fees should be available to withdraw
+        assertEq(registry.unclaimedFees(), registerFee);
+        
+        // Set back the collector to the good one
+        vm.prank(owner);
+        registry.setFeeCollector(newCollector);
+        
+        // Non-fee collector cannot withdraw
+        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__NotFeeCollector.selector, address(this)));
+        registry.withdrawFees();
+        
+        // Fees already transferred during setFeeCollector, so withdrawFees should fail
+        vm.expectRevert(IL1Registry.L1Registry__NoFeesToWithdraw.selector);
+        vm.prank(newCollector);
+        registry.withdrawFees();
+        
+        // Check fees were transferred
+        assertEq(registry.unclaimedFees(), 0);
+        assertEq(newCollector.balance, newCollectorBalanceBefore + registerFee * 2);
+    }
+    
+    function testWithdrawFeesSuccessfully() public {
+        // Create a new registry with a working fee collector
+        address payable collector = payable(makeAddr("collector"));
+        L1Registry testRegistry = new L1Registry(collector, registerFee, 1 ether, owner);
+        
+        // Set a reverting fee collector to trap fees
+        RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
+        vm.prank(owner);
+        testRegistry.setFeeCollector(payable(address(revertingCollector)));
+        
+        // Register an L1 (fees will be trapped)
+        vm.prank(l1Middleware1);
+        testRegistry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+        
+        // Create a controllable mock fee collector
+        PartialRevertingFeeCollector partialRevertingCollector = new PartialRevertingFeeCollector();
+        
+        // Set it as the fee collector (this will revert the transfer in setFeeCollector)
+        vm.prank(owner);
+        testRegistry.setFeeCollector(payable(address(partialRevertingCollector)));
+        
+        // Unclaimed fees should still be tracked because the transfer in setFeeCollector failed
+        assertEq(testRegistry.unclaimedFees(), registerFee);
+        
+        // Configure the collector to accept the next transfer
+        partialRevertingCollector.acceptNextTransfer();
+        
+        // Now withdraw the fees 
+        vm.prank(address(partialRevertingCollector));
+        testRegistry.withdrawFees();
+        
+        // Fees should now be withdrawn
+        assertEq(testRegistry.unclaimedFees(), 0);
+    }
+}
+
+// Contract that reverts only on setFeeCollector transfers but accepts withdrawFees
+contract PartialRevertingFeeCollector {
+    bool public shouldRevert = true;
+    
+    receive() external payable {
+        if (shouldRevert) {
+            revert("PartialRevertingFeeCollector: reverting on setFeeCollector");
+        }
+        // Accept funds on withdrawFees
+        shouldRevert = true; // Reset for next call
+    }
+    
+    function acceptNextTransfer() external {
+        shouldRevert = false;
     }
 }

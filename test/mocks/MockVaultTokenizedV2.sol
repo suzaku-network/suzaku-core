@@ -48,13 +48,14 @@ contract MockVaultTokenizedV2 is
      */
     address public immutable FACTORY;
 
+    // Constants (roles)
+    bytes32 public constant DEPOSIT_WHITELIST_SET_ROLE = keccak256("DEPOSIT_WHITELIST_SET_ROLE");
+    bytes32 public constant DEPOSITOR_WHITELIST_ROLE = keccak256("DEPOSITOR_WHITELIST_ROLE");
+    bytes32 public constant IS_DEPOSIT_LIMIT_SET_ROLE = keccak256("IS_DEPOSIT_LIMIT_SET_ROLE");
+    bytes32 public constant DEPOSIT_LIMIT_SET_ROLE = keccak256("DEPOSIT_LIMIT_SET_ROLE");
+
     /// @custom:storage-location erc7201:vault.storage
     struct VaultStorageStruct {
-        // Constants (roles)
-        bytes32 DEPOSIT_WHITELIST_SET_ROLE;
-        bytes32 DEPOSITOR_WHITELIST_ROLE;
-        bytes32 IS_DEPOSIT_LIMIT_SET_ROLE;
-        bytes32 DEPOSIT_LIMIT_SET_ROLE;
         // State variables
         address DELEGATOR_FACTORY;
         address SLASHER_FACTORY;
@@ -116,11 +117,6 @@ contract MockVaultTokenizedV2 is
         __Ownable_init(owner_);
         __AccessControl_init();
         __ReentrancyGuard_init();
-
-        vs.DEPOSIT_WHITELIST_SET_ROLE = keccak256("DEPOSIT_WHITELIST_SET_ROLE");
-        vs.DEPOSITOR_WHITELIST_ROLE = keccak256("DEPOSITOR_WHITELIST_ROLE");
-        vs.IS_DEPOSIT_LIMIT_SET_ROLE = keccak256("IS_DEPOSIT_LIMIT_SET_ROLE");
-        vs.DEPOSIT_LIMIT_SET_ROLE = keccak256("DEPOSIT_LIMIT_SET_ROLE");
 
         vs.DELEGATOR_FACTORY = delegatorFactory;
         vs.SLASHER_FACTORY = slasherFactory;
@@ -188,16 +184,16 @@ contract MockVaultTokenizedV2 is
             _grantRole(DEFAULT_ADMIN_ROLE, params.defaultAdminRoleHolder);
         }
         if (params.depositWhitelistSetRoleHolder != address(0)) {
-            _grantRole(vs.DEPOSIT_WHITELIST_SET_ROLE, params.depositWhitelistSetRoleHolder);
+            _grantRole(DEPOSIT_WHITELIST_SET_ROLE, params.depositWhitelistSetRoleHolder);
         }
         if (params.depositorWhitelistRoleHolder != address(0)) {
-            _grantRole(vs.DEPOSITOR_WHITELIST_ROLE, params.depositorWhitelistRoleHolder);
+            _grantRole(DEPOSITOR_WHITELIST_ROLE, params.depositorWhitelistRoleHolder);
         }
         if (params.isDepositLimitSetRoleHolder != address(0)) {
-            _grantRole(vs.IS_DEPOSIT_LIMIT_SET_ROLE, params.isDepositLimitSetRoleHolder);
+            _grantRole(IS_DEPOSIT_LIMIT_SET_ROLE, params.isDepositLimitSetRoleHolder);
         }
         if (params.depositLimitSetRoleHolder != address(0)) {
-            _grantRole(vs.DEPOSIT_LIMIT_SET_ROLE, params.depositLimitSetRoleHolder);
+            _grantRole(DEPOSIT_LIMIT_SET_ROLE, params.depositLimitSetRoleHolder);
         }
     }
 
@@ -268,38 +264,6 @@ contract MockVaultTokenizedV2 is
     function DELEGATOR_FACTORY() external view override returns (address) {
         VaultStorageStruct storage vs = _vaultStorage();
         return vs.DELEGATOR_FACTORY;
-    }
-
-    /**
-     * @inheritdoc IVaultTokenized
-     */
-    function DEPOSITOR_WHITELIST_ROLE() external view override returns (bytes32) {
-        VaultStorageStruct storage vs = _vaultStorage();
-        return vs.DEPOSITOR_WHITELIST_ROLE;
-    }
-
-    /**
-     * @inheritdoc IVaultTokenized
-     */
-    function DEPOSIT_LIMIT_SET_ROLE() external view override returns (bytes32) {
-        VaultStorageStruct storage vs = _vaultStorage();
-        return vs.DEPOSIT_LIMIT_SET_ROLE;
-    }
-
-    /**
-     * @inheritdoc IVaultTokenized
-     */
-    function DEPOSIT_WHITELIST_SET_ROLE() external view override returns (bytes32) {
-        VaultStorageStruct storage vs = _vaultStorage();
-        return vs.DEPOSIT_WHITELIST_SET_ROLE;
-    }
-
-    /**
-     * @inheritdoc IVaultTokenized
-     */
-    function IS_DEPOSIT_LIMIT_SET_ROLE() external view override returns (bytes32) {
-        VaultStorageStruct storage vs = _vaultStorage();
-        return vs.IS_DEPOSIT_LIMIT_SET_ROLE;
     }
 
     /**
@@ -693,7 +657,7 @@ contract MockVaultTokenizedV2 is
      */
     function setDepositWhitelist(
         bool status
-    ) external nonReentrant onlyRole(_vaultStorage().DEPOSIT_WHITELIST_SET_ROLE) {
+    ) external nonReentrant onlyRole(DEPOSIT_WHITELIST_SET_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.depositWhitelist == status) {
@@ -711,7 +675,7 @@ contract MockVaultTokenizedV2 is
     function setDepositorWhitelistStatus(
         address account,
         bool status
-    ) external nonReentrant onlyRole(_vaultStorage().DEPOSITOR_WHITELIST_ROLE) {
+    ) external nonReentrant onlyRole(DEPOSITOR_WHITELIST_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (account == address(0)) {
@@ -732,7 +696,7 @@ contract MockVaultTokenizedV2 is
      */
     function setIsDepositLimit(
         bool status
-    ) external nonReentrant onlyRole(_vaultStorage().IS_DEPOSIT_LIMIT_SET_ROLE) {
+    ) external nonReentrant onlyRole(IS_DEPOSIT_LIMIT_SET_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.isDepositLimit == status) {
@@ -749,7 +713,7 @@ contract MockVaultTokenizedV2 is
      */
     function setDepositLimit(
         uint256 limit
-    ) external nonReentrant onlyRole(_vaultStorage().DEPOSIT_LIMIT_SET_ROLE) {
+    ) external nonReentrant onlyRole(DEPOSIT_LIMIT_SET_ROLE) {
         VaultStorageStruct storage vs = _vaultStorage();
 
         if (vs.depositLimit == limit) {
