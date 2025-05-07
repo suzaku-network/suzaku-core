@@ -2843,25 +2843,25 @@ contract VaultTokenizedTest is Test {
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
         vm.startPrank(user);
-        VaultTokenized(address(vault)).grantRole(vault.DEPOSITOR_WHITELIST_ROLE(), account);
+        VaultTokenized(address(vault)).grantRole(VaultTokenized(address(vault)).DEPOSITOR_WHITELIST_ROLE(), account);
         vm.stopPrank();
     }
 
     function _grantDepositWhitelistSetRole(address user, address account) internal {
         vm.startPrank(user);
-        VaultTokenized(address(vault)).grantRole(vault.DEPOSIT_WHITELIST_SET_ROLE(), account);
+        VaultTokenized(address(vault)).grantRole(VaultTokenized(address(vault)).DEPOSIT_WHITELIST_SET_ROLE(), account);
         vm.stopPrank();
     }
 
     function _grantIsDepositLimitSetRole(address user, address account) internal {
         vm.startPrank(user);
-        VaultTokenized(address(vault)).grantRole(vault.IS_DEPOSIT_LIMIT_SET_ROLE(), account);
+        VaultTokenized(address(vault)).grantRole(VaultTokenized(address(vault)).IS_DEPOSIT_LIMIT_SET_ROLE(), account);
         vm.stopPrank();
     }
 
     function _grantDepositLimitSetRole(address user, address account) internal {
         vm.startPrank(user);
-        VaultTokenized(address(vault)).grantRole(vault.DEPOSIT_LIMIT_SET_ROLE(), account);
+        VaultTokenized(address(vault)).grantRole(VaultTokenized(address(vault)).DEPOSIT_LIMIT_SET_ROLE(), account);
         vm.stopPrank();
     }
 
