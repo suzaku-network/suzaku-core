@@ -209,7 +209,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (assetClassId == PRIMARY_ASSET_CLASS) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
         }
-        if (!secondaryAssetClasses.add(assetClassId)) {
+        bool added = secondaryAssetClasses.add(assetClassId);
+        if (!added) {
             revert AssetClassRegistry__AssetClassAlreadyExists();
         }
     }
@@ -223,8 +224,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (_isUsedAssetClass(assetClassId)) {
             revert AvalancheL1Middleware__AssetStillInUse(assetClassId);
         }
-
-        if (!secondaryAssetClasses.remove(assetClassId)) {
+        bool removed = secondaryAssetClasses.remove(assetClassId);
+        if (!removed) {
             revert AssetClassRegistry__AssetClassNotFound();
         }
     }
