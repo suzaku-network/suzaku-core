@@ -168,7 +168,7 @@ contract OperatorVaultOptInService is StaticDelegateCallable, EIP712, IOptInServ
             revert OptInService__OptOutCooldown();
         }
 
-        _isOptedIn[who][where].push(Time.timestamp(), OPT_OUT_VALUE);
+        trace.push(Time.timestamp(), OPT_OUT_VALUE);
 
         emit OptOut(who, where);
     }
