@@ -43,11 +43,6 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
             revert AssetClassRegistry__InvalidAsset();
         }
 
-        AssetClass storage cls = assetClasses[assetClassId];
-        if (cls.assets.contains(asset)) {
-            revert AssetClassRegistry__AssetAlreadyRegistered();
-        }
-
         _addAssetToClass(assetClassId, asset);
     }
 
@@ -90,9 +85,6 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         uint256 maxValidatorStake,
         address initialAsset
     ) internal {
-        if (assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassAlreadyExists();
-        }
         if (initialAsset == address(0)) {
             revert AssetClassRegistry__InvalidAsset();
         }
@@ -100,7 +92,10 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
             revert AssetClassRegistry__InvalidStakingRequirements();
         }
 
-        assetClassIds.add(assetClassId);
+        bool added = assetClassIds.add(assetClassId);
+        if (!added) {
+            revert AssetClassRegistry__AssetClassAlreadyExists();
+        }
 
         AssetClass storage cls = assetClasses[assetClassId];
         cls.minValidatorStake = minValidatorStake;
@@ -123,13 +118,13 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
     }
 
     function _removeAssetFromClass(uint256 assetClassId, address asset) internal {
-        if (!assetClassIds.contains(assetClassId)) {
-            revert AssetClassRegistry__AssetClassNotFound();
-        }
-
         AssetClass storage cls = assetClasses[assetClassId];
-        bool removed = cls.assets.remove(asset);
-        if (!removed) {
+        bool assetFound = cls.assets.remove(asset);
+        
+        if (!assetFound) {
+            if (!assetClassIds.contains(assetClassId)) {
+                revert AssetClassRegistry__AssetClassNotFound();
+            }
             revert AssetClassRegistry__AssetNotFound();
         }
 
