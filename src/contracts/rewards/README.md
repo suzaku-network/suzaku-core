@@ -32,37 +32,30 @@ All fees are configured in basis points (1/10000)
 
 1. **Uptime Tracking**
 
-   ```
    - Validator uptime is recorded throughout the epoch
    - Operator uptime is computed as average of their validators
    - Minimum required uptime threshold must be met
-   ```
 
 2. **Rewards Distribution**
 
-   ```
    - Admin sets rewards amount for epochs using setRewardsAmountForEpochs()
    - Distribution happens in batches via distributeRewards()
    - System calculates shares for:
      - Operators based on stake and uptime
      - Vaults based on delegated stake
      - Curators based on vault ownership
-   ```
 
 3. **Claims Process**
 
-   ```
    - Stakers: claimRewards()
    - Operators: claimOperatorFee()
    - Curators: claimCuratorFee()
    - Protocol Owner: claimProtocolFee()
-   ```
 
 4. **Undistributed Rewards**
-   ```
+
    - After 2 epochs, admin can claim undistributed rewards
    - Uses claimUndistributedRewards()
-   ```
 
 ## Share Calculation
 
