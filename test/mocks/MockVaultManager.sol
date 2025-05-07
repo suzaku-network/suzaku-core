@@ -7,6 +7,7 @@ import {MockVault} from "./MockVault.sol";
 
 contract MockVaultManager {
     address[] public vaults;
+    mapping(address => uint96) public vaultToAssetClass;
 
     function addVault(
         address vault
@@ -38,5 +39,21 @@ contract MockVaultManager {
     ) external view returns (address, uint48, uint48) {
         require(index < vaults.length, "Invalid index");
         return (vaults[index], 1, 0); // Return dummy timestamps for now
+    }
+
+    function getVaults(
+        uint48
+    ) external view returns (address[] memory) {
+        return vaults;
+    }
+
+    function getVaultAssetClass(
+        address vault
+    ) external view returns (uint96) {
+        return vaultToAssetClass[vault];
+    }
+
+    function setVaultAssetClass(address vault, uint96 assetClass) external {
+        vaultToAssetClass[vault] = assetClass;
     }
 }

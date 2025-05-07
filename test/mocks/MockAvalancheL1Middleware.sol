@@ -84,12 +84,23 @@ contract MockAvalancheL1Middleware {
         return OPERATORS;
     }
 
-    function getOperatorStake(address operator, uint48 epoch, uint96 assetClass) external view returns (uint256) {
-        return operatorStake[epoch][operator][assetClass];
+    function getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) external view returns (uint256) {
+        if (assetClass == 1) {
+            bytes32[] storage nodesArr = operatorToNodes[operator];
+            uint256 stake = 0;
+
+            for (uint256 i = 0; i < nodesArr.length; i++) {
+                bytes32 nodeId = nodesArr[i];
+                stake += this.getNodeStake(epoch, nodeId);
+            }
+            return stake;
+        } else {
+            return this.getOperatorStake(operator, epoch, assetClass);
+        }
     }
 
-    function getActiveAssetClasses() external view returns (uint96, uint96[] memory) {
-        return (primaryAssetClass, secondaryAssetClasses);
+    function getOperatorStake(address operator, uint48 epoch, uint96 assetClass) external view returns (uint256) {
+        return operatorStake[epoch][operator][assetClass];
     }
 
     /// @notice Returns the mock epoch at a given timestamp.
@@ -104,6 +115,18 @@ contract MockAvalancheL1Middleware {
         uint48 epoch
     ) external pure returns (uint256) {
         return epoch * EPOCH_DURATION + 1;
+    }
+
+    function getActiveAssetClasses() external view returns (uint96, uint96[] memory) {
+        return (primaryAssetClass, secondaryAssetClasses);
+    }
+
+    function getAssetClassIds() external view returns (uint96[] memory) {
+        uint96[] memory assetClasses = new uint96[](3);
+        assetClasses[0] = primaryAssetClass;
+        assetClasses[1] = secondaryAssetClasses[0];
+        assetClasses[2] = secondaryAssetClasses[1];
+        return assetClasses;
     }
 
     /// @notice Returns the active nodes for an operator in a given epoch.

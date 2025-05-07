@@ -100,6 +100,7 @@ contract RewardsTest is Test {
         address mockOwner1 = makeAddr("Owner1");
         (address vaultAddress1, address delegatorAddress1) = vaultManager.deployAndAddVault(mockCollateral1, mockOwner1);
         middleware.setAssetInAssetClass(1, vaultAddress1);
+        vaultManager.setVaultAssetClass(vaultAddress1, 1);
         console2.log("Vault 1 deployed and added");
 
         // Vault 2 (Secondary Asset Class 1)
@@ -108,6 +109,7 @@ contract RewardsTest is Test {
         address mockOwner2 = makeAddr("Owner2");
         (address vaultAddress2, address delegatorAddress2) = vaultManager.deployAndAddVault(mockCollateral2, mockOwner2);
         middleware.setAssetInAssetClass(2, vaultAddress2);
+        vaultManager.setVaultAssetClass(vaultAddress2, 2);
         console2.log("Vault 2 deployed and added");
 
         // Vault 3 (Secondary Asset Class 2)
@@ -116,6 +118,7 @@ contract RewardsTest is Test {
         address mockOwner3 = makeAddr("Owner3");
         (address vaultAddress3, address delegatorAddress3) = vaultManager.deployAndAddVault(mockCollateral3, mockOwner3);
         middleware.setAssetInAssetClass(3, vaultAddress3);
+        vaultManager.setVaultAssetClass(vaultAddress3, 3);
         console2.log("Vault 3 deployed and added");
 
         delegators.push(MockDelegator(delegatorAddress1));
@@ -615,7 +618,7 @@ contract RewardsTest is Test {
         rewards.claimRewards(address(rewardsToken), staker);
     }
 
-    function test_claimUndistributedRewards_1() public {
+    function test_claimUndistributedRewards() public {
         uint48 epoch = 1;
 
         // Setup and distribute rewards

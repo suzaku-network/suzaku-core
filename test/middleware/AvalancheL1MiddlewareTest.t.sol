@@ -2092,4 +2092,57 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Operator used vs. sumStakes =>", operator, operatorUsed, sumStakes);
         require(sumStakes == operatorUsed, "Mismatch in final operator used stake sum");
     }
+
+    function test_getVaults() public {
+        _registerL1(validatorManagerAddress, address(vaultManager));
+        uint48 epoch = middleware.getCurrentEpoch();
+
+        vm.prank(validatorManagerAddress);
+        vaultManager.registerVault(address(vault), 1, 2000 ether);
+
+        address[] memory activeVaults = vaultManager.getVaults(epoch);
+
+        uint256 activeCount = 0;
+        bool foundVault1 = false;
+
+        for (uint256 i = 0; i < activeVaults.length; i++) {
+            if (activeVaults[i] != address(0)) {
+                activeCount++;
+                if (activeVaults[i] == address(vault)) foundVault1 = true;
+            }
+        }
+
+        assertEq(activeCount, 1, "Should have 1 active vault");
+        assertTrue(foundVault1, "First vault should be active");
+    }
+
+    function test_getOperatorTrueStake() public {
+        // First run the setup from test_AddNodeWithStakeAndTimeAdvance
+        //test_AddNodeWithStakeAndTimeAdvance();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+
+        // // Test secondary asset class (2) first - this should have stake from test_AddNodeWithStakeAndTimeAdvance
+        // uint256 trueStakeSecondary = middleware.getOperatorStake(alice, currentEpoch, 2);
+        // assertGt(trueStakeSecondary, 0, "True stake for secondary asset class should be positive");
+
+        // Now set up stake for primary asset class (1)
+        bytes32 nodeId = bytes32("primaryNode");
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 4 days);
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        vm.startPrank(alice);
+        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        vm.stopPrank();
+
+        _moveToNextEpochAndCalc(1);
+        currentEpoch = middleware.getCurrentEpoch();
+
+        // Now test primary asset class (1)
+        uint256 trueStakePrimary = middleware.getOperatorTrueStake(currentEpoch, alice, 1);
+        assertGt(trueStakePrimary, 0, "True stake for primary asset class should be positive");
+    }
 }

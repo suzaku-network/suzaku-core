@@ -265,7 +265,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         }
 
         // Sum vault shares
-        address[] memory vaults = _getVaults(epoch);
+        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
         for (uint256 i = 0; i < vaults.length; i++) {
             totalDistributedShares += vaultShares[epoch][vaults[i]];
         }
@@ -379,7 +379,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         emit CuratorFeeUpdated(newFee);
     }
 
-    // getter functions
+    // Getter functions
     /// @inheritdoc IRewards
     function getRewardsAmountPerTokenFromEpoch(
         uint48 epoch
@@ -413,9 +413,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint256 operatorUptime = Math.mulDiv(uptime, BASIS_POINTS_DENOMINATOR, epochDuration);
         uint256 totalShare = 0;
 
-        uint96[] memory assetClasses = _getAssetClassIds();
+        uint96[] memory assetClasses = l1Middleware.getAssetClassIds();
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            uint256 operatorStake = _getOperatorTrueStake(epoch, operator, assetClasses[i]);
+            uint256 operatorStake = l1Middleware.getOperatorTrueStake(epoch, operator, assetClasses[i]);
             uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
             uint16 assetClassShare = rewardsSharePerAssetClass[assetClasses[i]];
 
@@ -448,13 +448,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint256 operatorShare = operatorTotalShares[epoch][operator];
         if (operatorShare == 0) return;
 
-        address[] memory vaults = _getVaults(epoch);
+        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
         uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
 
         // First pass: calculate raw shares and total
         for (uint256 i = 0; i < vaults.length; i++) {
             address vault = vaults[i];
-            uint96 vaultAssetClass = _getVaultAssetClassId(vault);
+            uint96 vaultAssetClass = middlewareVaultManager.getVaultAssetClass(vault);
 
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 l1Middleware.L1_VALIDATOR_MANAGER(), vaultAssetClass, operator, epochTs, new bytes(0)
@@ -462,7 +462,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
             if (vaultStake > 0) {
                 vaultOperators[epoch][vault].add(operator);
-                uint256 operatorActiveStake = _getOperatorTrueStake(epoch, operator, vaultAssetClass);
+                uint256 operatorActiveStake = l1Middleware.getOperatorTrueStake(epoch, operator, vaultAssetClass);
 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
                 vaultShare =
@@ -489,35 +489,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
     // Getter functions
     /**
-     * @dev Gets the vaults for a given epoch
-     * @param epoch The epoch to get the vaults for
-     * @return The vaults for the given epoch
-     */
-    function _getVaults(
-        uint48 epoch
-    ) internal view returns (address[] memory) {
-        uint256 vaultCount = middlewareVaultManager.getVaultCount();
-        uint48 epochStart = l1Middleware.getEpochStartTs(epoch);
-        address[] memory vaults = new address[](vaultCount);
-
-        for (uint256 i = 0; i < vaultCount; i++) {
-            (address vault, uint48 enabledTime, uint48 disabledTime) = middlewareVaultManager.getVaultAtWithTimes(i);
-            if (enabledTime != 0 && enabledTime <= epochStart && (disabledTime == 0 || disabledTime >= epochStart)) {
-                vaults[i] = vault;
-            }
-        }
-
-        return vaults;
-    }
-
-    /**
      * @dev Gets the vaults for a given staker and epoch
      * @param staker The staker to get the vaults for
      * @param epoch The epoch to get the vaults for
      * @return The vaults for the given staker and epoch
      */
     function _getStakerVaults(address staker, uint48 epoch) internal view returns (address[] memory) {
-        address[] memory vaults = _getVaults(epoch);
+        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
         uint48 epochStart = l1Middleware.getEpochStartTs(epoch);
 
         uint256 count = 0;
@@ -544,60 +522,5 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         }
 
         return validVaults;
-    }
-
-    /**
-     * @dev Gets the asset class ids
-     * @return The asset class ids
-     */
-    function _getAssetClassIds() internal view returns (uint96[] memory) {
-        (uint256 primary, uint256[] memory secondaries) = l1Middleware.getActiveAssetClasses();
-        uint96[] memory assetClassIds = new uint96[](secondaries.length + 1);
-        assetClassIds[0] = uint96(primary);
-        for (uint256 i = 1; i <= secondaries.length; i++) {
-            assetClassIds[i] = uint96(secondaries[i - 1]);
-        }
-
-        return assetClassIds;
-    }
-
-    /**
-     * @dev Gets the asset class id for a given vault
-     * @param vault The vault to get the asset class id for
-     * @return The asset class id for the given vault
-     */
-    function _getVaultAssetClassId(
-        address vault
-    ) internal view returns (uint96) {
-        uint96[] memory assetClasses = _getAssetClassIds();
-        for (uint256 i = 0; i < assetClasses.length; i++) {
-            if (l1Middleware.isAssetInClass(assetClasses[i], vault)) {
-                return assetClasses[i];
-            }
-        }
-        revert AssetClassNotFound(vault);
-    }
-
-    /**
-     * @dev Gets the operator's true stake for a given epoch and asset class
-     * @param epoch The epoch to get the operator's true stake for
-     * @param operator The operator to get the true stake for
-     * @param assetClass The asset class to get the true stake for
-     * @return The operator's true stake for the given epoch and asset class
-     */
-    function _getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) internal view returns (uint256) {
-        // primary asset class
-        if (assetClass == 1) {
-            // fetch operator active nodes
-            bytes32[] memory operatorActiveNodeIds = l1Middleware.getActiveNodesForEpoch(operator, epoch);
-            uint256 operatorStake = 0;
-            // iterate through nodes to compute operator's stake
-            for (uint256 i = 0; i < operatorActiveNodeIds.length; i++) {
-                operatorStake += l1Middleware.getNodeStake(epoch, operatorActiveNodeIds[i]);
-            }
-            return operatorStake;
-        } else {
-            return l1Middleware.getOperatorStake(operator, epoch, assetClass);
-        }
     }
 }
