@@ -47,6 +47,9 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
     error AvalancheL1Middleware__ZeroAddress(string name);
     error AvalancheL1Middleware__InvalidScaleFactor();
+    error AvalancheL1Middleware__ManualEpochUpdateRequired(uint48 epochsPending, uint48 maxAutoUpdates);
+    error AvalancheL1Middleware__NoEpochsToProcess();
+    error AvalancheL1Middleware__TooManyEpochsRequested(uint48 requested, uint48 pending);
 
     // Events
     /**
@@ -97,6 +100,14 @@ interface IAvalancheL1Middleware {
      * @param newVaultManager The new Vault Manager address
      */
     event VaultManagerUpdated(address indexed oldVaultManager, address indexed newVaultManager);
+
+
+    /**
+     * @notice Emitted when the node stake cache is manually processed
+     * @param upToEpoch The epoch to process up to
+     * @param epochsProcessedCount The number of epochs processed
+     */
+    event NodeStakeCacheManuallyProcessed(uint48 upToEpoch, uint48 epochsProcessedCount);
 
     /**
      * @dev Simple struct to return operator stake and key.

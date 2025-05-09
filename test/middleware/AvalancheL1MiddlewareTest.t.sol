@@ -1792,7 +1792,6 @@ contract AvalancheL1MiddlewareTest is Test {
 
     function test_GetOperatorUsedStakeCachedPerEpoch() public {
         // Setup
-        // Add additional stake to alice
         test_ForceUpdateWithAdditionalStake();
         uint48 epoch = middleware.getCurrentEpoch();
 
@@ -1803,6 +1802,79 @@ contract AvalancheL1MiddlewareTest is Test {
         // Test secondary asset class (2)
         uint256 secondaryStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, alice, 2);
         assertEq(secondaryStake, 0, "Secondary asset stake should be 0 as none was added");
+    }
+
+    function test_AutoUpdateFailsIfTooManyEpochsPending() public {
+        uint48 maxAutoUpdates = middleware.MAX_AUTO_EPOCH_UPDATES();
+        uint48 epochsToBecomePending = maxAutoUpdates + 1;
+
+        uint48 currentEpochAfterWarp = _warpAdvanceMiddlewareEpochsRaw(epochsToBecomePending);
+        
+        bytes memory expectedError = abi.encodeWithSelector(
+            IAvalancheL1Middleware.AvalancheL1Middleware__ManualEpochUpdateRequired.selector,
+            currentEpochAfterWarp,
+            maxAutoUpdates
+        );
+        vm.expectRevert(expectedError);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        bytes32 nodeId = keccak256("nodeTooManyPending");
+        vm.startPrank(alice);
+        vm.expectRevert(expectedError);
+        middleware.addNode(
+            nodeId,
+            hex"1234",
+            uint64(block.timestamp + 1 days),
+            PChainOwner({threshold: 1, addresses: new address[](1)}),
+            PChainOwner({threshold: 1, addresses: new address[](1)}),
+            0
+        );
+        vm.stopPrank();
+    }
+
+    function test_ManualUpdateProcessesEpochsIncrementallyAndAutoUpdateSucceedsAfterCatchUp() public {
+        address middlewareOwner = validatorManagerAddress;
+
+        uint48 maxAutoUpdates = middleware.MAX_AUTO_EPOCH_UPDATES();
+        uint48 totalEpochsToMakePending = maxAutoUpdates + 2;
+
+        uint48 initialCurrentEpoch = middleware.getCurrentEpoch();
+        uint48 currentEpochAfterWarp = _warpAdvanceMiddlewareEpochsRaw(totalEpochsToMakePending);
+        
+        assertEq(currentEpochAfterWarp, initialCurrentEpoch + totalEpochsToMakePending, "Warping did not result in the expected current epoch");
+
+        bytes memory expectedRevertError = abi.encodeWithSelector(
+            IAvalancheL1Middleware.AvalancheL1Middleware__ManualEpochUpdateRequired.selector,
+            currentEpochAfterWarp,
+            maxAutoUpdates
+        );
+        vm.expectRevert(expectedRevertError);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint48 epochsToProcessManuallyFirstPass = 2;
+        vm.startPrank(middlewareOwner);
+        vm.expectEmit(true, true, true, true, address(middleware));
+        emit IAvalancheL1Middleware.NodeStakeCacheManuallyProcessed(
+            epochsToProcessManuallyFirstPass,
+            epochsToProcessManuallyFirstPass
+        );
+        middleware.manualProcessNodeStakeCache(epochsToProcessManuallyFirstPass);
+        vm.stopPrank();
+
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        
+        vm.startPrank(middlewareOwner);
+        vm.expectEmit(true, true, true, true, address(middleware));
+        emit IAvalancheL1Middleware.NodeStakeCacheManuallyProcessed(
+            currentEpochAfterWarp,
+            0
+        );
+        middleware.manualProcessNodeStakeCache(1);
+        vm.stopPrank();
+        
+        _warpAdvanceMiddlewareEpochsRaw(1);
+        
+        middleware.calcAndCacheNodeStakeForAllOperators();
     }
 
     ///////////////////////////////
@@ -2090,5 +2162,23 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 operatorUsed = middleware.getOperatorUsedStakeCached(operator);
         console2.log("Operator used vs. sumStakes =>", operator, operatorUsed, sumStakes);
         require(sumStakes == operatorUsed, "Mismatch in final operator used stake sum");
+    }
+
+    /// @notice Advances time by a number of middleware epochs without calling cache updates.
+    function _warpAdvanceMiddlewareEpochsRaw(uint48 numEpochsToAdvance) internal returns (uint48 newCurrentEpochAfterWarp) {
+        uint48 currentEpochBeforeWarp = middleware.getCurrentEpoch();
+        uint48 targetEpoch = currentEpochBeforeWarp + numEpochsToAdvance;
+        
+        if (targetEpoch <= currentEpochBeforeWarp && numEpochsToAdvance > 0) {
+            targetEpoch = currentEpochBeforeWarp + 1;
+        } else if (numEpochsToAdvance == 0) {
+            return currentEpochBeforeWarp;
+        }
+
+        uint256 targetTs = middleware.getEpochStartTs(targetEpoch) + 1;
+        vm.warp(targetTs);
+        
+        newCurrentEpochAfterWarp = middleware.getCurrentEpoch();
+        return newCurrentEpochAfterWarp;
     }
 }

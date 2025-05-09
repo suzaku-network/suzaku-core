@@ -60,6 +60,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     uint48 private lastGlobalNodeStakeUpdateEpoch;
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
+    uint48 public constant MAX_AUTO_EPOCH_UPDATES = 1;
 
     MiddlewareVaultManager private vaultManager;
     EnumerableMap.AddressToUintMap private operators;
@@ -556,40 +557,97 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         totalStakeCached[epoch][assetClassId] = true;
     }
 
+    /**
+     * @inheritdoc IAvalancheL1Middleware
+     */ 
     function calcAndCacheNodeStakeForAllOperators() public {
         uint48 current = getCurrentEpoch();
-        // If we're already up to date, do nothing
         if (current <= lastGlobalNodeStakeUpdateEpoch) {
-            return;
+            return; // Already up-to-date
         }
 
-        // Update lastGlobalNodeStakeUpdateEpoch + 1
-        uint48 transitionEpoch = lastGlobalNodeStakeUpdateEpoch + 1;
-        for (uint256 i = 0; i < operators.length(); i++) {
-            (address operator,,) = operators.atWithTimes(i);
-            _calcAndCacheNodeStakeForOperatorAtEpoch(operator, transitionEpoch);
+        uint48 epochsPending = current - lastGlobalNodeStakeUpdateEpoch;
+
+        if (epochsPending > MAX_AUTO_EPOCH_UPDATES) {
+            revert AvalancheL1Middleware__ManualEpochUpdateRequired(epochsPending, MAX_AUTO_EPOCH_UPDATES);
         }
 
-        if (transitionEpoch == current) {
-            lastGlobalNodeStakeUpdateEpoch = current;
-            return;
+        // Process pending epochs up to MAX_AUTO_EPOCH_UPDATES
+
+        for (uint48 i = 0; i < epochsPending; i++) {
+            bool processed = _processSingleEpochNodeStakeCacheUpdate();
+            if (!processed) break; 
         }
-        // Copy transitionEpoch cache to all others
-        for (uint48 epoch = transitionEpoch + 1; epoch <= current; epoch++) {
-            for (uint256 i = 0; i < operators.length(); i++) {
-                (address operator,,) = operators.atWithTimes(i);
-                bytes32[] storage nodeArray = operatorNodesArray[operator];
-                for (uint256 j; j < nodeArray.length; j++) {
-                    bytes32 nodeId = nodeArray[j];
-                    bytes32 validationID =
-                        balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-                    nodeStakeCache[epoch][validationID] = nodeStakeCache[epoch - 1][validationID];
-                }
-            }
-        }
-        lastGlobalNodeStakeUpdateEpoch = current;
     }
 
+    /**
+     * @notice Processes node stake cache updates for the next pending epoch.
+     * @dev Updates lastGlobalNodeStakeUpdateEpoch if an epoch is processed.
+     * @return processed True if an epoch was processed, false if already up-to-date.
+     */
+    function _processSingleEpochNodeStakeCacheUpdate() internal returns (bool) {
+        uint48 current = getCurrentEpoch();
+        if (current <= lastGlobalNodeStakeUpdateEpoch) {
+            return false; // Already up-to-date
+        }
+
+        uint48 epochToProcess = lastGlobalNodeStakeUpdateEpoch + 1;
+
+        // Process this single epochToProcess
+        for (uint256 i = 0; i < operators.length(); i++) {
+            (address operator,,) = operators.atWithTimes(i);
+            // _calcAndCacheNodeStakeForOperatorAtEpoch itself handles carry-over from epochToProcess - 1
+            _calcAndCacheNodeStakeForOperatorAtEpoch(operator, epochToProcess);
+        }
+
+        lastGlobalNodeStakeUpdateEpoch = epochToProcess;
+        return true;
+    }
+    
+    /**
+     * @notice Manually processes node stake cache updates for a specified number of epochs.
+     * @dev Useful if automatic updates via modifier fail due to too many pending epochs.
+     * @param numEpochsToProcess The number of pending epochs to process in this call.
+     */
+    function manualProcessNodeStakeCache(uint48 numEpochsToProcess) external {
+        if (numEpochsToProcess == 0) {
+            revert AvalancheL1Middleware__NoEpochsToProcess();
+        }
+
+        uint48 currentEpoch = getCurrentEpoch();
+        uint48 epochsActuallyPending = 0;
+        if (currentEpoch > lastGlobalNodeStakeUpdateEpoch) {
+            epochsActuallyPending = currentEpoch - lastGlobalNodeStakeUpdateEpoch;
+        }
+
+        if (numEpochsToProcess > epochsActuallyPending) {
+            // Cap processing at what's actually pending to avoid processing non-existent future states.
+            if (epochsActuallyPending == 0) {
+                // Effectively, nothing to do, could emit an event or just succeed.
+                emit NodeStakeCacheManuallyProcessed(lastGlobalNodeStakeUpdateEpoch, 0);
+                return;
+            }
+            numEpochsToProcess = epochsActuallyPending;
+        }
+        
+        uint48 epochsProcessedCount = 0;
+        for (uint48 i = 0; i < numEpochsToProcess; i++) {
+            if (lastGlobalNodeStakeUpdateEpoch >= currentEpoch) {
+                break; // Caught up
+            }
+            bool processed = _processSingleEpochNodeStakeCacheUpdate();
+            if (processed) {
+                epochsProcessedCount++;
+            } else {
+                // Should not happen if currentEpoch > lastGlobalNodeStakeUpdateEpoch initially
+                // and numEpochsToProcess is positive.
+                break;
+            }
+        }
+
+        emit NodeStakeCacheManuallyProcessed(lastGlobalNodeStakeUpdateEpoch, epochsProcessedCount);
+    }
+    
     /**
      * @notice Caches manager-based stake for each node of `operator` in epoch `currentEpoch`.
      * @param operator The operator address
