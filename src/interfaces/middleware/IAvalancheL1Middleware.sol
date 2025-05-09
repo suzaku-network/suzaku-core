@@ -350,5 +350,9 @@ interface IAvalancheL1Middleware {
      * @param assetClass The asset class ID
      * @return The true active stake
      */
-    function getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) external view returns (uint256);
+    function getOperatorUsedStakeCachedPerEpoch(
+        uint48 epoch,
+        address operator,
+        uint96 assetClass
+    ) external view returns (uint256);
 }

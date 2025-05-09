@@ -1791,20 +1791,20 @@ contract AvalancheL1MiddlewareTest is Test {
         assertTrue(foundVault1, "First vault should be active");
     }
 
-    // function test_GetOperatorTrueStake() public view {
-    //     // Setup
-    //     uint48 epoch = middleware.getCurrentEpoch();
+    function test_GetOperatorUsedStakeCachedPerEpoch() public {
+        // Setup
+        // Add additional stake to alice
+        test_ForceUpdateWithAdditionalStake();
+        uint48 epoch = middleware.getCurrentEpoch();
 
-    //     // Test PRIMARY_ASSET_CLASS (1)
-    //     uint256 primaryStake = middleware.getOperatorTrueStake(epoch, alice, 1);
-    //     console2.log("Primary asset stake:", primaryStake);
-    //     assertGt(primaryStake, 0, "Primary asset stake should be > 0");
+        // Test PRIMARY_ASSET_CLASS (1)
+        uint256 primaryStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, alice, 1);
+        assertGt(primaryStake, 0, "Primary asset stake should be > 0");
 
-    //     // Test secondary asset class (2)
-    //     uint256 secondaryStake = middleware.getOperatorTrueStake(epoch, alice, 2);
-    //     console2.log("Secondary asset stake:", secondaryStake);
-    //     assertEq(secondaryStake, 0, "Secondary asset stake should be 0 as none was added");
-    // }
+        // Test secondary asset class (2)
+        uint256 secondaryStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, alice, 2);
+        assertEq(secondaryStake, 0, "Secondary asset stake should be 0 as none was added");
+    }
 
     ///////////////////////////////
     // INTERNAL HELPERS

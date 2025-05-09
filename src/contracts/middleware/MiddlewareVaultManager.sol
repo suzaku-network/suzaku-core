@@ -169,12 +169,22 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     ) external view returns (address[] memory) {
         uint256 vaultCount = vaults.length();
         uint48 epochStart = middleware.getEpochStartTs(epoch);
-        address[] memory activeVaults = new address[](vaultCount);
 
+        uint256 activeCount = 0;
         for (uint256 i = 0; i < vaultCount; i++) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
-            if (enabledTime != 0 && enabledTime <= epochStart && (disabledTime == 0 || disabledTime >= epochStart)) {
-                activeVaults[i] = vault;
+            if (_wasActiveAt(enabledTime, disabledTime, epochStart)) {
+                activeCount++;
+            }
+        }
+
+        address[] memory activeVaults = new address[](activeCount);
+        uint256 activeIndex = 0;
+        for (uint256 i = 0; i < vaultCount; i++) {
+            (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
+            if (_wasActiveAt(enabledTime, disabledTime, epochStart)) {
+                activeVaults[activeIndex] = vault;
+                activeIndex++;
             }
         }
 
