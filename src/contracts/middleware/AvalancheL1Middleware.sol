@@ -57,7 +57,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     uint48 public immutable START_TIME;
     uint48 public immutable UPDATE_WINDOW;
     uint256 public immutable WEIGHT_SCALE_FACTOR;
-    uint48 private lastGlobalNodeStakeUpdateEpoch;
+    uint48 public lastGlobalNodeStakeUpdateEpoch;
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
     uint48 public constant MAX_AUTO_EPOCH_UPDATES = 1;
