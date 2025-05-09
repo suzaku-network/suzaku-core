@@ -1002,17 +1002,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (assetClass == PRIMARY_ASSET_CLASS) {
             bytes32[] memory nodesArr = this.getActiveNodesForEpoch(operator, epoch);
             uint256 operatorStake = 0;
-            uint48 epochStartTs = getEpochStartTs(epoch);
 
             for (uint256 i = 0; i < nodesArr.length; i++) {
                 bytes32 nodeId = nodesArr[i];
                 bytes32 validationID =
                     balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-                Validator memory validator = balancerValidatorManager.getValidator(validationID);
-
-                if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
-                    operatorStake += getEffectiveNodeStake(epoch, validationID);
-                }
+                operatorStake += getEffectiveNodeStake(epoch, validationID);
             }
             return operatorStake;
         } else {
