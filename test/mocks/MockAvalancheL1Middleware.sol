@@ -5,8 +5,7 @@ pragma solidity 0.8.25;
 
 contract MockAvalancheL1Middleware {
     uint48 public constant EPOCH_DURATION = 4 hours;
-    address public immutable BALANCER_VALIDATOR_MANAGER;
-    address public constant L1_VALIDATOR_MANAGER = address(0x123);
+    address public immutable L1_VALIDATOR_MANAGER;
     address public immutable VAULT_MANAGER;
 
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStake;
@@ -33,7 +32,7 @@ contract MockAvalancheL1Middleware {
         require(operatorCount > 0, "At least one operator required");
         require(operatorCount == nodesPerOperator.length, "Arrays length mismatch");
 
-        BALANCER_VALIDATOR_MANAGER = balancerValidatorManager;
+        L1_VALIDATOR_MANAGER = balancerValidatorManager;
         VAULT_MANAGER = vaultManager;
 
         // Generate operators
@@ -84,7 +83,11 @@ contract MockAvalancheL1Middleware {
         return OPERATORS;
     }
 
-    function getOperatorTrueStake(uint48 epoch, address operator, uint96 assetClass) external view returns (uint256) {
+    function getOperatorUsedStakeCachedPerEpoch(
+        uint48 epoch,
+        address operator,
+        uint96 assetClass
+    ) external view returns (uint256) {
         if (assetClass == 1) {
             bytes32[] storage nodesArr = operatorToNodes[operator];
             uint256 stake = 0;

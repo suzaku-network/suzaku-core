@@ -71,6 +71,7 @@ contract RewardsTest is Test {
         uint16 protocolFee = 1000;
         uint16 operatorFee = 2000;
         uint16 curatorFee = 1000;
+        uint256 minRequiredUptime = 11_520;
 
         // INITIALIZE ROLES, FEES, AND CONTRACT DEPENDANCIES
         console2.log("Initializing roles, fees, and contract dependencies...");
@@ -81,7 +82,8 @@ contract RewardsTest is Test {
             address(uptimeTracker),
             protocolFee,
             operatorFee,
-            curatorFee
+            curatorFee,
+            minRequiredUptime
         );
         console2.log("Roles, fees, and contract dependencies initialized");
 
@@ -140,11 +142,6 @@ contract RewardsTest is Test {
         rewards.setRewardsShareForAssetClass(2, 3000); // 30% for secondary 1
         rewards.setRewardsShareForAssetClass(3, 2000); // 20% for secondary 2
         console2.log("Rewards share for asset classes set");
-
-        // Set the minimum required uptime
-        console2.log("Setting minimum required uptime...");
-        rewards.setMinRequiredUptime(11_520);
-        console2.log("Minimum required uptime set");
         vm.stopPrank();
     }
 
@@ -164,6 +161,7 @@ contract RewardsTest is Test {
         uint256 remainingOperators = operators.length;
 
         // Execute distribution in batches until all operators are processed
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         while (remainingOperators > 0) {
             rewards.distributeRewards(epoch, uint48(batchSize));
             remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
@@ -205,6 +203,7 @@ contract RewardsTest is Test {
 
         // Process all operators in one large batch
         uint256 operatorCount = middleware.getAllOperators().length;
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, uint48(operatorCount));
 
         // Verify completion
@@ -229,6 +228,7 @@ contract RewardsTest is Test {
         uint256 batchSize = 2;
 
         // First batch
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, uint48(batchSize));
         (uint256 lastProcessed, bool isComplete) = rewards.distributionBatches(epoch);
         assertEq(lastProcessed, batchSize, "Should process exactly batchSize operators");
@@ -241,6 +241,7 @@ contract RewardsTest is Test {
 
         // Process all operators
         address[] memory operators = middleware.getAllOperators();
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, uint48(operators.length));
 
         // Verify completion flag
@@ -261,6 +262,7 @@ contract RewardsTest is Test {
         uptimeTracker.setOperatorUptimePerEpoch(epoch, operators[0], 0);
 
         // Distribute rewards
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, 1);
 
         // Verify no shares for operator with zero uptime
@@ -283,6 +285,7 @@ contract RewardsTest is Test {
         middleware.setOperatorStake(epoch, operators[0], 3, 0);
 
         // Distribute rewards
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, 1);
 
         // Verify no shares for operator with zero stake
@@ -379,6 +382,7 @@ contract RewardsTest is Test {
         uint256 remainingOperators = operators.length;
 
         // Execute distribution in batches until all operators are processed
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         while (remainingOperators > 0) {
             rewards.distributeRewards(epoch, uint48(batchSize));
             remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
@@ -608,6 +612,7 @@ contract RewardsTest is Test {
         MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
 
         // Only distribute partially
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, 1);
 
         // Warp to next epoch
@@ -658,6 +663,7 @@ contract RewardsTest is Test {
         _setupStakes(epoch, 4 hours);
 
         // Only distribute partially
+        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
         rewards.distributeRewards(epoch, 1);
 
         vm.prank(ADMIN);
@@ -672,7 +678,7 @@ contract RewardsTest is Test {
         test_distributeRewards(4 hours);
 
         // Try to claim before 2 epochs have passed
-        vm.warp(block.timestamp + middleware.EPOCH_DURATION());
+        vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
 
         vm.prank(ADMIN);
         vm.expectRevert(abi.encodeWithSelector(IRewards.EpochStillClaimable.selector, epoch));
