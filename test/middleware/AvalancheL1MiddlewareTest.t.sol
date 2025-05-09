@@ -34,7 +34,6 @@ import {BalancerValidatorManager} from
 import {ACP77WarpMessengerTestMock} from "@suzaku/contracts-library/contracts/mocks/ACP77WarpMessengerTestMock.sol";
 import {IBalancerValidatorManager} from
     "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
-import {IWarpMessenger} from "@avalabs/subnet-evm-contracts/interfaces/IWarpMessenger.sol";
 import {
     ConversionData,
     InitialValidator,

@@ -44,10 +44,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     mapping(uint48 epoch => DistributionBatch) public distributionBatches;
 
     // Share tracking
-    mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorTotalShares;
+    mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorBeneficiariesShares;
     mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorShares;
-    mapping(uint48 epoch => mapping(address vault => uint256 share)) public vaultShares;
-    mapping(uint48 epoch => mapping(address curator => uint256 share)) public curatorShares;
+    mapping(uint48 epoch => mapping(address vault => uint256 share)) public vaultShares; // vault stakes owners shares
+    mapping(uint48 epoch => mapping(address curator => uint256 share)) public curatorShares; // vault owner shares
 
     // Protocol rewards
     mapping(address rewardsToken => uint256 rewardsAmount) public protocolRewards;
@@ -64,9 +64,6 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     // Asset class configuration
     mapping(uint96 assetClass => uint16 rewardsShare) public rewardsSharePerAssetClass;
 
-    // Operators vault delegator mapping
-    mapping(uint48 epoch => mapping(address vault => EnumerableSet.AddressSet operators)) private vaultOperators;
-
     // INITIALIZER
     function initialize(
         address admin_,
@@ -75,7 +72,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         address uptimeTracker_,
         uint16 protocolFee_,
         uint16 operatorFee_,
-        uint16 curatorFee_
+        uint16 curatorFee_,
+        uint256 minRequiredUptime_
     ) public initializer {
         if (l1Middleware_ == address(0)) revert InvalidL1Middleware(l1Middleware_);
         if (uptimeTracker_ == address(0)) revert InvalidUptimeTracker(uptimeTracker_);
@@ -94,6 +92,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         protocolFee = protocolFee_;
         operatorFee = operatorFee_;
         curatorFee = curatorFee_;
+        minRequiredUptime = minRequiredUptime_;
     }
 
     // EXTERNAL FUNCTIONS
@@ -101,8 +100,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function distributeRewards(uint48 epoch, uint48 batchSize) external {
         DistributionBatch storage batch = distributionBatches[epoch];
+        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
 
         if (batch.isComplete) revert AlreadyCompleted(epoch);
+        if (epoch >= currentEpoch) revert RewardsDistributionTooEarly(epoch, currentEpoch - 1);
 
         address[] memory operators = l1Middleware.getAllOperators();
         uint256 operatorCount = 0;
@@ -405,7 +406,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     function _calculateOperatorShare(uint48 epoch, address operator) internal {
         uint256 uptime = uptimeTracker.operatorUptimePerEpoch(epoch, operator);
         if (uptime < minRequiredUptime) {
-            operatorTotalShares[epoch][operator] = 0;
+            operatorBeneficiariesShares[epoch][operator] = 0;
             operatorShares[epoch][operator] = 0;
             return;
         }
@@ -415,7 +416,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
         uint96[] memory assetClasses = l1Middleware.getAssetClassIds();
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            uint256 operatorStake = l1Middleware.getOperatorTrueStake(epoch, operator, assetClasses[i]);
+            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClasses[i]);
             uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
             uint16 assetClassShare = rewardsSharePerAssetClass[assetClasses[i]];
 
@@ -436,7 +437,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         // Remove operator fee share from total share
         totalShare -= operatorFeeShare;
 
-        operatorTotalShares[epoch][operator] = totalShare;
+        operatorBeneficiariesShares[epoch][operator] = totalShare;
     }
 
     /**
@@ -445,7 +446,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
      * @param operator The operator to calculate the vault shares for
      */
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
-        uint256 operatorShare = operatorTotalShares[epoch][operator];
+        uint256 operatorShare = operatorBeneficiariesShares[epoch][operator];
         if (operatorShare == 0) return;
 
         address[] memory vaults = middlewareVaultManager.getVaults(epoch);
@@ -461,8 +462,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             );
 
             if (vaultStake > 0) {
-                vaultOperators[epoch][vault].add(operator);
-                uint256 operatorActiveStake = l1Middleware.getOperatorTrueStake(epoch, operator, vaultAssetClass);
+                uint256 operatorActiveStake =
+                    l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultAssetClass);
 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
                 vaultShare =
