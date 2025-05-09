@@ -41,7 +41,7 @@ contract AssetClassRegistryTest is Test {
         // declare primaryAsset from assetClassRegistry as tokenA
         assetClassRegistry.setPrimaryAsset(address(tokenA));
 
-        // Add a “secondary” class #2
+        // Add a "secondary" class #2
         assetClassRegistry.addAssetClass(2, 10, 0, tokenB);
     }
 
@@ -196,5 +196,31 @@ contract AssetClassRegistryTest is Test {
     function test_RevertOnGetMinStakeForNonExistentClass() public {
         vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
         assetClassRegistry.getClassStakingRequirements(999);
+    }
+
+    function test_GetAssetClassIds() public {
+        // Add a new asset class #3
+        assetClassRegistry.addAssetClass(3, 100, 1000, tokenC);
+
+        // Get all asset class IDs
+        uint96[] memory assetClassIds = assetClassRegistry.getAssetClassIds();
+
+        // We should have 3 classes (1, 2, and 3)
+        assertEq(assetClassIds.length, 3, "Expected 3 asset classes");
+
+        // Check that all expected class IDs are present
+        bool found1;
+        bool found2;
+        bool found3;
+
+        for (uint256 i = 0; i < assetClassIds.length; i++) {
+            if (assetClassIds[i] == 1) found1 = true;
+            if (assetClassIds[i] == 2) found2 = true;
+            if (assetClassIds[i] == 3) found3 = true;
+        }
+
+        assertTrue(found1, "Asset class 1 not found");
+        assertTrue(found2, "Asset class 2 not found");
+        assertTrue(found3, "Asset class 3 not found");
     }
 }

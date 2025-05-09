@@ -159,5 +159,14 @@ abstract contract AssetClassRegistry is IAssetClassRegistry, Ownable {
         return assetClasses[assetClassId].assets.contains(asset);
     }
 
+    function getAssetClassIds() external view returns (uint96[] memory) {
+        uint256[] memory ids = assetClassIds.values();
+        uint96[] memory assetClassIDs = new uint96[](ids.length);
+        for (uint256 i = 0; i < ids.length; i++) {
+            assetClassIDs[i] = uint96(ids[i]);
+        }
+        return assetClassIDs;
+    }
+
     receive() external payable {}
 }
