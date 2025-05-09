@@ -146,6 +146,12 @@ contract UptimeTracker is IUptimeTracker {
         return validatorLastUptimeCheckpoint[validationID];
     }
 
+    /**
+     * @dev Get the P-Chain warp message from the message index.
+     * @dev Taken from https://github.com/ava-labs/icm-contracts/blob/b5505dd44dcd6b7ff5ee6706bd4967c31e4ada44/contracts/validator-manager/ValidatorManager.sol#L630C5-L647C6
+     * @param messageIndex The index of the warp message.
+     * @return The warp message.
+     */
     function _getPChainWarpMessage(
         uint32 messageIndex
     ) internal view returns (WarpMessage memory) {
