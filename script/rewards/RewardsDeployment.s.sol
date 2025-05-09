@@ -32,7 +32,8 @@ contract DeployRewards is Script {
             address(uptimeTrackerContract),
             config.protocolFee,
             config.operatorFee,
-            config.curatorFee
+            config.curatorFee,
+            config.minRequiredUptime
         );
 
         vm.stopBroadcast();
