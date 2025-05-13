@@ -19,4 +19,8 @@ contract MockBalancerValidatorManager {
         });
         return validator;
     }
+    
+    function getL1ID() external pure returns (bytes32) {
+        return bytes32(uint256(1));
+    }
 }

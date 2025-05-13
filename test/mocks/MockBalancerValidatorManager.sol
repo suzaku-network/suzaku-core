@@ -85,6 +85,10 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         return registeredSecurityModules;
     }
 
+    function getL1ID() external pure returns (bytes32) {
+        return bytes32(uint256(1));
+    }
+
     function getSecurityModuleWeights(
         address securityModule
     ) external view override returns (uint64 weight, uint64 maxWeight) {
