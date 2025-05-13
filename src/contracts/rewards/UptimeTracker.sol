@@ -22,8 +22,8 @@ contract UptimeTracker is IUptimeTracker {
     uint48 private immutable epochDuration;
     AvalancheL1Middleware private immutable l1Middleware;
     BalancerValidatorManager private immutable validatorManager;
+    bytes32 private immutable l1ChainID;
 
-    bytes32 public constant P_CHAIN_BLOCKCHAIN_ID = bytes32(0);
     IWarpMessenger public constant WARP_MESSENGER = IWarpMessenger(0x0200000000000000000000000000000000000005);
 
     /// @notice Mapping of validation ID to the last recorded uptime checkpoint.
@@ -47,6 +47,7 @@ contract UptimeTracker is IUptimeTracker {
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
         epochDuration = l1Middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(l1Middleware.L1_VALIDATOR_MANAGER());
+        l1ChainID = validatorManager.getL1ID();
     }
 
     /**
@@ -55,9 +56,21 @@ contract UptimeTracker is IUptimeTracker {
     function computeValidatorUptime(
         uint32 messageIndex
     ) external {
-        WarpMessage memory uptimeMessage = _getPChainWarpMessage(messageIndex);
+        // Get warp message directly
+        (WarpMessage memory warpMessage, bool valid) = WARP_MESSENGER.getVerifiedWarpMessage(messageIndex);
+        if (!valid) {
+            revert InvalidWarpMessage();
+        }
+        // Must match to P-Chain blockchain id
+        if (warpMessage.sourceChainID != l1ChainID) {
+            revert InvalidWarpSourceChainID(warpMessage.sourceChainID);
+        }
+        if (warpMessage.originSenderAddress != address(0)) {
+            revert InvalidWarpOriginSenderAddress(warpMessage.originSenderAddress);
+        }
+
         // Unpack the uptime message
-        (bytes32 validationID, uint256 uptime) = ValidatorMessages.unpackValidationUptimeMessage(uptimeMessage.payload);
+        (bytes32 validationID, uint256 uptime) = ValidatorMessages.unpackValidationUptimeMessage(warpMessage.payload);
 
         LastUptimeCheckpoint storage lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
 
@@ -144,29 +157,5 @@ contract UptimeTracker is IUptimeTracker {
         bytes32 validationID
     ) external view returns (LastUptimeCheckpoint memory) {
         return validatorLastUptimeCheckpoint[validationID];
-    }
-
-    /**
-     * @dev Get the P-Chain warp message from the message index.
-     * @dev Taken from https://github.com/ava-labs/icm-contracts/blob/b5505dd44dcd6b7ff5ee6706bd4967c31e4ada44/contracts/validator-manager/ValidatorManager.sol#L630C5-L647C6
-     * @param messageIndex The index of the warp message.
-     * @return The warp message.
-     */
-    function _getPChainWarpMessage(
-        uint32 messageIndex
-    ) internal view returns (WarpMessage memory) {
-        (WarpMessage memory warpMessage, bool valid) = WARP_MESSENGER.getVerifiedWarpMessage(messageIndex);
-        if (!valid) {
-            revert InvalidWarpMessage();
-        }
-        // Must match to P-Chain blockchain id, which is 0.
-        if (warpMessage.sourceChainID != P_CHAIN_BLOCKCHAIN_ID) {
-            revert InvalidWarpSourceChainID(warpMessage.sourceChainID);
-        }
-        if (warpMessage.originSenderAddress != address(0)) {
-            revert InvalidWarpOriginSenderAddress(warpMessage.originSenderAddress);
-        }
-
-        return warpMessage;
     }
 }
