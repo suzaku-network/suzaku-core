@@ -42,12 +42,13 @@ contract UptimeTracker is IUptimeTracker {
     mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
     constructor(
-        address payable l1Middleware_
+        address payable l1Middleware_,
+        bytes32 l1ChainID_
     ) {
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
         epochDuration = l1Middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(l1Middleware.L1_VALIDATOR_MANAGER());
-        l1ChainID = validatorManager.getL1ID();
+        l1ChainID = l1ChainID_;
     }
 
     /**

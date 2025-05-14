@@ -9,4 +9,5 @@ struct RewardsConfig {
     uint16 operatorFee;
     uint16 curatorFee;
     uint256 minRequiredUptime;
+    bytes32 l1ChainID;
 } 

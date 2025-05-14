@@ -25,6 +25,7 @@ contract UptimeTrackerTest is Test {
     bytes32[] public operatorNodes;
     uint48 constant EPOCH_DURATION = 4 hours;
     address constant WARP_MESSENGER_ADDR = 0x0200000000000000000000000000000000000005;
+    bytes32 constant L1_CHAIN_ID = bytes32(uint256(1));
 
     // Utility to derive validation ID from node ID
     function getDerivedValidationID(bytes32 fullNodeID) internal pure returns (bytes32) {
@@ -44,7 +45,7 @@ contract UptimeTrackerTest is Test {
 
         validatorManager = new MockBalancerValidatorManager();
         middleware = new MockAvalancheL1Middleware(1, nodesPerOperator, address(validatorManager), address(0));
-        uptimeTracker = new UptimeTracker(payable(address(middleware)));
+        uptimeTracker = new UptimeTracker(payable(address(middleware)), L1_CHAIN_ID);
 
         operator = middleware.getAllOperators()[0];
         operatorNodes = middleware.getActiveNodesForEpoch(operator, 0);
