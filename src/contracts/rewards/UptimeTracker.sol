@@ -122,12 +122,13 @@ contract UptimeTracker is IUptimeTracker {
         uint256 numberOfValidators = operatorNodes.length;
         if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
         uint256 sumValidatorsUptime = 0;
-
+        
         for (uint256 i = 0; i < numberOfValidators; i++) {
-            if (isValidatorUptimeSet[epoch][operatorNodes[i]] == false) {
-                revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, operatorNodes[i]);
+            bytes32 validationID = validatorManager.registeredValidators(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
+            if (isValidatorUptimeSet[epoch][validationID] == false) {
+                revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, validationID);
             }
-            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][operatorNodes[i]];
+            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][validationID];
             sumValidatorsUptime += uptimeValidator;
         }
 
