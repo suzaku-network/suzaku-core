@@ -536,11 +536,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
-        // Check for too-old epoch: note that if Time.timestamp() < SLASHING_WINDOW this subtraction underflows.
-        if (epochStartTs > Time.timestamp() || epochStartTs < Time.timestamp() - SLASHING_WINDOW) {
-            revert AvalancheL1Middleware__EpochError(epochStartTs);
-        }
-
         uint256 length = operators.length();
 
         for (uint256 i; i < length; ++i) {
