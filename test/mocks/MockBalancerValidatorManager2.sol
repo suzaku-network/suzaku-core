@@ -20,6 +20,16 @@ contract MockBalancerValidatorManager {
         return validator;
     }
     
+    function registeredValidators(bytes memory nodeID) external pure returns (bytes32) {
+        if (nodeID.length == 32) {
+            return abi.decode(nodeID, (bytes32));
+        } else if (nodeID.length == 20) {
+            return bytes32(uint256(uint160(bytes20(nodeID))));
+        } else {
+            return keccak256(nodeID);
+        }
+    }
+
     function getL1ID() external pure returns (bytes32) {
         return bytes32(uint256(1));
     }

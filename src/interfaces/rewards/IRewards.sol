@@ -218,10 +218,16 @@ interface IRewards {
     event AdminRoleAssigned(address indexed newAdmin);
 
     /**
-     * @notice Emitted when a new protocol owner is set
-     * @param newProtocolOwner Address of the new protocol owner
+     * @notice Emitted when a new rewards manager role is assigned
+     * @param rewardsManager Address of the new rewards manager
      */
-    event ProtocolOwnerUpdated(address indexed newProtocolOwner);
+    event RewardsManagerRoleAssigned(address indexed rewardsManager);
+
+    /**
+     * @notice Emitted when a new rewards distributor role is assigned
+     * @param rewardsDistributor Address of the new rewards distributor
+     */
+    event RewardsDistributorRoleAssigned(address indexed rewardsDistributor);
 
     /**
      * @notice Emitted when the protocol fee is updated
@@ -270,6 +276,12 @@ interface IRewards {
         uint48 indexed epoch, address indexed rewardsToken, address indexed recipient, uint256 amount
     );
 
+    /**
+     * @notice Emitted when a new protocol owner is set
+     * @param newProtocolOwner Address of the new protocol owner
+     */
+    event ProtocolOwnerUpdated(address indexed newProtocolOwner);
+
     // ============================
     //         FUNCTIONS
     // ============================
@@ -312,7 +324,7 @@ interface IRewards {
 
     /**
      * @notice Claims undistributed rewards for a given epoch
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_DISTRIBUTOR_ROLE role
      * @param epoch Epoch for which undistributed rewards should be claimed
      * @param rewardsToken Address of the reward token
      * @param recipient Address receiving the undistributed rewards
@@ -320,12 +332,21 @@ interface IRewards {
     function claimUndistributedRewards(uint48 epoch, address rewardsToken, address recipient) external;
 
     /**
-     * @notice Grants the admin role to a new address
+     * @notice Grants the rewards manager role to a new address
      * @dev Only callable by an address with the DEFAULT_ADMIN_ROLE
-     * @param newAdmin Address to be granted the admin role
+     * @param newRewardsManager Address to be granted the rewards manager role
      */
-    function setAdminRole(
-        address newAdmin
+    function setRewardsManagerRole(
+        address newRewardsManager
+    ) external;
+
+    /**
+     * @notice Grants the rewards distributor role to a new address
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
+     * @param newRewardsDistributor Address to be granted the rewards distributor role
+     */
+    function setRewardsDistributorRole(
+        address newRewardsDistributor
     ) external;
 
     /**
@@ -339,7 +360,7 @@ interface IRewards {
 
     /**
      * @notice Sets a new minimum required uptime
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param uptime Uptime for an epoch in seconds
      */
     function setMinRequiredUptime(
@@ -348,7 +369,7 @@ interface IRewards {
 
     /**
      * @notice Updates the protocol fee percentage
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newFee New protocol fee percentage in basis points
      */
     function updateProtocolFee(
@@ -357,7 +378,7 @@ interface IRewards {
 
     /**
      * @notice Updates the operator fee percentage
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newFee New operator fee percentage in basis points
      */
     function updateOperatorFee(
@@ -366,7 +387,7 @@ interface IRewards {
 
     /**
      * @notice Updates the curator fee percentage
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newFee New curator fee percentage in basis points
      */
     function updateCuratorFee(
@@ -375,7 +396,7 @@ interface IRewards {
 
     /**
      * @notice Sets the rewards share percentage for a specific asset class
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param assetClassId ID of the asset class
      * @param rewardsPercentage New reward percentage in basis points
      */
@@ -383,7 +404,7 @@ interface IRewards {
 
     /**
      * @notice Sets the rewards amount for a range of epochs
-     * @dev Only callable by an address with the ADMIN_ROLE
+     * @dev Only callable by an address with the REWARDS_DISTRIBUTOR_ROLE role
      * @param startEpoch The starting epoch for which rewards should be set
      * @param numberOfEpochs The number of epochs for which the rewards should be applied
      * @param rewardsToken The address of the reward token

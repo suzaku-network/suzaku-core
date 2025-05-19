@@ -42,12 +42,13 @@ contract UptimeTracker is IUptimeTracker {
     mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
     constructor(
-        address payable l1Middleware_
+        address payable l1Middleware_,
+        bytes32 l1ChainID_
     ) {
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
         epochDuration = l1Middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(l1Middleware.L1_VALIDATOR_MANAGER());
-        l1ChainID = validatorManager.getL1ID();
+        l1ChainID = l1ChainID_;
     }
 
     /**
@@ -102,10 +103,10 @@ contract UptimeTracker is IUptimeTracker {
         // Determine how many full epochs have passed
         uint256 elapsedEpochs = elapsedTime / epochDuration;
 
-        // The uptime to distribute across the elapsed epochs
-        uint256 uptimeToDistribute = recordedUptime;
+        uint256 remainingUptime = recordedUptime > elapsedTime ? recordedUptime - elapsedTime : 0;
 
-        uint256 remainingUptime = uptimeToDistribute > elapsedTime ? uptimeToDistribute - elapsedTime : 0;
+        // The uptime to distribute across the elapsed epochs
+        uint256 uptimeToDistribute = recordedUptime - remainingUptime;
 
         // If the recorded uptime is greater than the elapsed time, carry over the excess uptime else reset it
         validatorLastUptimeCheckpoint[validationID] = LastUptimeCheckpoint({
@@ -119,6 +120,9 @@ contract UptimeTracker is IUptimeTracker {
             uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
             for (uint48 i = 0; i < elapsedEpochs; i++) {
                 uint48 epoch = lastUptimeEpoch + i;
+                if (isValidatorUptimeSet[epoch][validationID] == true) {
+                    break;
+                }
                 validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch; // Assign uptime to each epoch
                 isValidatorUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
             }
@@ -135,12 +139,13 @@ contract UptimeTracker is IUptimeTracker {
         uint256 numberOfValidators = operatorNodes.length;
         if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
         uint256 sumValidatorsUptime = 0;
-
+        
         for (uint256 i = 0; i < numberOfValidators; i++) {
-            if (isValidatorUptimeSet[epoch][operatorNodes[i]] == false) {
-                revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, operatorNodes[i]);
+            bytes32 validationID = validatorManager.registeredValidators(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
+            if (isValidatorUptimeSet[epoch][validationID] == false) {
+                revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, validationID);
             }
-            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][operatorNodes[i]];
+            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][validationID];
             sumValidatorsUptime += uptimeValidator;
         }
 

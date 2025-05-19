@@ -1876,6 +1876,43 @@ contract AvalancheL1MiddlewareTest is Test {
         
         middleware.calcAndCacheNodeStakeForAllOperators();
     }
+    
+    function test_CalculateStakeForNowOldEpoch_AfterSlashingCheckRemoval() public {
+        // Get initial epoch and asset class
+        uint48 epochToTest = middleware.getCurrentEpoch();
+        uint96 primaryAssetClass = middleware.PRIMARY_ASSET_CLASS();
+
+        // Cache initial stake
+        uint256 initialTotalStake = middleware.calcAndCacheStakes(epochToTest, primaryAssetClass);
+        assertTrue(middleware.totalStakeCached(epochToTest, primaryAssetClass), "Stake should be cached");
+        assertGt(initialTotalStake, 0, "Initial stake should be > 0");
+
+        // Get time parameters
+        uint48 slashingWindow = middleware.SLASHING_WINDOW();
+        uint48 epochDuration = middleware.EPOCH_DURATION();
+        assertTrue(epochDuration > 0, "Epoch duration must be positive");
+
+        // Advance time past slashing window
+        uint256 timeToAdvance = uint256(slashingWindow) + (uint256(epochDuration) * 5);
+        vm.warp(block.timestamp + timeToAdvance);
+
+        uint48 currentEpochAfterFarWarp = middleware.getCurrentEpoch();
+        uint48 epochToTestStartTs = middleware.getEpochStartTs(epochToTest);
+        
+        // Verify time advancement
+        assertTrue(currentEpochAfterFarWarp > epochToTest + (slashingWindow / epochDuration) + 3, "Time advanced enough");
+        assertTrue(epochToTestStartTs < block.timestamp - slashingWindow, "Epoch is old enough");
+
+        // Get stake for old epoch
+        uint256 totalStakeForOldEpoch = middleware.getTotalStake(epochToTest, primaryAssetClass);
+        assertEq(totalStakeForOldEpoch, initialTotalStake, "Stake matches initial value");
+        assertGt(totalStakeForOldEpoch, 0, "Stake is positive");
+
+        // Verify recalculation
+        uint256 recalcTotalStakeForOldEpoch = middleware.calcAndCacheStakes(epochToTest, primaryAssetClass);
+        assertEq(recalcTotalStakeForOldEpoch, initialTotalStake, "Recalculated stake matches");
+        assertTrue(middleware.totalStakeCached(epochToTest, primaryAssetClass), "Stake remains cached");
+    }
 
     ///////////////////////////////
     // INTERNAL HELPERS
