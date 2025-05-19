@@ -324,7 +324,7 @@ interface IRewards {
 
     /**
      * @notice Claims undistributed rewards for a given epoch
-     * @dev Only callable by an address with the REWARDS_DISTRIBUTOR role
+     * @dev Only callable by an address with the REWARDS_DISTRIBUTOR_ROLE role
      * @param epoch Epoch for which undistributed rewards should be claimed
      * @param rewardsToken Address of the reward token
      * @param recipient Address receiving the undistributed rewards
@@ -342,7 +342,7 @@ interface IRewards {
 
     /**
      * @notice Grants the rewards distributor role to a new address
-     * @dev Only callable by an address with the REWARDS_MANAGER role
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newRewardsDistributor Address to be granted the rewards distributor role
      */
     function setRewardsDistributorRole(
@@ -360,7 +360,7 @@ interface IRewards {
 
     /**
      * @notice Sets a new minimum required uptime
-     * @dev Only callable by an address with the REWARDS_MANAGER role
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param uptime Uptime for an epoch in seconds
      */
     function setMinRequiredUptime(
@@ -369,7 +369,7 @@ interface IRewards {
 
     /**
      * @notice Updates the protocol fee percentage
-     * @dev Only callable by an address with the REWARDS_MANAGER role
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newFee New protocol fee percentage in basis points
      */
     function updateProtocolFee(
@@ -378,7 +378,7 @@ interface IRewards {
 
     /**
      * @notice Updates the operator fee percentage
-     * @dev Only callable by an address with the REWARDS_MANAGER role
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newFee New operator fee percentage in basis points
      */
     function updateOperatorFee(
@@ -387,7 +387,7 @@ interface IRewards {
 
     /**
      * @notice Updates the curator fee percentage
-     * @dev Only callable by an address with the REWARDS_MANAGER role
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param newFee New curator fee percentage in basis points
      */
     function updateCuratorFee(
@@ -396,7 +396,7 @@ interface IRewards {
 
     /**
      * @notice Sets the rewards share percentage for a specific asset class
-     * @dev Only callable by an address with the REWARDS_MANAGER role
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param assetClassId ID of the asset class
      * @param rewardsPercentage New reward percentage in basis points
      */
@@ -404,7 +404,7 @@ interface IRewards {
 
     /**
      * @notice Sets the rewards amount for a range of epochs
-     * @dev Only callable by an address with the REWARDS_DISTRIBUTOR role
+     * @dev Only callable by an address with the REWARDS_DISTRIBUTOR_ROLE role
      * @param startEpoch The starting epoch for which rewards should be set
      * @param numberOfEpochs The number of epochs for which the rewards should be applied
      * @param rewardsToken The address of the reward token
