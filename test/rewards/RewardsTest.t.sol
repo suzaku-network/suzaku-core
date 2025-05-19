@@ -530,6 +530,10 @@ contract RewardsTest is Test {
         // Set staker balance in vault
         address vault = vaultManager.vaults(0);
         MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        
+        // Set total active shares
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
 
         // Distribute rewards
         test_distributeRewards(4 hours);
@@ -566,6 +570,11 @@ contract RewardsTest is Test {
         // Setup staker balance and distribute rewards
         address vault = vaultManager.vaults(0);
         MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        
+        // Set total active shares for the epoch timestamp
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+        
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
         test_distributeRewards(4 hours);
 
@@ -595,6 +604,11 @@ contract RewardsTest is Test {
         uint48 epoch = 1;
         address staker = makeAddr("Staker");
 
+        // Set up total shares but no staker balance
+        address vault = vaultManager.vaults(0);
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+
         // Distribute rewards but don't give staker any stake
         test_distributeRewards(4 hours);
 
@@ -613,6 +627,10 @@ contract RewardsTest is Test {
         // Give staker balance but don't distribute rewards
         address vault = vaultManager.vaults(0);
         MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        
+        // Set total active shares
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
 
         // Warp to next epoch
         vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
