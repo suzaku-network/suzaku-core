@@ -144,22 +144,34 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
             address[] memory vaults = _getStakerVaults(msg.sender, epoch);
             uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
+            uint256 epochRewards = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+
+            if (epochRewards == 0) continue;
 
             for (uint256 i = 0; i < vaults.length; i++) {
                 address vault = vaults[i];
                 uint256 vaultShare = vaultShares[epoch][vault];
                 if (vaultShare == 0) continue;
 
-                // Get staker's share of the vault
                 uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0));
+                if (stakerVaultShare == 0) continue;
 
-                uint256 stakerShare = Math.mulDiv(stakerVaultShare, vaultShare, BASIS_POINTS_DENOMINATOR);
-                if (stakerShare == 0) continue;
+                // Get total raw shares in this specific vault at that time
+                uint256 totalRawSharesInVault = IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0));
+                if (totalRawSharesInVault == 0) continue;
 
-                uint256 epochRewards = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
+                uint256 tokensForVault = Math.mulDiv(
+                    epochRewards,
+                    vaultShare,
+                    BASIS_POINTS_DENOMINATOR
+                );
 
-                // Calculate staker rewards after curator fee
-                uint256 rewards = Math.mulDiv(epochRewards, stakerShare, BASIS_POINTS_DENOMINATOR);
+                uint256 rewards = Math.mulDiv(
+                    tokensForVault,
+                    stakerVaultShare,
+                    totalRawSharesInVault
+                );
+                
                 totalRewards += rewards;
             }
         }
