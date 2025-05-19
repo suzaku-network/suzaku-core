@@ -23,7 +23,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
     // Constants
     uint16 public constant BASIS_POINTS_DENOMINATOR = 10_000;
-    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
+    bytes32 public constant REWARDS_MANAGER = keccak256("REWARDS_MANAGER");
     bytes32 public constant PROTOCOL_OWNER_ROLE = keccak256("PROTOCOL_OWNER_ROLE");
 
     // STATE VARIABLES
@@ -81,7 +81,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
-        _grantRole(ADMIN_ROLE, admin_);
+        _grantRole(REWARDS_MANAGER, admin_);
         _grantRole(PROTOCOL_OWNER_ROLE, protocolOwner_);
 
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
@@ -98,12 +98,13 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     // EXTERNAL FUNCTIONS
     // Distribution
     /// @inheritdoc IRewards
-    function distributeRewards(uint48 epoch, uint48 batchSize) external {
+    function distributeRewards(uint48 epoch, uint48 batchSize) external onlyRole(REWARDS_MANAGER) {
         DistributionBatch storage batch = distributionBatches[epoch];
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
 
         if (batch.isComplete) revert AlreadyCompleted(epoch);
-        if (epoch >= currentEpoch) revert RewardsDistributionTooEarly(epoch, currentEpoch - 1);
+        // We need to wait for 2 epochs before we can distribute rewards
+        if (epoch >= currentEpoch - 2) revert RewardsDistributionTooEarly(epoch, currentEpoch - 2);
 
         address[] memory operators = l1Middleware.getAllOperators();
         uint256 operatorCount = 0;
@@ -241,7 +242,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint48 epoch,
         address rewardsToken,
         address recipient
-    ) external onlyRole(ADMIN_ROLE) {
+    ) external onlyRole(REWARDS_MANAGER) {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
         // Check if epoch distribution is complete
@@ -298,7 +299,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint48 numberOfEpochs,
         address rewardsToken,
         uint256 rewardsAmount
-    ) external onlyRole(ADMIN_ROLE) {
+    ) external onlyRole(REWARDS_MANAGER) {
         if (rewardsToken == address(0)) {
             revert InvalidRewardsToken(rewardsToken);
         }
@@ -321,7 +322,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     /// @inheritdoc IRewards
-    function setRewardsShareForAssetClass(uint96 assetClass, uint16 share) external onlyRole(ADMIN_ROLE) {
+    function setRewardsShareForAssetClass(uint96 assetClass, uint16 share) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
         rewardsSharePerAssetClass[assetClass] = share;
         emit RewardsShareUpdated(assetClass, share);
@@ -330,17 +331,17 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function setMinRequiredUptime(
         uint256 newMinUptime
-    ) external onlyRole(ADMIN_ROLE) {
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newMinUptime > epochDuration) revert InvalidMinUptime(newMinUptime);
         minRequiredUptime = newMinUptime;
     }
 
     /// @inheritdoc IRewards
-    function setAdminRole(
+    function setRewardsManagerRole(
         address newAdmin
     ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newAdmin == address(0)) revert InvalidRecipient(newAdmin);
-        _grantRole(ADMIN_ROLE, newAdmin);
+        _grantRole(REWARDS_MANAGER, newAdmin);
         emit AdminRoleAssigned(newAdmin);
     }
 
@@ -356,7 +357,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function updateProtocolFee(
         uint16 newFee
-    ) external override onlyRole(ADMIN_ROLE) {
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
         protocolFee = newFee;
         emit ProtocolFeeUpdated(newFee);
@@ -365,7 +366,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function updateOperatorFee(
         uint16 newFee
-    ) external override onlyRole(ADMIN_ROLE) {
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
         operatorFee = newFee;
         emit OperatorFeeUpdated(newFee);
@@ -374,7 +375,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function updateCuratorFee(
         uint16 newFee
-    ) external override onlyRole(ADMIN_ROLE) {
+    ) external override onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
         curatorFee = newFee;
         emit CuratorFeeUpdated(newFee);

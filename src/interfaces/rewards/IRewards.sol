@@ -324,7 +324,7 @@ interface IRewards {
      * @dev Only callable by an address with the DEFAULT_ADMIN_ROLE
      * @param newAdmin Address to be granted the admin role
      */
-    function setAdminRole(
+    function setRewardsManagerRole(
         address newAdmin
     ) external;
 

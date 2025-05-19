@@ -20,7 +20,8 @@ import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 
 contract RewardsTest is Test {
     // EVENTS
-    event AdminRoleAssigned(address indexed newAdmin);
+    event AdminRoleAssigned(address indexed mewManager);
+    event RewardsManagerRoleAssigned(address indexed rewardsManager);
     event ProtocolOwnerUpdated(address indexed newProtocolOwner);
     event ProtocolFeeUpdated(uint16 newFee);
     event OperatorFeeUpdated(uint16 newFee);
@@ -34,7 +35,7 @@ contract RewardsTest is Test {
     // ROLES
     address immutable ADMIN = makeAddr("Admin");
     address immutable PROTOCOL_OWNER = makeAddr("Protocol owner");
-
+    address immutable REWARDS_MANAGER = makeAddr("Rewards manager");
     // MOCK CONTRACTS
     MockAvalancheL1Middleware public middleware;
     MockUptimeTracker public uptimeTracker;
@@ -87,11 +88,13 @@ contract RewardsTest is Test {
         );
         console2.log("Roles, fees, and contract dependencies initialized");
 
-        // create rewards token and mint supply to ADMIN
-        console2.log("Creating rewards token and minting supply to ADMIN...");
-        rewardsToken = new ERC20Mock();
-        rewardsToken.mint(ADMIN, 1_000_000 * 10 ** 18);
         vm.prank(ADMIN);
+        rewards.setRewardsManagerRole(REWARDS_MANAGER);
+        // create rewards token and mint supply to REWARDS_MANAGER
+        console2.log("Creating rewards token and minting supply to REWARDS_MANAGER...");
+        rewardsToken = new ERC20Mock();
+        rewardsToken.mint(REWARDS_MANAGER, 1_000_000 * 10 ** 18);
+        vm.prank(REWARDS_MANAGER);
         rewardsToken.approve(address(rewards), 1_000_000 * 10 ** 18);
 
         // Setup mock vaults
@@ -133,11 +136,12 @@ contract RewardsTest is Test {
         uint48 numberOfEpochs = 10;
         uint256 rewardsAmount = 100_000 * 10 ** 18;
 
-        vm.startPrank(ADMIN);
+        vm.startPrank(REWARDS_MANAGER);
         rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
         console2.log("Rewards distribution per epoch set");
 
         console2.log("Setting rewards share for asset classes...");
+        vm.startPrank(ADMIN);
         rewards.setRewardsShareForAssetClass(1, 5000); // 50% for primary
         rewards.setRewardsShareForAssetClass(2, 3000); // 30% for secondary 1
         rewards.setRewardsShareForAssetClass(3, 2000); // 20% for secondary 2
@@ -161,8 +165,9 @@ contract RewardsTest is Test {
         uint256 remainingOperators = operators.length;
 
         // Execute distribution in batches until all operators are processed
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
         while (remainingOperators > 0) {
+            vm.prank(REWARDS_MANAGER);
             rewards.distributeRewards(epoch, uint48(batchSize));
             remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
         }
@@ -203,7 +208,8 @@ contract RewardsTest is Test {
 
         // Process all operators in one large batch
         uint256 operatorCount = middleware.getAllOperators().length;
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, uint48(operatorCount));
 
         // Verify completion
@@ -228,7 +234,8 @@ contract RewardsTest is Test {
         uint256 batchSize = 2;
 
         // First batch
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, uint48(batchSize));
         (uint256 lastProcessed, bool isComplete) = rewards.distributionBatches(epoch);
         assertEq(lastProcessed, batchSize, "Should process exactly batchSize operators");
@@ -241,7 +248,8 @@ contract RewardsTest is Test {
 
         // Process all operators
         address[] memory operators = middleware.getAllOperators();
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, uint48(operators.length));
 
         // Verify completion flag
@@ -250,6 +258,7 @@ contract RewardsTest is Test {
 
         // Try to process again
         vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyCompleted.selector, epoch));
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, uint48(operators.length));
     }
 
@@ -262,7 +271,8 @@ contract RewardsTest is Test {
         uptimeTracker.setOperatorUptimePerEpoch(epoch, operators[0], 0);
 
         // Distribute rewards
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, 1);
 
         // Verify no shares for operator with zero uptime
@@ -285,7 +295,8 @@ contract RewardsTest is Test {
         middleware.setOperatorStake(epoch, operators[0], 3, 0);
 
         // Distribute rewards
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, 1);
 
         // Verify no shares for operator with zero stake
@@ -382,8 +393,9 @@ contract RewardsTest is Test {
         uint256 remainingOperators = operators.length;
 
         // Execute distribution in batches until all operators are processed
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
         while (remainingOperators > 0) {
+            vm.prank(REWARDS_MANAGER);
             rewards.distributeRewards(epoch, uint48(batchSize));
             remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
         }
@@ -548,6 +560,7 @@ contract RewardsTest is Test {
         // Setup staker balance and distribute rewards
         address vault = vaultManager.vaults(0);
         MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        vm.prank(REWARDS_MANAGER);
         test_distributeRewards(4 hours);
 
         // Warp to next epoch
@@ -612,7 +625,8 @@ contract RewardsTest is Test {
         MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
 
         // Only distribute partially
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, 1);
 
         // Warp to next epoch
@@ -634,13 +648,13 @@ contract RewardsTest is Test {
         vm.warp(block.timestamp + 3 * middleware.EPOCH_DURATION());
 
         // Record balances before claim
-        uint256 recipientBalanceBefore = rewardsToken.balanceOf(ADMIN);
+        uint256 recipientBalanceBefore = rewardsToken.balanceOf(REWARDS_MANAGER);
 
-        vm.prank(ADMIN);
-        rewards.claimUndistributedRewards(epoch, address(rewardsToken), ADMIN);
+        vm.prank(REWARDS_MANAGER);
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_MANAGER);
 
         // Verify rewards were transferred
-        uint256 recipientBalanceAfter = rewardsToken.balanceOf(ADMIN);
+        uint256 recipientBalanceAfter = rewardsToken.balanceOf(REWARDS_MANAGER);
         assertGt(recipientBalanceAfter, recipientBalanceBefore, "Should receive undistributed rewards");
 
         // Verify rewards amount was cleared
@@ -651,7 +665,7 @@ contract RewardsTest is Test {
     function test_claimUndistributedRewards_revert_InvalidRecipient() public {
         uint48 epoch = 1;
 
-        vm.prank(ADMIN);
+        vm.prank(REWARDS_MANAGER);
         vm.expectRevert(abi.encodeWithSelector(IRewards.InvalidRecipient.selector, address(0)));
         rewards.claimUndistributedRewards(epoch, address(rewardsToken), address(0));
     }
@@ -663,12 +677,13 @@ contract RewardsTest is Test {
         _setupStakes(epoch, 4 hours);
 
         // Only distribute partially
-        vm.warp((epoch + 2) * middleware.EPOCH_DURATION());
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_MANAGER);
         rewards.distributeRewards(epoch, 1);
 
-        vm.prank(ADMIN);
+        vm.prank(REWARDS_MANAGER);
         vm.expectRevert(abi.encodeWithSelector(IRewards.DistributionNotComplete.selector, epoch));
-        rewards.claimUndistributedRewards(epoch, address(rewardsToken), ADMIN);
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_MANAGER);
     }
 
     function test_claimUndistributedRewards_revert_EpochStillClaimable() public {
@@ -680,9 +695,9 @@ contract RewardsTest is Test {
         // Try to claim before 2 epochs have passed
         vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
 
-        vm.prank(ADMIN);
+        vm.prank(REWARDS_MANAGER);
         vm.expectRevert(abi.encodeWithSelector(IRewards.EpochStillClaimable.selector, epoch));
-        rewards.claimUndistributedRewards(epoch, address(rewardsToken), ADMIN);
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_MANAGER);
     }
 
     function test_claimUndistributedRewards_revert_NoUndistributedRewards() public {
@@ -694,9 +709,9 @@ contract RewardsTest is Test {
         // Warp to after claimable period
         vm.warp(block.timestamp + 3 * middleware.EPOCH_DURATION());
 
-        vm.prank(ADMIN);
-        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, ADMIN));
-        rewards.claimUndistributedRewards(epoch, address(rewardsToken), ADMIN);
+        vm.prank(REWARDS_MANAGER);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, REWARDS_MANAGER));
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_MANAGER);
     }
 
     function test_claimUndistributedRewards_revert_AlreadyClaimed() public {
@@ -709,13 +724,13 @@ contract RewardsTest is Test {
         vm.warp(block.timestamp + 3 * middleware.EPOCH_DURATION());
 
         // First claim
-        vm.prank(ADMIN);
-        rewards.claimUndistributedRewards(epoch, address(rewardsToken), ADMIN);
+        vm.prank(REWARDS_MANAGER);
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_MANAGER);
 
         // Try to claim again
-        vm.prank(ADMIN);
-        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, ADMIN));
-        rewards.claimUndistributedRewards(epoch, address(rewardsToken), ADMIN);
+        vm.prank(REWARDS_MANAGER);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, REWARDS_MANAGER));
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_MANAGER);
     }
 
     function test_claimRewardsForOtherParties() public {
@@ -756,19 +771,19 @@ contract RewardsTest is Test {
         vm.startPrank(ADMIN);
 
         // Check current admin
-        assertEq(rewards.hasRole(rewards.ADMIN_ROLE(), ADMIN), true);
+        assertEq(rewards.hasRole(rewards.REWARDS_MANAGER(), ADMIN), true);
 
-        address newAdmin = makeAddr("newAdmin");
+        address mewManager = makeAddr("mewManager");
 
         // Expect the AdminRoleAssigned event to be emitted with the new admin address
         vm.expectEmit(true, true, false, false, address(rewards));
-        emit AdminRoleAssigned(newAdmin);
+        emit AdminRoleAssigned(mewManager);
 
         // Change the admin role
-        rewards.setAdminRole(newAdmin);
+        rewards.setRewardsManagerRole(mewManager);
 
         // Verify the new admin role has been set
-        assertEq(rewards.hasRole(rewards.ADMIN_ROLE(), newAdmin), true);
+        assertEq(rewards.hasRole(rewards.REWARDS_MANAGER(), mewManager), true);
 
         vm.stopPrank();
     }
@@ -868,7 +883,6 @@ contract RewardsTest is Test {
     }
 
     function test_SetRewardsShareForAssetClass() public {
-        vm.startPrank(ADMIN);
 
         // Define the asset class ID and the new rewards percentage
         uint96 assetClassId = 1;
@@ -878,12 +892,11 @@ contract RewardsTest is Test {
         vm.expectEmit(true, true, false, false);
         emit RewardsShareUpdated(assetClassId, rewardsPercentage);
 
+        vm.prank(ADMIN);
         // Set the rewards share for the asset class
         rewards.setRewardsShareForAssetClass(assetClassId, rewardsPercentage);
 
         // Verify the new rewards share has been set
         assertEq(rewards.rewardsSharePerAssetClass(assetClassId), rewardsPercentage);
-
-        vm.stopPrank();
     }
 }
