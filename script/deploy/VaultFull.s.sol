@@ -55,28 +55,29 @@ contract VaultFull is Script {
 
         console2.log("Deploying core contracts...", vaultConfig.factoryConfig.vaultFactory);
 
-        // Whitelist VaultTokenized implementation
-        address vaultTokenizedImpl = address(new VaultTokenized(vaultConfig.factoryConfig.vaultFactory));
-        vaultFactory.whitelist(vaultTokenizedImpl);
-        console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
+        // Comment out if whitelist required. TODO: Move to factory scripts
+        // // Whitelist VaultTokenized implementation
+        // address vaultTokenizedImpl = address(new VaultTokenized(vaultConfig.factoryConfig.vaultFactory));
+        // vaultFactory.whitelist(vaultTokenizedImpl);
+        // console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
 
-        // Whitelist L1RestakeDelegator
-        address l1RestakeDelegatorImpl = address(
-            new L1RestakeDelegator(
-                vaultConfig.factoryConfig.l1Registry,
-                vaultConfig.factoryConfig.vaultFactory,
-                vaultConfig.factoryConfig.operatorVaultOptInService,
-                vaultConfig.factoryConfig.operatorL1OptInService,
-                vaultConfig.factoryConfig.delegatorFactory,
-                delegatorFactory.totalTypes()
-            )
-        );
-        delegatorFactory.whitelist(l1RestakeDelegatorImpl);
-        console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
+        // // Whitelist L1RestakeDelegator
+        // address l1RestakeDelegatorImpl = address(
+        //     new L1RestakeDelegator(
+        //         vaultConfig.factoryConfig.l1Registry,
+        //         vaultConfig.factoryConfig.vaultFactory,
+        //         vaultConfig.factoryConfig.operatorVaultOptInService,
+        //         vaultConfig.factoryConfig.operatorL1OptInService,
+        //         vaultConfig.factoryConfig.delegatorFactory,
+        //         delegatorFactory.totalTypes()
+        //     )
+        // );
+        // delegatorFactory.whitelist(l1RestakeDelegatorImpl);
+        // console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
 
-        console2.log("Initializing VaultTokenized with factory:", vaultConfig.factoryConfig.vaultFactory);
-        console2.log("Collateral:", vaultConfig.collateralAsset);
-        console2.log("Epoch Duration:", vaultConfig.epochDuration);
+        // console2.log("Initializing VaultTokenized with factory:", vaultConfig.factoryConfig.vaultFactory);
+        // console2.log("Collateral:", vaultConfig.collateralAsset);
+        // console2.log("Epoch Duration:", vaultConfig.epochDuration);
 
         // Build VaultTokenized.InitParams
         bytes memory vaultParams = abi.encode(
@@ -163,7 +164,7 @@ contract VaultFull is Script {
         // Set delegator in the vault - use the Admin Role Holder
         vm.startBroadcast(params.owner);
         VaultTokenized(vaultTokenized).setDelegator(delegator);
-        
+
         slasher;
         if (params.withSlasher) {
             slasher = slasherFactory.create(params.slasherIndex, abi.encode(vaultTokenized, params.slasherParams));
