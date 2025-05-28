@@ -395,7 +395,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (rebalancedThisEpoch[operator][currentEpoch]) {
             revert AvalancheL1Middleware__AlreadyRebalanced(operator, currentEpoch);
         }
-        rebalancedThisEpoch[operator][currentEpoch] = true;
 
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
@@ -423,6 +422,20 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         // We only handle the scenario newTotalStake < registeredStake, when removing stake
         leftoverStake = registeredStake - newTotalStake;
 
+        // The minimum stake that results in a weight change of at least 1
+        uint256 minMeaningfulStake = WEIGHT_SCALE_FACTOR;
+
+        if (leftoverStake < minMeaningfulStake) {
+            emit AllNodeStakesUpdated(operator, newTotalStake);
+            return;
+        }
+        // If limitStake is provided, ensure it's at least the minimum meaningful amount
+        if (limitStake > 0 && limitStake < minMeaningfulStake) {
+            revert AvalancheL1Middleware__LimitStakeTooLow(limitStake, minMeaningfulStake);
+        }
+
+        bool hasUpdatedAnyNode = false;
+
         for (uint256 i = length; i > 0 && leftoverStake > 0;) {
             i--;
             bytes32 nodeId = nodesArr[i];
@@ -445,8 +458,23 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             if (limitStake > 0 && stakeToRemove > limitStake) {
                 stakeToRemove = limitStake;
             }
+
+            if (stakeToRemove < minMeaningfulStake) {
+                continue;
+            }
+
             uint256 newStake = previousStake - stakeToRemove;
+            uint64 oldWeight = StakeConversion.stakeToWeight(previousStake, WEIGHT_SCALE_FACTOR);
+            uint64 newWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
+
+            // Skip this node if the weight wouldn't change (unless we're removing all stake)
+            if (oldWeight == newWeight && newStake > 0) {
+                continue;
+            }
+
             leftoverStake -= stakeToRemove;
+            hasUpdatedAnyNode = true;
+
 
             if (
                 (newStake < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake)
@@ -460,7 +488,14 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             }
         }
 
-        // Finally emit updated stake
+        if (!hasUpdatedAnyNode && leftoverStake >= minMeaningfulStake) {
+            revert AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(operator, leftoverStake);
+        }
+
+        if (hasUpdatedAnyNode) {
+            rebalancedThisEpoch[operator][currentEpoch] = true;
+        }
+        
         emit AllNodeStakesUpdated(operator, newTotalStake);
     }
 

@@ -50,6 +50,8 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__ManualEpochUpdateRequired(uint48 epochsPending, uint48 maxAutoUpdates);
     error AvalancheL1Middleware__NoEpochsToProcess();
     error AvalancheL1Middleware__TooManyEpochsRequested(uint48 requested, uint48 pending);
+    error AvalancheL1Middleware__LimitStakeTooLow(uint256 limitStake, uint256 minMeaningfulStake);
+    error AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(address operator, uint256 leftoverStake);
 
     // Events
     /**

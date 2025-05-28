@@ -1914,6 +1914,160 @@ contract AvalancheL1MiddlewareTest is Test {
         assertTrue(middleware.totalStakeCached(epochToTest, primaryAssetClass), "Stake remains cached");
     }
 
+    // function test_DustLimitStakeCausesFakeRebalancing() public {
+    //     address attacker = makeAddr("attacker");
+    //     address delegatedStaker = makeAddr("delegatedStaker");
+
+    //     _calcAndWarpOneEpoch();
+
+    //     // Step 1. First, give Alice a large allocation and create nodes
+    //     uint256 initialDeposit = 1000 ether;
+    //     (uint256 depositAmount, uint256 initialShares) = _deposit(delegatedStaker, initialDeposit);
+    //     console2.log("Initial deposit:", depositAmount);
+    //     console2.log("Initial shares:", initialShares);
+
+    //     // Set large L1 limit and give Alice all the shares initially
+    //     _setL1Limit(bob, validatorManagerAddress, assetClassId, depositAmount, delegator);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, initialShares, delegator);
+
+    //     // Step 2. Create nodes that will use this stake
+    //     // move to next epoch
+    //     _calcAndWarpOneEpoch();
+    //     (, bytes32[] memory validationIDs,) = 
+    //         _createAndConfirmNodes(alice, 2, 0, true);
+
+    //     uint48 epoch2 = _calcAndWarpOneEpoch();
+
+    //     // Verify nodes have the stake
+    //     uint256 totalNodeStake = 0;
+    //     for (uint i = 0; i < validationIDs.length; i++) {
+    //         uint256 nodeStake = middleware.getNodeStake(epoch2, validationIDs[i]);
+    //         totalNodeStake += nodeStake;
+    //         console2.log("Node", i, "stake:", nodeStake);
+    //     }
+    //     console2.log("Total stake in nodes:", totalNodeStake); 
+
+    //     uint256 operatorTotalStake = middleware.getOperatorStake(alice, epoch2, assetClassId);
+    //     uint256 operatorUsedStake = middleware.getOperatorUsedStakeCached(alice);
+    //     console2.log("Operator total stake (from delegation):", operatorTotalStake);
+    //     console2.log("Operator used stake (in nodes):", operatorUsedStake);
+
+    //     // Step 3. Delegated staker withdraws, reducing Alice's available stake
+    //     console2.log("\n--- Delegated staker withdrawing 60% ---");
+    //     uint256 withdrawAmount = (initialDeposit * 60) / 100; // 600 ether
+    //     vm.startPrank(delegatedStaker);
+    //     (uint256 burnedShares, ) = vault.withdraw(delegatedStaker, withdrawAmount);
+    //     vm.stopPrank();        
+
+    //     console2.log("Withdrawn amount:", withdrawAmount);
+    //     console2.log("Burned shares:", burnedShares);
+    //     console2.log("Remaining shares for Alice:", initialShares - burnedShares);
+
+    //     // Step 4. Reduce Alice's operator shares to reflect the withdrawal
+    //     uint256 newOperatorShares = initialShares - burnedShares;
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, newOperatorShares, delegator);
+
+    //     console2.log("Updated Alice's operator shares to:", newOperatorShares);
+        
+    //     // Step 5. Move to next epoch - this creates the imbalance
+    //     uint48 epoch3  = _calcAndWarpOneEpoch();
+
+    //     uint256 newOperatorTotalStake = middleware.getOperatorStake(alice, epoch3, assetClassId);
+    //     uint256 currentUsedStake = middleware.getOperatorUsedStakeCached(alice);
+
+    //     console2.log("\n--- After withdrawal (imbalance created) ---");
+    //     console2.log("Alice's new total stake (reduced):", newOperatorTotalStake);
+    //     console2.log("Alice's used stake (still in nodes):", currentUsedStake);                
+
+    //     // Step 6. Attacker prevents legitimate rebalancing
+    //     console2.log("\n--- ATTACKER PREVENTS REBALANCING ---");
+
+    //     // Move to final window where forceUpdateNodes can be called
+    //     _warpToLastHourOfCurrentEpoch();
+        
+    //     // Attacker front-runs with dust limitStake attack
+    //     console2.log("Attacker executing dust forceUpdateNodes...");
+    //     vm.prank(attacker);
+    //     middleware.forceUpdateNodes(alice, 1); // 1 wei - minimal removal
+
+    //     // Check if any meaningful stake was actually removed
+    //     uint256 stakeAfterDustAttack = middleware.getOperatorUsedStakeCached(alice);
+    //     console2.log("Used stake after dust attack:", stakeAfterDustAttack);
+
+    //     uint256 actualRemoved = currentUsedStake > stakeAfterDustAttack ? 
+    //         currentUsedStake - stakeAfterDustAttack : 0;
+    //     console2.log("Stake actually removed by dust attack:", actualRemoved);   
+
+    //     // The key issue: minimal stake removed, but still excess remains
+    //     uint256 remainingExcess = stakeAfterDustAttack > newOperatorTotalStake ?
+    //         stakeAfterDustAttack - newOperatorTotalStake : 0;
+    //     console2.log("REMAINING EXCESS after dust attack:", remainingExcess);
+
+    //     // 7. Try legitimate rebalancing - should be blocked
+    //     console2.log("\n--- Attempting legitimate rebalancing ---");
+    //     vm.expectRevert(); // Should revert with AvalancheL1Middleware__AlreadyRebalanced
+    //     middleware.forceUpdateNodes(alice, 0); // Proper rebalancing with no limit
+    //     console2.log("Legitimate rebalancing blocked by AlreadyRebalanced");                                     
+    // }
+    
+    function test_DustLimitStakeCausesFakeRebalancingFix() public {
+        address attacker = makeAddr("attacker");
+        address delegatedStaker = makeAddr("delegatedStaker");
+
+        _calcAndWarpOneEpoch();
+
+        // Setup initial stake and nodes
+        uint256 initialDeposit = 1000 ether;
+        (uint256 depositAmount, uint256 initialShares) = _deposit(delegatedStaker, initialDeposit);
+
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositAmount, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, initialShares, delegator);
+
+        _calcAndWarpOneEpoch();
+        (, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 2, 0, true);
+
+        uint48 epoch2 = _calcAndWarpOneEpoch();
+
+        // Verify node stakes
+        uint256 totalNodeStake = 0;
+        for (uint i = 0; i < validationIDs.length; i++) {
+            uint256 nodeStake = middleware.getNodeStake(epoch2, validationIDs[i]);
+            totalNodeStake += nodeStake;
+        }
+
+        middleware.getOperatorStake(alice, epoch2, assetClassId);
+        middleware.getOperatorUsedStakeCached(alice);
+
+        // Withdraw and update operator shares
+        uint256 withdrawAmount = (initialDeposit * 60) / 100;
+        vm.startPrank(delegatedStaker);
+        (uint256 burnedShares, ) = vault.withdraw(delegatedStaker, withdrawAmount);
+        vm.stopPrank();        
+
+        uint256 newOperatorShares = initialShares - burnedShares;
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, newOperatorShares, delegator);
+        
+        uint48 epoch3 = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint256 newOperatorTotalStake = middleware.getOperatorStake(alice, epoch3, assetClassId);
+        uint256 currentUsedStake = middleware.getOperatorUsedStakeCached(alice);
+
+        // Verify excess stake scenario
+        assertGt(newOperatorTotalStake, currentUsedStake, "Setup creates excess available stake");
+
+        _warpToLastHourOfCurrentEpoch();
+        
+        // Test forceUpdateNodes behavior with excess stake
+        vm.prank(attacker);
+        middleware.forceUpdateNodes(alice, 1);
+        
+        assertFalse(middleware.rebalancedThisEpoch(alice, epoch3), "No rebalancing flag set for excess stake");
+        
+        middleware.forceUpdateNodes(alice, 0);
+        assertFalse(middleware.rebalancedThisEpoch(alice, epoch3), "Still no rebalancing flag");
+    }
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////
