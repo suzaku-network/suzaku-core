@@ -39,6 +39,7 @@ import {MockVaultTokenizedV2} from "../mocks/MockVaultTokenizedV2.sol";
 
 // import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ExtendedCheckpoints} from "../../src/contracts/libraries/Checkpoints.sol";
 
 // import {VaultHints} from "../../src/contracts/hints/VaultHints.sol";
 // import {Subl1} from "../../src/contracts/libraries/Subl1.sol";
@@ -3281,4 +3282,40 @@ contract VaultTokenizedTest is Test {
     //     delegator.setMaxL1Limit(identifier, amount);
     //     vm.stopPrank();
     // }
+}
+
+
+contract CheckpointsBugTest is Test {
+    using ExtendedCheckpoints for ExtendedCheckpoints.Trace256;
+
+    ExtendedCheckpoints.Trace256 internal trace;
+
+    function setUp() public {
+        // Initialize the trace with some checkpoints
+        trace.push(100, 1000); // timestamp 100, value 1000
+        trace.push(200, 2000); // timestamp 200, value 2000
+        trace.push(300, 3000); // timestamp 300, value 3000
+    }
+
+    function test_upperLookupRecentCheckpoint_withoutHint_works() public view {
+        // Test without hint - this should work correctly
+        (bool exists, uint48 key, uint256 value, uint32 pos) = trace.upperLookupRecentCheckpoint(150);
+        
+        assertTrue(exists, "Checkpoint should exist");
+        assertEq(key, 100, "Key should be 100");
+        assertEq(value, 1000, "Value should be 1000");
+        assertEq(pos, 0, "Position should be 0");
+    }
+
+    // This test demonstrates the bug when using a valid hint
+    function test_upperLookupRecentCheckpoint_withValidHint_demonstratesBug() public view {
+        
+        // First, let's get the correct hint (position 0)
+        uint32 validHint = 0;
+        bytes memory hintBytes = abi.encode(validHint);
+        
+        // Call with hint - this will fail due to the bug
+        trace.upperLookupRecentCheckpoint(150, hintBytes);
+    }
+
 }
