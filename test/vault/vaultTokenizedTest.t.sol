@@ -1891,9 +1891,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1);
         // total shares = mintedShares1
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1);
-        // alice’s shares = mintedShares1
+        // alice's shares = mintedShares1
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1);
-        // alice’s active balance = amount1
+        // alice's active balance = amount1
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1);
 
         // 7.3) Check exactly at timeDeposit2 (just after deposit#2)
@@ -1902,9 +1902,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1 + amount2);
         // total shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1 + mintedShares2);
-        // alice’s shares = mintedShares1 + mintedShares2
+        // alice's shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1 + mintedShares2);
-        // alice’s active balance = amount1 + amount2
+        // alice's active balance = amount1 + amount2
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1 + amount2);
 
         // 7.4) Check exactly at timeWithdraw (just after withdraw of amount3)
@@ -1917,7 +1917,7 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), expectedStake);
         assertEq(vault.activeSharesAt(queryT, ""), expectedShares);
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), expectedShares);
-        // alice’s balance = (amount1 + amount2) - amount3
+        // alice's balance = (amount1 + amount2) - amount3
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), expectedStake);
     }
 
@@ -2774,6 +2774,7 @@ contract VaultTokenizedTest is Test {
 
         return VaultTokenized(vaultAddress);
     }
+    
 
     // function _getVaultAndDelegatorAndSlasher(
     //     uint48 epochDuration
@@ -2840,6 +2841,47 @@ contract VaultTokenizedTest is Test {
     //     l1MiddlewareService.setMiddleware(middleware);
     //     vm.stopPrank();
     // }
+
+
+  // This demonstrates that when the vault is created with depositWhitelist=true
+     // and depositWhitelistSetRoleHolder set but depositorWhitelistRoleHolder NOT set,
+     // no deposits can be made until whitelist is turned off, because no one can add
+     // addresses to the whitelist.
+    function test_WhitelistInconsistency() public {
+        // Attempt to create a vault with inconsistent whitelist configuration should fail
+        uint64 lastVersion = vaultFactory.lastVersion();
+        
+        // configuration:
+        // 1. depositWhitelist = true (whitelist is enabled)
+        // 2. depositWhitelistSetRoleHolder = alice (someone can toggle whitelist)
+        // 3. depositorWhitelistRoleHolder = address(0) (no one can add to whitelist)
+        // This should trigger Vault__InconsistentRoles error
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
+        vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 7 days, 
+                    depositWhitelist: true, // Whitelist ENABLED
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: address(0), // No default admin
+                    depositWhitelistSetRoleHolder: alice, // Alice can toggle whitelist
+                    depositorWhitelistRoleHolder: address(0), // No one can add to whitelist - INCONSISTENT!
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+    }
+
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
         vm.startPrank(user);

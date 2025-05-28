@@ -158,6 +158,19 @@ contract VaultTokenized is
                 }
             }
 
+            if (params.depositWhitelist && 
+                params.depositWhitelistSetRoleHolder != address(0) && 
+                params.depositorWhitelistRoleHolder == address(0)) {
+                revert Vault__InconsistentRoles();
+            }
+
+            if (params.isDepositLimit && 
+                params.depositLimit == 0 && 
+                params.isDepositLimitSetRoleHolder != address(0) && 
+                params.depositLimitSetRoleHolder == address(0)) {
+                revert Vault__InconsistentRoles();
+            }
+            
             if (params.isDepositLimitSetRoleHolder == address(0)) {
                 if (params.isDepositLimit) {
                     if (params.depositLimit == 0 && params.depositLimitSetRoleHolder == address(0)) {
