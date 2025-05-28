@@ -1891,9 +1891,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1);
         // total shares = mintedShares1
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1);
-        // alice's shares = mintedShares1
+        // alice’s shares = mintedShares1
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1);
-        // alice's active balance = amount1
+        // alice’s active balance = amount1
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1);
 
         // 7.3) Check exactly at timeDeposit2 (just after deposit#2)
@@ -1902,9 +1902,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1 + amount2);
         // total shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1 + mintedShares2);
-        // alice's shares = mintedShares1 + mintedShares2
+        // alice’s shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1 + mintedShares2);
-        // alice's active balance = amount1 + amount2
+        // alice’s active balance = amount1 + amount2
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1 + amount2);
 
         // 7.4) Check exactly at timeWithdraw (just after withdraw of amount3)
@@ -1917,7 +1917,7 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), expectedStake);
         assertEq(vault.activeSharesAt(queryT, ""), expectedShares);
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), expectedShares);
-        // alice's balance = (amount1 + amount2) - amount3
+        // alice’s balance = (amount1 + amount2) - amount3
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), expectedStake);
     }
 
@@ -2847,15 +2847,79 @@ contract VaultTokenizedTest is Test {
      // and depositWhitelistSetRoleHolder set but depositorWhitelistRoleHolder NOT set,
      // no deposits can be made until whitelist is turned off, because no one can add
      // addresses to the whitelist.
-    function test_WhitelistInconsistency() public {
-        // Attempt to create a vault with inconsistent whitelist configuration should fail
+    // function test_WhitelistInconsistency() public {
+    //     // Create a vault with whitelisting enabled but no way to add addresses to the whitelist
+    //     uint64 lastVersion = vaultFactory.lastVersion();
+        
+    //     // configuration:
+    //     // 1. depositWhitelist = true (whitelist is enabled)
+    //     // 2. depositWhitelistSetRoleHolder = alice (someone can toggle whitelist)
+    //     // 3. depositorWhitelistRoleHolder = address(0) (no one can add to whitelist)
+    //     address vaultAddress = vaultFactory.create(
+    //         lastVersion,
+    //         alice,
+    //         abi.encode(
+    //             IVaultTokenized.InitParams({
+    //                 collateral: address(collateral),
+    //                 burner: address(0xdEaD),
+    //                 epochDuration: 7 days, 
+    //                 depositWhitelist: true, // Whitelist ENABLED
+    //                 isDepositLimit: false,
+    //                 depositLimit: 0,
+    //                 defaultAdminRoleHolder: address(0), // No default admin
+    //                 depositWhitelistSetRoleHolder: alice, // Alice can toggle whitelist
+    //                 depositorWhitelistRoleHolder: address(0), // No one can add to whitelist
+    //                 isDepositLimitSetRoleHolder: alice,
+    //                 depositLimitSetRoleHolder: alice,
+    //                 name: "Test",
+    //                 symbol: "TEST"
+    //             })
+    //         ),
+    //         address(delegatorFactory),
+    //         address(slasherFactory)
+    //     );
+
+    //     vault = VaultTokenized(vaultAddress);
+        
+    //     assertEq(vault.depositWhitelist(), true);
+    //     assertEq(vault.hasRole(vault.DEPOSIT_WHITELIST_SET_ROLE(), alice), true);
+    //     assertEq(vault.hasRole(vault.DEPOSITOR_WHITELIST_ROLE(), address(0)), false);
+    //     assertEq(vault.isDepositorWhitelisted(alice), false);
+    //     assertEq(vault.isDepositorWhitelisted(bob), false);
+        
+    //     // Step 1: Try to make a deposit as bob - should fail because whitelist is on
+    //     // and bob is not whitelisted
+    //     collateral.transfer(bob, 100 ether);
+    //     vm.startPrank(bob);
+    //     collateral.approve(address(vault), 100 ether);
+    //     vm.expectRevert(IVaultTokenized.Vault__NotWhitelistedDepositor.selector);
+    //     vault.deposit(bob, 100 ether);
+    //     vm.stopPrank();
+        
+    //     // Step 2: Alice tries to add bob to the whitelist - should fail because
+    //     // she has the role to toggle whitelist but not to add addresses to it
+    //     vm.startPrank(alice);
+    //     vm.expectRevert(); // Access control error (alice doesn't have DEPOSITOR_WHITELIST_ROLE)
+    //     vault.setDepositorWhitelistStatus(bob, true);
+    //     vm.stopPrank();
+        
+    //     // Step 3: Alice tries to turn off whitelist (which she can do)
+    //     vm.startPrank(alice);
+    //     vault.setDepositWhitelist(false);
+    //     vm.stopPrank();
+        
+    //     // Step 4: Now bob should be able to deposit
+    //     vm.startPrank(bob);
+    //     vault.deposit(bob, 100 ether);
+    //     vm.stopPrank();
+        
+    //     // Verify final state
+    //     assertEq(vault.activeBalanceOf(bob), 100 ether);        
+    // }
+
+    function test_WhitelistConsistencyFix() public {
         uint64 lastVersion = vaultFactory.lastVersion();
         
-        // configuration:
-        // 1. depositWhitelist = true (whitelist is enabled)
-        // 2. depositWhitelistSetRoleHolder = alice (someone can toggle whitelist)
-        // 3. depositorWhitelistRoleHolder = address(0) (no one can add to whitelist)
-        // This should trigger Vault__InconsistentRoles error
         vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
         vaultFactory.create(
             lastVersion,
@@ -2865,12 +2929,12 @@ contract VaultTokenizedTest is Test {
                     collateral: address(collateral),
                     burner: address(0xdEaD),
                     epochDuration: 7 days, 
-                    depositWhitelist: true, // Whitelist ENABLED
+                    depositWhitelist: true,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: address(0), // No default admin
-                    depositWhitelistSetRoleHolder: alice, // Alice can toggle whitelist
-                    depositorWhitelistRoleHolder: address(0), // No one can add to whitelist - INCONSISTENT!
+                    defaultAdminRoleHolder: address(0),
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: address(0),
                     isDepositLimitSetRoleHolder: alice,
                     depositLimitSetRoleHolder: alice,
                     name: "Test",
@@ -2881,6 +2945,110 @@ contract VaultTokenizedTest is Test {
             address(slasherFactory)
         );
     }
+
+
+//   // This demonstrates that when the vault is created with isDepositLimitSetRoleHolder
+//     // set but depositLimitSetRoleHolder NOT set,
+//     // deposit limit is enabled but no one can set the limit.
+//     function test_DepositLimitInconsistency() public {
+//         // Create a vault with deposit limit enabled but no way to change the limit
+//         uint64 lastVersion = vaultFactory.lastVersion();
+        
+//         // configuration:
+//         // 1. isDepositLimit = true (deposit limit is enabled)
+//         // 2. depositLimit = 0 (zero limit)
+//         // 3. isDepositLimitSetRoleHolder = alice (alice can toggle the feature)
+//         // 4. depositLimitSetRoleHolder = address(0) (no one can set the limit)
+//         address vaultAddress = vaultFactory.create(
+//             lastVersion,
+//             alice,
+//             abi.encode(
+//                 IVaultTokenized.InitParams({
+//                     collateral: address(collateral),
+//                     burner: address(0xdEaD),
+//                     epochDuration: 7 days, 
+//                     depositWhitelist: false,
+//                     isDepositLimit: true, // Deposit limit ENABLED
+//                     depositLimit: 0, // Zero limit
+//                     defaultAdminRoleHolder: address(0), // No default admin
+//                     depositWhitelistSetRoleHolder: alice,
+//                     depositorWhitelistRoleHolder: alice,
+//                     isDepositLimitSetRoleHolder: alice, // Alice can toggle limit feature
+//                     depositLimitSetRoleHolder: address(0), // No one can set the limit
+//                     name: "Test",
+//                     symbol: "TEST"
+//                 })
+//             ),
+//             address(delegatorFactory),
+//             address(slasherFactory)
+//         );
+
+//         vault = VaultTokenized(vaultAddress);
+        
+//         // Verify initial state
+//         assertEq(vault.isDepositLimit(), true);
+//         assertEq(vault.depositLimit(), 0);
+//         assertEq(vault.hasRole(vault.IS_DEPOSIT_LIMIT_SET_ROLE(), alice), true);
+//         assertEq(vault.hasRole(vault.DEPOSIT_LIMIT_SET_ROLE(), address(0)), false);
+        
+//         // Step 1: Try to make a deposit - should fail because limit is 0
+//         collateral.transfer(bob, 100 ether);
+//         vm.startPrank(bob);
+//         collateral.approve(address(vault), 100 ether);
+//         vm.expectRevert(IVaultTokenized.Vault__DepositLimitReached.selector);
+//         vault.deposit(bob, 100 ether);
+//         vm.stopPrank();
+        
+//         // Step 2: Alice tries to set a deposit limit - should fail because
+//         // she can toggle the feature but not set the limit
+//         vm.startPrank(alice);
+//         vm.expectRevert(); // Access control error
+//         vault.setDepositLimit(1000 ether);
+//         vm.stopPrank();
+        
+//         // Step 3: Alice turns off the deposit limit feature
+//         vm.startPrank(alice);
+//         vault.setIsDepositLimit(false);
+//         vm.stopPrank();
+        
+//         // Step 4: Now bob should be able to deposit
+//         vm.startPrank(bob);
+//         vault.deposit(bob, 100 ether);
+//         vm.stopPrank();
+        
+//         // Verify final state
+//         assertEq(vault.activeBalanceOf(bob), 100 ether);
+//     }
+
+    function test_DepositLimitInconsistencyFix() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+        
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
+        vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 7 days, 
+                    depositWhitelist: false,
+                    isDepositLimit: true, // Deposit limit ENABLED
+                    depositLimit: 0, // Zero limit
+                    defaultAdminRoleHolder: address(0), // No default admin
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice, // Alice can toggle limit feature
+                    depositLimitSetRoleHolder: address(0), // No one can set the limit
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+    }
+
 
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
