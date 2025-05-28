@@ -91,6 +91,7 @@ contract VaultTokenizedTest is Test {
         operatorRegistry = new OperatorRegistry();
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultImpl);
+        
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
             address(vaultFactory), // whereRegistry
@@ -1891,9 +1892,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1);
         // total shares = mintedShares1
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1);
-        // alice’s shares = mintedShares1
+        // alice's shares = mintedShares1
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1);
-        // alice’s active balance = amount1
+        // alice's active balance = amount1
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1);
 
         // 7.3) Check exactly at timeDeposit2 (just after deposit#2)
@@ -1902,9 +1903,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1 + amount2);
         // total shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1 + mintedShares2);
-        // alice’s shares = mintedShares1 + mintedShares2
+        // alice's shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1 + mintedShares2);
-        // alice’s active balance = amount1 + amount2
+        // alice's active balance = amount1 + amount2
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1 + amount2);
 
         // 7.4) Check exactly at timeWithdraw (just after withdraw of amount3)
@@ -1917,7 +1918,7 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), expectedStake);
         assertEq(vault.activeSharesAt(queryT, ""), expectedShares);
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), expectedShares);
-        // alice’s balance = (amount1 + amount2) - amount3
+        // alice's balance = (amount1 + amount2) - amount3
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), expectedStake);
     }
 
@@ -3049,7 +3050,98 @@ contract VaultTokenizedTest is Test {
         );
     }
 
+    // function test_BlacklistDoesNotBlockMigration() public {
+    //     address mockVaultV2Impl = address(new MockVaultTokenizedV2(address(vaultFactory)));
+    //     vaultFactory.whitelist(mockVaultV2Impl);
+    //     // First, create a vault with version 1
+    //     address vaultAddress = vaultFactory.create(
+    //         1, // version
+    //         alice,
+    //         abi.encode(
+    //             IVaultTokenized.InitParams({
+    //                 collateral: address(collateral),
+    //                 burner: address(0xdEaD),
+    //                 epochDuration: 7 days,
+    //                 depositWhitelist: false,
+    //                 isDepositLimit: false,
+    //                 depositLimit: 0,
+    //                 defaultAdminRoleHolder: alice,
+    //                 depositWhitelistSetRoleHolder: alice,
+    //                 depositorWhitelistRoleHolder: alice,
+    //                 isDepositLimitSetRoleHolder: alice,
+    //                 depositLimitSetRoleHolder: alice,
+    //                 name: "Test",
+    //                 symbol: "TEST"
+    //             })
+    //         ),
+    //         address(delegatorFactory), 
+    //         address(slasherFactory)  
+    //     );
+        
+    //     vault = VaultTokenized(vaultAddress);
+        
+    //     // Verify initial version
+    //     assertEq(vault.version(), 1);
+        
+    //     // Blacklist version 2
+    //     vaultFactory.blacklist(2);
+        
+    //     // Despite version 2 being blacklisted, we can still migrate to it!
+    //     vm.prank(alice);
+    //     // This should revert if blacklist was properly enforced, but it won't
+    //     vaultFactory.migrate(address(vault), 2, abi.encode(20));
+        
+    //     // Verify the vault is now at version 2, despite it being blacklisted
+    //     assertEq(vault.version(), 2);
 
+    //     // set the value of b inside MockVaultTokenizedV2 as 20
+    //     assertEq(
+    //         MockVaultTokenizedV2(address(vault)).version2State(),
+    //         20);
+    // }
+
+    function test_BlacklistDoesNotBlockMigrationFix() public {
+        address mockVaultV2Impl = address(new MockVaultTokenizedV2(address(vaultFactory)));
+        vaultFactory.whitelist(mockVaultV2Impl);
+        address vaultAddress = vaultFactory.create(
+            1,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 7 days,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: alice,
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory), 
+            address(slasherFactory)  
+        );
+        
+        vault = VaultTokenized(vaultAddress);
+        assertEq(vault.version(), 1);
+        
+        vaultFactory.blacklist(2);
+        
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("MigratableFactory__VersionBlacklisted()"));
+        vaultFactory.migrate(address(vault), 2, abi.encode(20));
+        
+        // Verify the vault is still at version 1 since migration failed
+        assertEq(vault.version(), 1);
+        
+        // Since migration failed, the vault is still version 1 and doesn't have version2State()
+        // We can't call MockVaultTokenizedV2 functions on a version 1 vault
+    }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
         vm.startPrank(user);
