@@ -21,23 +21,23 @@ Suzaku Core contracts are inspired by [Symbiotic Core contracts](https://github.
 | [L1Registry](./src/contracts/L1Registry.sol)               | [NetworkRegistry](https://github.com/symbioticfi/core/blob/main/src/contracts/NetworkRegistry.sol)   |
 | [OperatorRegistry](./src/interfaces/IOperatorRegistry.sol) | [OperatorRegistry](https://github.com/symbioticfi/core/blob/main/src/contracts/OperatorRegistry.sol) |
 
-### Collateral
+## Collateral
 
 **Collateral** is a concept introduced by [Symbiotic](https://symbiotic.fi) that brings capital efficiency and scale by enabling assets used to secure networks to be held outside of the restaking protocol itself - e.g. in DeFi positions on networks other than Ethereum itself.
 
 The Collateral interface can be found [here](./src/interfaces/ICollateral.sol).
 
-## Default Collateral
+### Default Collateral
 
 Default Collateral is a simple version of Collateral that has an instant debt repayment, which supports only non-rebase underlying assets.
 
 The implementation can be found [here](./src/contracts/defaultCollateral).
 
-## Security
+### Security
 
 Security audits can be found in the [symbioticfi/collateral](https://github.com/symbioticfi/collateral/tree/main/audits) repository.
 
-## Usage
+### Usage
 
 ### Env
 
