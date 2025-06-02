@@ -2525,6 +2525,43 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(activeNodes_A_E2.length, 0, "Operator A should have 0 active nodes in E2");
     }
 
+
+    // function test_changeVaultManager() public {
+    //     // Move forward to let the vault roll epochs
+    //     uint48 epoch = _calcAndWarpOneEpoch();
+
+    //     uint256 operatorStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     console2.log("Operator stake (epoch", epoch, "):", operatorStake);
+    //     assertGt(operatorStake, 0);
+
+    //     MiddlewareVaultManager vaultManager2 = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
+
+    //     vm.startPrank(validatorManagerAddress);
+    //     middleware.setVaultManager(address(vaultManager2));
+    //     vm.stopPrank();
+
+    //     uint256 operatorStake2 = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     console2.log("Operator stake (epoch", epoch, "):", operatorStake2);
+    //     assertEq(operatorStake2, 0);
+    // }
+
+    function test_changeVaultManagerFix() public {
+        // Move forward to let the vault roll epochs
+        uint48 epoch = _calcAndWarpOneEpoch();
+
+        uint256 operatorStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        console2.log("Operator stake (epoch", epoch, "):", operatorStake);
+        assertGt(operatorStake, 0);
+
+        MiddlewareVaultManager vaultManager2 = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
+
+        vm.startPrank(validatorManagerAddress);
+        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__VaultManagerAlreadySet.selector, address(vaultManager)));
+        middleware.setVaultManager(address(vaultManager2));
+        vm.stopPrank();
+    }
+
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////

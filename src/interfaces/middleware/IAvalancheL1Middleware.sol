@@ -53,6 +53,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__LimitStakeTooLow(uint256 limitStake, uint256 minMeaningfulStake);
     error AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(address operator, uint256 leftoverStake);
     error AvalancheL1Middleware__CannotCacheFutureEpoch(uint48 epoch);
+    error AvalancheL1Middleware__VaultManagerAlreadySet(address vaultManager);
 
     // Events
     /**

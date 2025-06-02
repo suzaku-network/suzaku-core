@@ -61,10 +61,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
     uint48 public constant MAX_AUTO_EPOCH_UPDATES = 1;
-
     MiddlewareVaultManager private vaultManager;
     EnumerableMap.AddressToUintMap private operators;
     EnumerableSet.UintSet private secondaryAssetClasses;
+    bool private vaultManagerSet;
 
     BalancerValidatorManager public balancerValidatorManager;
 
@@ -192,9 +192,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function setVaultManager(
         address vaultManager_
     ) external onlyOwner {
+        if (vaultManagerSet) {
+            revert AvalancheL1Middleware__VaultManagerAlreadySet(address(vaultManager));
+        }
         if (vaultManager_ == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress("vaultManager");
         }
+        vaultManagerSet = true;
         emit VaultManagerUpdated(address(vaultManager), vaultManager_);
         vaultManager = MiddlewareVaultManager(vaultManager_);
     }
@@ -1036,11 +1040,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             Validator memory validator = balancerValidatorManager.getValidator(validationID);
 
             // Skip if no validator is registered for this nodeId
-            if (validationID == bytes32(0)) {
-                continue;
-            }
-
-            if (validationIdToOperator[validationID] != operator) {
+            if (validationID == bytes32(0) || validationIdToOperator[validationID] != operator) {
                 continue;
             }
 
