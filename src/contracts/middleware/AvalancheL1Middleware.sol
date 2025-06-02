@@ -77,6 +77,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     mapping(bytes32 => bool) public nodePendingRemoval;
     mapping(address => uint256) public operatorLockedStake;
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
+    mapping(bytes32 => address) public validationIdToOperator;
     // operatorNodesArray[operator] is used for iteration during certain
     // rebalancing or node-update operations, and has nodes removed once
     // they are effectively retired. This means a node can remain in
@@ -366,6 +367,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
             input, StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR)
         );
+
+        validationIdToOperator[validationID] = operator;
         nodeStakeCache[epoch][validationID] = newStake;
         nodeStakeCache[epoch + 1][validationID] = newStake;
         nodePendingUpdate[validationID] = true;
@@ -572,7 +575,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (epoch > getCurrentEpoch()) {
             revert AvalancheL1Middleware__CannotCacheFutureEpoch(epoch);
         }
-        
+
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         uint256 length = operators.length();
@@ -1031,6 +1034,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             bytes32 validationID =
                 balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             Validator memory validator = balancerValidatorManager.getValidator(validationID);
+
+            // Skip if no validator is registered for this nodeId
+            if (validationID == bytes32(0)) {
+                continue;
+            }
+
+            if (validationIdToOperator[validationID] != operator) {
+                continue;
+            }
 
             if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
                 temp[activeCount++] = nodeId;
