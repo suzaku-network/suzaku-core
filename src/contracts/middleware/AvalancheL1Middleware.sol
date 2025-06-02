@@ -495,7 +495,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (hasUpdatedAnyNode) {
             rebalancedThisEpoch[operator][currentEpoch] = true;
         }
-        
+
         emit AllNodeStakesUpdated(operator, newTotalStake);
     }
 
@@ -569,6 +569,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @inheritdoc IAvalancheL1Middleware
      */
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
+        if (epoch > getCurrentEpoch()) {
+            revert AvalancheL1Middleware__CannotCacheFutureEpoch(epoch);
+        }
+        
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         uint256 length = operators.length();

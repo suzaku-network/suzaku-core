@@ -2009,7 +2009,7 @@ contract AvalancheL1MiddlewareTest is Test {
     //     middleware.forceUpdateNodes(alice, 0); // Proper rebalancing with no limit
     //     console2.log("Legitimate rebalancing blocked by AlreadyRebalanced");                                     
     // }
-    
+
     function test_DustLimitStakeCausesFakeRebalancingFix() public {
         address attacker = makeAddr("attacker");
         address delegatedStaker = makeAddr("delegatedStaker");
@@ -2066,6 +2066,193 @@ contract AvalancheL1MiddlewareTest is Test {
         
         middleware.forceUpdateNodes(alice, 0);
         assertFalse(middleware.rebalancedThisEpoch(alice, epoch3), "Still no rebalancing flag");
+    }
+
+    // function test_FutureEpochCacheManipulation() public {
+    //     uint48 currentEpoch = _calcAndWarpOneEpoch();
+        
+    //     // Alice starts with high stake 
+    //     uint256 aliceInitialStake = middleware.getOperatorStake(alice, currentEpoch, assetClassId);
+    //     console2.log("Alice initial stake:", aliceInitialStake);
+    //     assertGt(aliceInitialStake, 0, "Alice should have initial stake");
+        
+    //     // 1. ATTACK: Cache future epoch with current high stake values
+    //     uint48 futureEpoch = currentEpoch + 5;
+    //     console2.log("Caching future epoch:", futureEpoch);
+    //     console2.log("Current epoch:", currentEpoch);
+        
+    //     // This should NOT be allowed but currently works
+    //     uint256 cachedTotalStake = middleware.calcAndCacheStakes(futureEpoch, assetClassId);
+    //     console2.log("Successfully cached future epoch total stake:", cachedTotalStake);
+        
+    //     // Verify that future epoch is now marked as cached
+    //     assertTrue(middleware.totalStakeCached(futureEpoch, assetClassId), "Future epoch should be marked as cached");
+        
+    //     // Get Alice's cached stake for the future epoch (should be her current high stake)
+    //     uint256 aliceCachedFutureStake = middleware.getOperatorStake(alice, futureEpoch, assetClassId);
+    //     console2.log("Alice cached future stake:", aliceCachedFutureStake);
+    //     assertEq(aliceCachedFutureStake, aliceInitialStake, "Cached future stake should equal current stake");
+        
+    //     // 2. TIME PASSES: Alice withdraws most of her stake
+    //     uint256 withdrawAmount = 150_000_000_000_000; // Withdraw significant amount
+    //     console2.log("Alice withdrawing:", withdrawAmount);
+        
+    //     _withdraw(staker, withdrawAmount);
+        
+    //     // Move forward through epochs to simulate time passing
+    //     for (uint256 i = 0; i < 5; i++) {
+    //         _calcAndWarpOneEpoch();
+    //     }
+        
+    //     // We should now be at the future epoch that was cached
+    //     uint48 nowCurrentEpoch = middleware.getCurrentEpoch();
+    //     console2.log("Now at epoch:", nowCurrentEpoch);
+    //     assertEq(nowCurrentEpoch, futureEpoch, "Should have reached the future epoch");
+        
+    //     // 3. DEMONSTRATE THE ISSUE: Check Alice's actual vs cached stake
+        
+    //     // Get Alice's actual current stake (should be lower due to withdrawal)
+    //     // We need to calculate this manually since cached version will return stale data
+        
+    //     // First, let's clear the cache to see what the real value would be
+    //     // (In a real attack, we can't do this, but for demo purposes let's show the difference)
+        
+    //     // Calculate what Alice's stake SHOULD be by checking a non-cached epoch
+    //     uint48 recentEpoch = nowCurrentEpoch - 1;
+    //     uint256 aliceActualRecentStake = middleware.getOperatorStake(alice, recentEpoch, assetClassId);
+    //     console2.log("Alice's actual recent stake (epoch - 1):", aliceActualRecentStake);
+        
+    //     // Get the cached (manipulated) stake for the current epoch
+    //     uint256 aliceManipulatedStake = middleware.getOperatorStake(alice, futureEpoch, assetClassId);
+    //     console2.log("Alice's cached (manipulated) stake:", aliceManipulatedStake);
+        
+    //     // 4. PROVE THE MANIPULATION
+    //     assertGt(aliceManipulatedStake, aliceActualRecentStake, "Cached stake should be higher than actual stake");
+        
+    //     // The cached stake should still be the original high value despite withdrawals
+    //     assertEq(aliceManipulatedStake, aliceInitialStake, "Cached stake should still be original high value");
+        
+    //     console2.log("=== VULNERABILITY DEMONSTRATED ===");
+    //     console2.log("Original stake when cached:", aliceInitialStake);
+    //     console2.log("Actual stake after withdrawal:", aliceActualRecentStake);  
+    //     console2.log("Cached manipulated stake:", aliceManipulatedStake);
+    //     console2.log("Difference (potential theft):", aliceManipulatedStake - aliceActualRecentStake);
+
+    //     // This demonstrates that Alice can get rewards based on her old high stake
+    //     // even though she withdrew most of her funds
+                
+    //     // 5. SHOW THAT CACHE CANNOT BE UPDATED
+
+    //     uint256 attemptRecalc = middleware.calcAndCacheStakes(futureEpoch, assetClassId);
+    //     assertEq(attemptRecalc, cachedTotalStake, "Cache cannot be updated once set");
+        
+    //     // The vulnerability is complete: Alice has locked in high stakes for reward calculation
+    //     // while having withdrawn most of her actual stake
+    // }
+
+    function test_FutureEpochCacheManipulationFix() public {
+        uint48 currentEpoch = _calcAndWarpOneEpoch();
+        
+        // Alice starts with high stake 
+        uint256 aliceInitialStake = middleware.getOperatorStake(alice, currentEpoch, assetClassId);
+        console2.log("Alice initial stake:", aliceInitialStake);
+        assertGt(aliceInitialStake, 0, "Alice should have initial stake");
+        
+        // 1. ATTACK ATTEMPT: Try to cache future epoch with current high stake values
+        uint48 futureEpoch = currentEpoch + 5;
+        
+        // This should REVERT with the fix in place
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__CannotCacheFutureEpoch.selector,
+                futureEpoch
+            )
+        );
+        middleware.calcAndCacheStakes(futureEpoch, assetClassId);
+        
+        // 2. Verify that future epoch is NOT cached
+        assertFalse(
+            middleware.totalStakeCached(futureEpoch, assetClassId), 
+            "Future epoch should NOT be cached"
+        );
+        
+        // 3. Verify we CAN cache the current epoch
+        middleware.calcAndCacheStakes(currentEpoch, assetClassId);
+        assertTrue(
+            middleware.totalStakeCached(currentEpoch, assetClassId), 
+            "Current epoch should be cached"
+        );
+        
+        // 4. Verify we CAN cache past epochs (if needed for your use case)
+        if (currentEpoch > 0) {
+            uint48 pastEpoch = currentEpoch - 1;
+            middleware.calcAndCacheStakes(pastEpoch, assetClassId);
+            assertTrue(
+                middleware.totalStakeCached(pastEpoch, assetClassId), 
+                "Past epoch should be cached"
+            );
+        }
+        
+        // 5. TIME PASSES: Alice withdraws most of her stake
+        uint256 withdrawAmount = 150_000_000_000_000; // Withdraw significant amount
+        console2.log("Alice withdrawing:", withdrawAmount);
+        
+        _withdraw(staker, withdrawAmount);
+        
+        // Move forward through epochs to simulate time passing
+        for (uint256 i = 0; i < 5; i++) {
+            _calcAndWarpOneEpoch();
+        }
+        
+        // We should now be at the future epoch that we tried to cache earlier
+        uint48 nowCurrentEpoch = middleware.getCurrentEpoch();
+        console2.log("Now at epoch:", nowCurrentEpoch);
+        assertEq(nowCurrentEpoch, futureEpoch, "Should have reached the future epoch");
+        
+        // 6. NOW we can cache this epoch (since it's no longer in the future)
+        middleware.calcAndCacheStakes(nowCurrentEpoch, assetClassId);
+        
+        // 7. Verify the stake reflects the ACTUAL current state (post-withdrawal)
+        uint256 aliceCurrentStake = middleware.getOperatorStake(alice, nowCurrentEpoch, assetClassId);
+        
+        // The stake should be lower than the initial stake due to withdrawal
+        assertLt(
+            aliceCurrentStake, 
+            aliceInitialStake, 
+            "Alice's stake should be lower after withdrawal"
+        );
+    }
+
+    function test_CacheCurrentAndPastEpochs() public {
+        uint48 currentEpoch = _calcAndWarpOneEpoch();
+        
+        // Test 1: Can cache current epoch
+        middleware.calcAndCacheStakes(currentEpoch, assetClassId);
+        assertTrue(middleware.totalStakeCached(currentEpoch, assetClassId), "Should cache current epoch");
+        
+        // Test 2: Can cache past epoch
+        if (currentEpoch > 0) {
+            middleware.calcAndCacheStakes(currentEpoch - 1, assetClassId);
+            assertTrue(middleware.totalStakeCached(currentEpoch - 1, assetClassId), "Should cache past epoch");
+        }
+        
+        // Test 3: Cannot cache future epoch (even by 1)
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__CannotCacheFutureEpoch.selector,
+                currentEpoch + 1
+            )
+        );
+        middleware.calcAndCacheStakes(currentEpoch + 1, assetClassId);
+        
+        // Test 4: Cannot cache far future epoch
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__CannotCacheFutureEpoch.selector,
+                currentEpoch + 100
+            )
+        );
+        middleware.calcAndCacheStakes(currentEpoch + 100, assetClassId);
     }
 
     ///////////////////////////////
