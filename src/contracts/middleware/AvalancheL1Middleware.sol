@@ -296,6 +296,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function disableOperator(
         address operator
     ) external onlyOwner updateGlobalNodeStakeOncePerEpoch {
+        if (operatorNodesArray[operator].length > 0) {
+            revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
+        }
         operators.disable(operator);
     }
 
@@ -314,6 +317,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function removeOperator(
         address operator
     ) external onlyOwner updateGlobalNodeStakeOncePerEpoch {
+        if (operatorNodesArray[operator].length > 0) {
+            revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
+        }
         (, uint48 disabledTime) = operators.getTimes(operator);
         if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
             revert AvalancheL1Middleware__OperatorGracePeriodNotPassed(disabledTime, SLASHING_WINDOW);

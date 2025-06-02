@@ -2561,6 +2561,131 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.stopPrank();
     }
 
+    // function test_POC_RemoveOperatorWithActiveNodes() public {
+    //     uint48 epoch = _calcAndWarpOneEpoch();
+        
+    //     // Add nodes for alice
+    //     (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 3, 0, true);
+        
+    //     // Move to next epoch to ensure nodes are active
+    //     epoch = _calcAndWarpOneEpoch();
+        
+    //     // Verify alice has active nodes and stake
+    //     uint256 nodeCount = middleware.getOperatorNodesLength(alice);
+    //     uint256 aliceStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     assertGt(nodeCount, 0, "Alice should have active nodes");
+    //     assertGt(aliceStake, 0, "Alice should have stake");
+        
+    //     console2.log("Before removal:");
+    //     console2.log("  Active nodes:", nodeCount);
+    //     console2.log("  Operator stake:", aliceStake);
+        
+    //     // First disable the operator (required for removal)
+    //     vm.prank(validatorManagerAddress);
+    //     middleware.disableOperator(alice);
+        
+    //     // Warp past the slashing window to allow removal
+    //     uint48 slashingWindow = middleware.SLASHING_WINDOW();
+    //     vm.warp(block.timestamp + slashingWindow + 1);
+        
+    //     // @audit Admin can remove operator with active nodes (NO VALIDATION!)
+    //     vm.prank(validatorManagerAddress);
+    //     middleware.removeOperator(alice);
+        
+    //     // Verify alice is removed from operators mapping
+    //     address[] memory currentOperators = middleware.getAllOperators();
+    //         bool aliceFound = false;
+    //         for (uint256 i = 0; i < currentOperators.length; i++) {
+    //             if (currentOperators[i] == alice) {
+    //                 aliceFound = true;
+    //                 break;
+    //             }
+    //         }
+    //         console2.log("Alice found:", aliceFound);
+    //         assertFalse(aliceFound, "Alice should not be in current operators list");
+        
+    //     // Verify alice's nodes still exist in storage
+    //     assertEq(middleware.getOperatorNodesLength(alice), nodeCount, "Alice's nodes should still exist in storage");
+        
+    //     // Verify alice's nodes still have stake cached
+    //     for (uint256 i = 0; i < nodeIds.length; i++) {
+    //         uint256 nodeStake = middleware.nodeStakeCache(epoch, validationIDs[i]);
+    //         assertGt(nodeStake, 0, "Node should still have cached stake");
+    //     }
+        
+    //     // Verify stake calculations still work
+    //     uint256 stakeAfterRemoval = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     assertEq(stakeAfterRemoval, aliceStake, "Stake calculation should still work");
+        
+    // }
+
+    function test_POC_RemoveOperatorWithActiveNodesFix() public {
+        uint48 epoch = _calcAndWarpOneEpoch();
+        
+        // Add nodes for alice
+        (bytes32[] memory nodeIds, ,) = _createAndConfirmNodes(alice, 3, 0, true);
+        
+        // Move to next epoch to ensure nodes are active
+        epoch = _calcAndWarpOneEpoch();
+        
+        // Verify alice has active nodes and stake
+        uint256 nodeCount = middleware.getOperatorNodesLength(alice);
+        uint256 aliceStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        assertGt(nodeCount, 0, "Alice should have active nodes");
+        assertGt(aliceStake, 0, "Alice should have stake");
+        
+        // Try to disable the operator with active nodes - should REVERT
+        vm.prank(validatorManagerAddress);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__OperatorHasActiveNodes.selector,
+                alice,
+                nodeCount
+            )
+        );
+        middleware.disableOperator(alice);
+        
+        // Now alice needs to properly remove all nodes
+        // First, initiate removal for all nodes
+        for (uint256 i = 0; i < nodeIds.length; i++) {
+            vm.prank(alice);
+            middleware.removeNode(nodeIds[i]);
+        }
+        
+        // Move to next epoch to process removals
+        epoch = _calcAndWarpOneEpoch();
+        
+        // Force the cache update to process node removals
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        
+        // Verify alice now has no nodes in the array
+        uint256 remainingNodes = middleware.getOperatorNodesLength(alice);
+        assertEq(remainingNodes, 0, "Alice should have no active nodes after removal processing");
+        
+        // Now disable should work
+        vm.prank(validatorManagerAddress);
+        middleware.disableOperator(alice);
+        
+        // Warp past the slashing window to allow removal
+        uint48 slashingWindow = middleware.SLASHING_WINDOW();
+        vm.warp(block.timestamp + slashingWindow + 1);
+        
+        // Now removal should work since operator has no active nodes
+        vm.prank(validatorManagerAddress);
+        middleware.removeOperator(alice);
+        
+        // Verify alice is removed from operators mapping
+        address[] memory currentOperators = middleware.getAllOperators();
+        bool aliceFound = false;
+        for (uint256 i = 0; i < currentOperators.length; i++) {
+            if (currentOperators[i] == alice) {
+                aliceFound = true;
+                break;
+            }
+        }
+        
+        assertFalse(aliceFound, "Alice should not be in current operators list");
+    }
 
     ///////////////////////////////
     // INTERNAL HELPERS
