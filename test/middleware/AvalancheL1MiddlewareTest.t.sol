@@ -2687,6 +2687,195 @@ contract AvalancheL1MiddlewareTest is Test {
         assertFalse(aliceFound, "Alice should not be in current operators list");
     }
 
+//     function test_AddNodes_AndThenForceUpdate() public {
+//        // Move to the next epoch so we have a clean slate
+//        uint48 epoch = _calcAndWarpOneEpoch();
+
+//        // Prepare node data
+//        bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
+//        bytes memory blsKey = hex"1234";
+//        uint64 registrationExpiry = uint64(block.timestamp + 2 days);
+//        bytes32 nodeId1 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d626;
+//        bytes memory blsKey1 = hex"1235";
+//        bytes32 nodeId2 = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d526;
+//        bytes memory blsKey2 = hex"1236";
+//        address[] memory ownerArr = new address[](1);
+//        ownerArr[0] = alice;
+//        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+//        // Add node
+//        vm.prank(alice);
+//        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+//        bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+
+//        vm.prank(alice);
+
+//        middleware.addNode(nodeId1, blsKey1, registrationExpiry, ownerStruct, ownerStruct, 0);
+//        bytes32 validationID1 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId1))));
+
+//        vm.prank(alice);
+
+//        middleware.addNode(nodeId2, blsKey2, registrationExpiry, ownerStruct, ownerStruct, 0);
+//        bytes32 validationID2 = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId2))));
+
+//        // Check node stake from the public getter
+//        uint256 nodeStake = middleware.getNodeStake(epoch, validationID);
+//        assertGt(nodeStake, 0, "Node stake should be >0 right after add");
+
+//        bytes32[] memory activeNodesBeforeConfirm = middleware.getActiveNodesForEpoch(alice, epoch);
+//        assertEq(activeNodesBeforeConfirm.length, 0, "Node shouldn't appear active before confirmation");
+
+//        vm.prank(alice);
+//        // messageIndex = 0 in this scenario
+//        middleware.completeValidatorRegistration(alice, nodeId, 0);
+//        middleware.completeValidatorRegistration(alice, nodeId1, 1);
+
+//        middleware.completeValidatorRegistration(alice, nodeId2, 2);
+
+//        vm.startPrank(staker);
+//        (uint256 burnedShares, uint256 mintedShares_) = vault.withdraw(staker, 10_000_000);
+//        vm.stopPrank();
+
+//        _calcAndWarpOneEpoch();
+
+//        _setupAssetClassAndRegisterVault(2, 5, collateral2, vault3, 3000 ether, 2500 ether, delegator3);
+//        collateral2.transfer(staker, 10);
+//        vm.startPrank(staker);
+//        collateral2.approve(address(vault3), 10);
+//        (uint256 depositUsedA, uint256 mintedSharesA) = vault3.deposit(staker, 10);
+//        vm.stopPrank();
+
+//        _warpToLastHourOfCurrentEpoch();
+
+//         middleware.forceUpdateNodes(alice, 0);
+//        assertEq(middleware.nodePendingRemoval(validationID), false);
+//    }
+
+    function test_AddNodes_AndThenForceUpdate_Corrected_Simplified_Approval() public {
+        // Initial setup
+        uint48 currentEpoch = _calcAndWarpOneEpoch();
+        middleware.getClassStakingRequirements(middleware.PRIMARY_ASSET_CLASS());
+        
+        // Node data
+        bytes32 nodeId_A = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
+        bytes32 nodeId_B = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d626;
+        bytes32 nodeId_C = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d526;
+        bytes memory blsKey = hex"1234";
+        uint64 registrationExpiry = uint64(block.timestamp + 2 days);
+        address[] memory ownerArr = new address[](1); 
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
+        // --- Setup Secondary Asset Class (ID 2) ---
+        uint96 secondaryAssetClassId = 2;
+        uint256 minSecondaryStakePerNodeForClass2 = 5 ether;
+
+        // Setup the secondary asset class
+        vm.startPrank(validatorManagerAddress);
+        middleware.addAssetClass(secondaryAssetClassId, minSecondaryStakePerNodeForClass2, 0, address(collateral2));
+        middleware.activateSecondaryAssetClass(secondaryAssetClassId);
+        vaultManager.registerVault(address(vault3), secondaryAssetClassId, 3000 ether);
+        vm.stopPrank();
+        
+        // Set L1 limit for the secondary asset class
+        _setL1Limit(bob, validatorManagerAddress, secondaryAssetClassId, 2500 ether, delegator3);
+
+        // --- Alice gets and deposits secondary stake into vault3 ---
+        // IMPORTANT: Deposit enough for ALL 3 nodes (15 ETH) since primary will be insufficient
+        uint256 aliceTargetSecondaryStake = minSecondaryStakePerNodeForClass2 * 3; // 15 ether for 3 nodes
+
+        // 1. Give Alice collateral2 tokens
+        deal(address(collateral2), alice, aliceTargetSecondaryStake);
+
+        // 2. Alice approves vault3 to spend her collateral2
+        vm.startPrank(alice);
+        collateral2.approve(address(vault3), aliceTargetSecondaryStake);
+
+        // 3. Alice deposits into vault3
+        ( , uint256 mintedSecondarySharesAlice) = vault3.deposit(alice, aliceTargetSecondaryStake);
+        vm.stopPrank();
+
+        // 4. Assign these minted shares to Alice for the L1 system
+        _setOperatorL1Shares(bob, validatorManagerAddress, secondaryAssetClassId, alice, mintedSecondarySharesAlice, delegator3);
+
+        // Make sure changes are reflected
+        currentEpoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(currentEpoch, middleware.PRIMARY_ASSET_CLASS());
+        middleware.calcAndCacheStakes(currentEpoch, secondaryAssetClassId);
+
+        // Verify Alice has sufficient secondary stake
+        uint256 aliceSecondaryStake = middleware.getOperatorStake(alice, currentEpoch, secondaryAssetClassId);
+        console2.log("Alice secondary stake:", aliceSecondaryStake);
+        assertGe(aliceSecondaryStake, minSecondaryStakePerNodeForClass2 * 3, "Alice should have enough secondary stake for 3 nodes");
+
+        // --- Add 3 Nodes for Alice ---
+        vm.startPrank(alice);
+        middleware.addNode(nodeId_A, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId_B, hex"1235", registrationExpiry, ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId_C, hex"1236", registrationExpiry, ownerStruct, ownerStruct, 0);
+        vm.stopPrank();
+
+        // Get validation IDs
+        bytes32 validationID_A = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId_A))));
+        bytes32 validationID_B = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId_B))));
+        bytes32 validationID_C = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId_C))));
+
+        // Complete registrations
+        uint32 currentMessageIndex = mockValidatorManager.nextMessageIndex();
+        vm.startPrank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId_A, currentMessageIndex - 3);
+        middleware.completeValidatorRegistration(alice, nodeId_B, currentMessageIndex - 2);
+        middleware.completeValidatorRegistration(alice, nodeId_C, currentMessageIndex - 1);
+        vm.stopPrank();
+
+        currentEpoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        assertEq(middleware.getOperatorNodesLength(alice), 3, "Alice should have 3 nodes.");
+
+        // --- Test the forceUpdate scenario ---
+        // Now let's reduce Alice's secondary stake to create a scenario where nodes need to be removed
+        
+        // Withdraw some secondary stake to leave only enough for 1 node
+        uint256 secondaryToWithdraw = minSecondaryStakePerNodeForClass2 * 2; // Withdraw 10 ether, leaving 5 ether
+        vm.startPrank(alice);
+        vault3.withdraw(alice, secondaryToWithdraw);
+        vm.stopPrank();
+
+        // Update Alice's operator shares to reflect the withdrawal
+        uint256 remainingSecondaryShares = mintedSecondarySharesAlice - (mintedSecondarySharesAlice * secondaryToWithdraw / aliceTargetSecondaryStake);
+        _setOperatorL1Shares(bob, validatorManagerAddress, secondaryAssetClassId, alice, remainingSecondaryShares, delegator3);
+
+        currentEpoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(currentEpoch, secondaryAssetClassId);
+        
+        // Verify Alice now has insufficient secondary stake for all nodes
+        uint256 aliceNewSecondaryStake = middleware.getOperatorStake(alice, currentEpoch, secondaryAssetClassId);
+        console2.log("Alice new secondary stake:", aliceNewSecondaryStake);
+        assertLt(aliceNewSecondaryStake, minSecondaryStakePerNodeForClass2 * 3, "Alice should have insufficient secondary stake for 3 nodes");
+        assertGe(aliceNewSecondaryStake, minSecondaryStakePerNodeForClass2, "Alice should have enough for at least 1 node");
+
+        // --- Call forceUpdateNodes & Assert ---
+        _warpToLastHourOfCurrentEpoch();
+        
+        // Since Alice only has enough secondary stake for 1 node, 2 nodes should be marked for removal
+        middleware.forceUpdateNodes(alice, 0);
+
+        // Check how many nodes are pending removal
+        uint256 nodesFoundPendingRemoval = 0;
+        if(middleware.nodePendingRemoval(validationID_A)) nodesFoundPendingRemoval++;
+        if(middleware.nodePendingRemoval(validationID_B)) nodesFoundPendingRemoval++;
+        if(middleware.nodePendingRemoval(validationID_C)) nodesFoundPendingRemoval++;
+        
+        console2.log("Nodes pending removal:", nodesFoundPendingRemoval);
+        
+        // With only enough secondary stake for 1 node, 2 should be removed
+        assertEq(nodesFoundPendingRemoval, 2, "Expected 2 nodes to be marked for removal");
+
+        currentEpoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Alice should have 1 node remaining");
+    }
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////

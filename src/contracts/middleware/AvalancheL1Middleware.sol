@@ -707,7 +707,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
-            // If no removal/update, just carry over from prevEpoch (only if we haven’t set it yet)
+            // If no removal/update, just carry over from prevEpoch (only if we haven't set it yet)
             if (!nodePendingRemoval[valID] && !nodePendingUpdate[valID]) {
                 if (nodeStakeCache[epoch][valID] == 0) {
                     nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID];
@@ -847,23 +847,43 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, scaledWeight);
     }
 
-    function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {
+    function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal returns (bool) {
         uint48 epoch = getCurrentEpoch();
-        uint256 nodeCount = operatorNodesArray[operator].length; // existing nodes
-
+        
+        // active nodes now excludes those already pending removal
+        uint256 nodeCount = _getActiveNodeCount(operator) + extraNode;
+        if (nodeCount == 0) return false;         // no active nodes ⇒ fail fast
+        
         uint256 secCount = secondaryAssetClasses.length();
-        if (secCount == 0) {
-            return true;
-        }
-        for (uint256 i = 0; i < secCount; i++) {
+        if (secCount == 0) return true;           // nothing to check
+        
+        for (uint256 i = 0; i < secCount; ++i) {
             uint256 classId = secondaryAssetClasses.at(i);
-            uint256 stake = getOperatorStake(operator, epoch, uint96(classId));
+            uint256 stake   = getOperatorStake(operator, epoch, uint96(classId));
             // Check ratio vs. class's min stake, could add an emit here to debug
-            if (stake / (nodeCount + extraNode) < assetClasses[classId].minValidatorStake) {
+            if (stake / nodeCount < assetClasses[classId].minValidatorStake) {
+                emit DebugSecondaryAssetClassCheck(operator, classId, stake, nodeCount, assetClasses[classId].minValidatorStake);
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * @dev Returns active (non-pending-removal) node count for an operator
+     * @param operator The operator address
+     * @return count The number of active nodes
+     */
+    function _getActiveNodeCount(address operator) internal view returns (uint256 count) {
+        bytes32[] storage arr = operatorNodesArray[operator];
+        for (uint256 i; i < arr.length; ++i) {
+            bytes32 valID = balancerValidatorManager.registeredValidators(
+                abi.encodePacked(uint160(uint256(arr[i])))
+            );
+            if (!nodePendingRemoval[valID]) {
+                unchecked { ++count; }
+            }
+        }
     }
 
     /**
