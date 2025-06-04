@@ -602,6 +602,7 @@ contract VaultTokenized is
 
         uint256 activeStake_ = activeStake();
         uint256 nextWithdrawals = vs.withdrawals[currentEpoch_ + 1];
+        
         if (captureEpoch == currentEpoch_) {
             uint256 slashableStake = activeStake_ + nextWithdrawals;
             slashedAmount = Math.min(amount, slashableStake);
@@ -609,8 +610,23 @@ contract VaultTokenized is
                 uint256 activeSlashed = slashedAmount.mulDiv(activeStake_, slashableStake);
                 uint256 nextWithdrawalsSlashed = slashedAmount - activeSlashed;
 
+                // Check for overflow and redistribute
+                uint256 requestedNext = nextWithdrawalsSlashed;
+                if (nextWithdrawals < requestedNext) {
+                    uint256 deficit = requestedNext - nextWithdrawals;
+                    nextWithdrawalsSlashed = nextWithdrawals;
+                    activeSlashed += deficit;
+                    
+                    emit SlashWithRedistribution(
+                        requestedNext,
+                        nextWithdrawalsSlashed,
+                        deficit,
+                        currentEpoch_ + 1
+                    );
+                }
+
                 vs._activeStake.push(Time.timestamp(), activeStake_ - activeSlashed);
-                vs.withdrawals[captureEpoch + 1] = nextWithdrawals - nextWithdrawalsSlashed;
+                vs.withdrawals[currentEpoch_ + 1] = nextWithdrawals - nextWithdrawalsSlashed;
             }
         } else {
             uint256 withdrawals_ = vs.withdrawals[currentEpoch_];
@@ -626,6 +642,21 @@ contract VaultTokenized is
                     withdrawalsSlashed = withdrawals_;
                 }
 
+                // Check for overflow and redistribute
+                uint256 requestedNext = nextWithdrawalsSlashed;
+                if (nextWithdrawals < requestedNext) {
+                    uint256 deficit = requestedNext - nextWithdrawals;
+                    nextWithdrawalsSlashed = nextWithdrawals;
+                    activeSlashed += deficit;
+                    
+                    emit SlashWithRedistribution(
+                        requestedNext,
+                        nextWithdrawalsSlashed,
+                        deficit,
+                        currentEpoch_ + 1
+                    );
+                }
+
                 vs._activeStake.push(Time.timestamp(), activeStake_ - activeSlashed);
                 vs.withdrawals[currentEpoch_ + 1] = nextWithdrawals - nextWithdrawalsSlashed;
                 vs.withdrawals[currentEpoch_] = withdrawals_ - withdrawalsSlashed;
@@ -636,8 +667,10 @@ contract VaultTokenized is
             IERC20(vs.collateral).safeTransfer(vs.burner, slashedAmount);
         }
 
+        // Keep only the original event for normal cases
         emit OnSlash(amount, captureTimestamp, slashedAmount);
     }
+
 
     /**
      * @inheritdoc IVaultTokenized

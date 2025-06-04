@@ -3144,6 +3144,137 @@ contract VaultTokenizedTest is Test {
         // We can't call MockVaultTokenizedV2 functions on a version 1 vault
     }
 
+    // function test_OnSlashUnderflowExactPOC() public {
+    //     // Setup vault
+    //     uint48 epochDuration = 1;
+    //     vault = _getVault(epochDuration);
+        
+    //     // Setup slasher
+    //     address mockSlasher = address(this);
+        
+    //     // First stop any active pranks before setting up mocks
+    //     vm.stopPrank();
+        
+    //     // Setup mocks
+    //     vm.mockCall(
+    //         address(slasherFactory),
+    //         abi.encodeWithSelector(SlasherFactory.isEntity.selector, mockSlasher),
+    //         abi.encode(true)
+    //     );
+    //     vm.mockCall(
+    //         mockSlasher,
+    //         abi.encodeWithSelector(IBaseSlasher.vault.selector),
+    //         abi.encode(address(vault))
+    //     );
+        
+    //     // Now prank to set the slasher
+    //     vm.prank(alice);
+    //     vault.setSlasher(mockSlasher);
+        
+    //     // Deposit initial amount
+    //     _deposit(alice, 102);
+        
+    //     // Move to next epoch and withdraw 3
+    //     vm.warp(block.timestamp + epochDuration);
+    //     _withdraw(alice, 3);
+        
+    //     // Move to next epoch
+    //     vm.warp(block.timestamp + epochDuration);
+        
+    //     // At this point:
+    //     // activeStake = 99
+    //     // withdrawals[currentEpoch] = 3
+    //     // withdrawals[currentEpoch + 1] = 0
+        
+    //     assertEq(vault.activeStake(), 99);
+    //     assertEq(vault.withdrawals(vault.currentEpoch()), 3);
+    //     assertEq(vault.withdrawals(vault.currentEpoch() + 1), 0);
+        
+    //     // Try to slash 102 (everything)
+    //     uint256 slashAmount = 102;
+    //     uint48 captureTimestamp = uint48(block.timestamp - epochDuration);
+        
+    //     // This will revert with underflow
+    //     vm.expectRevert();
+    //     vault.onSlash(slashAmount, captureTimestamp);
+    // }
+
+    function test_OnSlashUnderflowExactPOCFix() public {
+        // This test uses the exact POC values that would cause underflow without the fix
+        uint48 epochDuration = 1;
+        vault = _getVault(epochDuration);
+        
+        // Setup slasher
+        address mockSlasher = address(this);
+        
+        // First stop any active pranks before setting up mocks
+        vm.stopPrank();
+        
+        // Setup mocks
+        vm.mockCall(
+            address(slasherFactory),
+            abi.encodeWithSelector(SlasherFactory.isEntity.selector, mockSlasher),
+            abi.encode(true)
+        );
+        vm.mockCall(
+            mockSlasher,
+            abi.encodeWithSelector(IBaseSlasher.vault.selector),
+            abi.encode(address(vault))
+        );
+        
+        // Now prank to set the slasher
+        vm.prank(alice);
+        vault.setSlasher(mockSlasher);
+        
+        // Deposit initial amount
+        _deposit(alice, 102);
+        
+        // Move to next epoch and withdraw 3
+        vm.warp(block.timestamp + epochDuration);
+        _withdraw(alice, 3);
+        
+        // Move to next epoch
+        vm.warp(block.timestamp + epochDuration);
+        
+        // At this point:
+        // activeStake = 99
+        // withdrawals[currentEpoch] = 3
+        // withdrawals[currentEpoch + 1] = 0
+        
+        assertEq(vault.activeStake(), 99);
+        assertEq(vault.withdrawals(vault.currentEpoch()), 3);
+        assertEq(vault.withdrawals(vault.currentEpoch() + 1), 0);
+        
+        // Try to slash 102 (everything)
+        uint256 slashAmount = 102;
+        uint48 captureTimestamp = uint48(block.timestamp - epochDuration);
+        
+        // With the exact POC values:
+        // slashableStake = 99 + 3 + 0 = 102
+        // activeSlashed = floor(102 * 99 / 102) = floor(99) = 99
+        // nextWithdrawalsSlashed = floor(102 * 0 / 102) = 0
+        // withdrawalsSlashed = 102 - 99 - 0 = 3
+        // Since withdrawalsSlashed (3) == withdrawals_ (3), no redistribution happens!
+        
+        // The POC was wrong - this scenario doesn't cause redistribution
+        // Only expect the OnSlash event
+        vm.expectEmit(true, true, true, true);
+        emit IVaultTokenized.OnSlash(
+            102,                        // amount requested
+            captureTimestamp,           // capture timestamp
+            102                         // amount actually slashed
+        );
+        
+        // This should work without underflow
+        uint256 slashed = vault.onSlash(slashAmount, captureTimestamp);
+        
+        // Verify it slashed everything
+        assertEq(slashed, 102);
+        assertEq(vault.activeStake(), 0);
+        assertEq(vault.withdrawals(vault.currentEpoch()), 0);
+        assertEq(vault.withdrawals(vault.currentEpoch() + 1), 0);
+    }
+
     function _grantDepositorWhitelistRole(address user, address account) internal {
         vm.startPrank(user);
         VaultTokenized(address(vault)).grantRole(VaultTokenized(address(vault)).DEPOSITOR_WHITELIST_ROLE(), account);

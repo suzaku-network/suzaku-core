@@ -207,6 +207,20 @@ interface IVaultTokenized {
      */
     event SetSlasher(address indexed slasher);
 
+    /**
+     * @notice Emitted when a slash happens with redistribution.
+     * @param requestedNextSlashed amount of the collateral requested to be slashed for the next epoch
+     * @param nextWithdrawalsSlashed amount of the collateral actually slashed for the next epoch
+     * @param deficit amount of the collateral redistributed to the active stake
+     * @param epoch epoch the redistribution happened for
+     */
+    event SlashWithRedistribution(
+        uint256 requestedNextSlashed,
+        uint256 nextWithdrawalsSlashed,
+        uint256 deficit,
+        uint256 epoch
+    );
+
     // Functions
     // Ex IVaultStorage
     /**
