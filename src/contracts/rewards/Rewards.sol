@@ -21,6 +21,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.AddressSet;
 
+
     // Constants
     uint16 public constant BASIS_POINTS_DENOMINATOR = 10_000;
     bytes32 public constant REWARDS_MANAGER_ROLE = keccak256("REWARDS_MANAGER_ROLE");
@@ -64,6 +65,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
     // Asset class configuration
     mapping(uint96 assetClass => uint16 rewardsShare) public rewardsSharePerAssetClass;
+
+    // Epoch curators tracking
+    mapping(uint48 epoch => EnumerableSet.AddressSet curators) private _epochCurators;
 
     // INITIALIZER
     function initialize(
@@ -286,10 +290,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
             totalDistributedShares += vaultShares[epoch][vaults[i]];
         }
 
-        // Sum curator shares
-        for (uint256 i = 0; i < vaults.length; i++) {
-            address curator = VaultTokenized(vaults[i]).owner();
-            totalDistributedShares += curatorShares[epoch][curator];
+        // Sum curator shares (unique curators)
+        address[] memory curators = _epochCurators[epoch].values();
+        for (uint256 i = 0; i < curators.length; ++i) {
+            totalDistributedShares += curatorShares[epoch][curators[i]];
         }
 
         // Calculate and transfer undistributed rewards
@@ -504,7 +508,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
                 // Calculate curator share
                 uint256 curatorShare = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
-                curatorShares[epoch][VaultTokenized(vault).owner()] += curatorShare;
+                address curator = VaultTokenized(vault).owner();
+                curatorShares[epoch][curator] += curatorShare;
+                _epochCurators[epoch].add(curator);
 
                 // Store vault share after removing curator share
                 vaultShares[epoch][vault] += vaultShare - curatorShare;
