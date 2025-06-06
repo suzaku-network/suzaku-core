@@ -1216,6 +1216,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @return bool True if active
      */
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
-        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
+        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime > timestamp);
     }
 }

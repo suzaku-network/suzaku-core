@@ -172,7 +172,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
 
         uint256 activeCount = 0;
         for (uint256 i = 0; i < vaultCount; i++) {
-            (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
+            (, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
             if (_wasActiveAt(enabledTime, disabledTime, epochStart)) {
                 activeCount++;
             }
@@ -192,6 +192,6 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     }
 
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
-        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
+        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime > timestamp);
     }
 }
