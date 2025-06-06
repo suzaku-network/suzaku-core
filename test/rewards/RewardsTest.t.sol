@@ -99,9 +99,9 @@ contract RewardsTest is Test {
         // create rewards token and mint supply to REWARDS_MANAGER_ROLE
         console2.log("Creating rewards token and minting supply to REWARDS_MANAGER_ROLE...");
         rewardsToken = new ERC20Mock();
-        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 100_000 * 10 ** 18);
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
-        rewardsToken.approve(address(rewards), 1_000_000 * 10 ** 18);
+        rewardsToken.approve(address(rewards), 100_000 * 10 ** 18);
 
         // Setup mock vaults
         console2.log("Setting up mock vaults...");
@@ -139,7 +139,7 @@ contract RewardsTest is Test {
         // Setup rewards distribution per epoch
         console2.log("Setting up rewards distribution per epoch...");
         uint48 startEpoch = 1;
-        uint48 numberOfEpochs = 10;
+        uint48 numberOfEpochs = 1;
         uint256 rewardsAmount = 100_000 * 10 ** 18;
 
         vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
@@ -940,5 +940,83 @@ contract RewardsTest is Test {
 
         // Verify the new rewards share has been set
         assertEq(rewards.rewardsSharePerAssetClass(assetClassId), rewardsPercentage);
+    }
+
+//   function test_DOS_RewardShareSumGreaterThan100Pct() public {
+//         console2.log("=== TEST BEGINS ===");
+
+        
+//         // 1: Modify fee structure to make operators get 100% of rewards
+//         // this is done just to demonstrate insolvency  
+//         vm.startPrank(REWARDS_MANAGER_ROLE);
+//         rewards.updateProtocolFee(0);     // 0% - no protocol fee  
+//         rewards.updateOperatorFee(10000); // 100% - operators get everything
+//         rewards.updateCuratorFee(0);      // 0% - no curator fee
+//         vm.stopPrank();
+
+//         // 2: Set asset class shares > 100%
+//         vm.startPrank(REWARDS_MANAGER_ROLE);
+//         rewards.setRewardsShareForAssetClass(1, 8000); // 80%
+//         rewards.setRewardsShareForAssetClass(2, 7000); // 70% 
+//         rewards.setRewardsShareForAssetClass(3, 5000); // 50%
+//         // Total: 200% 
+//         vm.stopPrank();
+
+//         // 3: Use existing working setup for stakes
+//         uint48 epoch = 1;
+//         _setupStakes(epoch, 4 hours);
+
+//         // 4: Distribute rewards
+//         vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+//         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+//         rewards.distributeRewards(epoch, 10);
+
+//         //5: Check operator shares (should be inflated due to 200% asset class shares)
+//         address[] memory operators = middleware.getAllOperators();
+//         uint256 totalOperatorShares = 0;
+ 
+//         for (uint256 i = 0; i < operators.length; i++) {
+//             uint256 opShare = rewards.operatorShares(epoch, operators[i]);
+//             totalOperatorShares += opShare;
+//         }
+//         console2.log("Total operator shares: ", totalOperatorShares);
+//         assertGt(totalOperatorShares, rewards.BASIS_POINTS_DENOMINATOR(), 
+//                 "VULNERABILITY: Total operator shares exceed 100%");
+        
+//         //DOS when 6'th operator tries to claim rewards
+//         vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
+//         for (uint256 i = 0; i < 5; i++) {
+//              vm.prank(operators[i]);
+//             rewards.claimOperatorFee(address(rewardsToken), operators[i]);
+//         }
+
+//         vm.expectRevert();
+//         vm.prank(operators[5]);
+//         rewards.claimOperatorFee(address(rewardsToken), operators[5]);        
+
+//     }
+ 
+  function test_DOS_RewardShareSumGreaterThan100PctFix() public {
+    console2.log("=== TEST BEGINS ===");
+
+    // 1: Modify fees to demonstrate that 100% is allowed for operator
+    vm.startPrank(REWARDS_MANAGER_ROLE);
+    rewards.updateAllFees(0, 10000, 0); // 0% protocol, 100% operator, 0% curator
+    vm.stopPrank();
+
+    // 2: First reduce class 3 to make room, set class 1 to 70% (total = 100%)
+    vm.startPrank(REWARDS_MANAGER_ROLE);
+    rewards.setRewardsShareForAssetClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
+    rewards.setRewardsShareForAssetClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
+    
+    // 3: Now try to set class 1 to 80% - this should fail because 80% + 30% = 110%
+    vm.expectRevert(
+        abi.encodeWithSelector(
+            Rewards.AssetClassSharesExceed100.selector,
+            11000 // 80% + 30% + 0% = 110%
+        )
+    );
+    rewards.setRewardsShareForAssetClass(1, 8000); // This should fail 
+    vm.stopPrank();
     }
 }

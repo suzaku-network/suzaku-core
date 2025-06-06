@@ -21,7 +21,6 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.AddressSet;
 
-
     // Constants
     uint16 public constant BASIS_POINTS_DENOMINATOR = 10_000;
     bytes32 public constant REWARDS_MANAGER_ROLE = keccak256("REWARDS_MANAGER_ROLE");
@@ -84,6 +83,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         if (uptimeTracker_ == address(0)) revert InvalidUptimeTracker(uptimeTracker_);
         if (admin_ == address(0)) revert InvalidAdmin(admin_);
         if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
+        if (protocolFee_ + operatorFee_ + curatorFee_ > BASIS_POINTS_DENOMINATOR)
+            revert FeeConfigurationExceeds100(protocolFee_ + operatorFee_ + curatorFee_);
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
         _grantRole(REWARDS_MANAGER_ROLE, admin_);
@@ -94,6 +95,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         middlewareVaultManager = MiddlewareVaultManager(l1Middleware.getVaultManager());
         uptimeTracker = UptimeTracker(uptimeTracker_);
         epochDuration = l1Middleware.EPOCH_DURATION();
+
+        _checkFees(protocolFee_, operatorFee_, curatorFee_);
 
         protocolFee = protocolFee_;
         operatorFee = operatorFee_;
@@ -342,6 +345,11 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     /// @inheritdoc IRewards
     function setRewardsShareForAssetClass(uint96 assetClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
+
+        uint16 prev = rewardsSharePerAssetClass[assetClass];
+        uint256 newTotal = _totalAssetClassShares() - prev + share;
+        if (newTotal > BASIS_POINTS_DENOMINATOR) revert AssetClassSharesExceed100(newTotal);
+
         rewardsSharePerAssetClass[assetClass] = share;
         emit RewardsShareUpdated(assetClass, share);
     }
@@ -386,6 +394,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint16 newFee
     ) external override onlyRole(REWARDS_MANAGER_ROLE) {
         if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
+        _checkFees(newFee, operatorFee, curatorFee);
         protocolFee = newFee;
         emit ProtocolFeeUpdated(newFee);
     }
@@ -395,6 +404,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint16 newFee
     ) external override onlyRole(REWARDS_MANAGER_ROLE) {
         if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
+        _checkFees(protocolFee, newFee, curatorFee);
         operatorFee = newFee;
         emit OperatorFeeUpdated(newFee);
     }
@@ -404,8 +414,33 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint16 newFee
     ) external override onlyRole(REWARDS_MANAGER_ROLE) {
         if (newFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newFee);
+        _checkFees(protocolFee, operatorFee, newFee);
         curatorFee = newFee;
         emit CuratorFeeUpdated(newFee);
+    }
+
+    /// @notice Updates all fees at once to avoid order dependency issues
+    /// @param newProtocolFee New protocol fee in basis points
+    /// @param newOperatorFee New operator fee in basis points  
+    /// @param newCuratorFee New curator fee in basis points
+    function updateAllFees(
+        uint16 newProtocolFee,
+        uint16 newOperatorFee,
+        uint16 newCuratorFee
+    ) external onlyRole(REWARDS_MANAGER_ROLE) {
+        if (newProtocolFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newProtocolFee);
+        if (newOperatorFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newOperatorFee);
+        if (newCuratorFee > BASIS_POINTS_DENOMINATOR) revert InvalidFee(newCuratorFee);
+        
+        _checkFees(newProtocolFee, newOperatorFee, newCuratorFee);
+        
+        protocolFee = newProtocolFee;
+        operatorFee = newOperatorFee;
+        curatorFee = newCuratorFee;
+        
+        emit ProtocolFeeUpdated(newProtocolFee);
+        emit OperatorFeeUpdated(newOperatorFee);
+        emit CuratorFeeUpdated(newCuratorFee);
     }
 
     // Getter functions
@@ -425,6 +460,18 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     }
 
     // INTERNAL FUNCTIONS
+    // Helper functions
+    function _totalAssetClassShares() internal view returns (uint256 total) {
+        uint96[] memory ids = l1Middleware.getAssetClassIds();
+        for (uint256 i; i < ids.length; ++i) total += rewardsSharePerAssetClass[ids[i]];
+    }
+
+    /// @dev Reverts if fees exceed 100 % (10 000 bp)
+    function _checkFees(uint16 p, uint16 o, uint16 c) internal pure {
+        if (p + o + c > BASIS_POINTS_DENOMINATOR)
+            revert FeeConfigurationExceeds100(p + o + c);
+    }
+
     // Calculation functions
     /**
      * @dev Calculates the operator share for a given epoch and operator

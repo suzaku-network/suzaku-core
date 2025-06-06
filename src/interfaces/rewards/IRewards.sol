@@ -170,6 +170,18 @@ interface IRewards {
      */
     error EpochStillClaimable(uint48 epoch);
 
+    /**
+     * @notice Error thrown when the sum of all asset class shares exceeds 100%
+     * @param totalBp Sum of all basis points
+     */
+    error AssetClassSharesExceed100(uint256 totalBp);
+
+    /**
+     * @notice Error thrown when the sum of all fees exceeds 100%
+     * @param totalBp Sum of all basis points
+     */
+    error FeeConfigurationExceeds100(uint256 totalBp);  
+
     // ============================
     //         EVENTS
     // ============================
