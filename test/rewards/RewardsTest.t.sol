@@ -523,6 +523,81 @@ contract RewardsTest is Test {
         middleware.setTotalStakeCache(epoch, 3, totalSecondaryStake2);
     }
 
+    function _setupStakesAudit(uint48 epoch, uint256 uptime) internal {
+        address[] memory operators = middleware.getAllOperators();
+        uint256 timestamp = middleware.getEpochStartTs(epoch);
+
+        // Define operator stake percentages (must sum to 100%)
+        uint256[] memory operatorPercentages = new uint256[](10);
+        operatorPercentages[0] = 10;
+        operatorPercentages[1] = 10;
+        operatorPercentages[2] = 10;
+        operatorPercentages[3] = 10;
+        operatorPercentages[4] = 10;
+        operatorPercentages[5] = 10;
+        operatorPercentages[6] = 10;
+        operatorPercentages[7] = 10;
+        operatorPercentages[8] = 10;
+        operatorPercentages[9] = 10;
+
+        uint256 totalStakePerClass = 3_000_000 ether;
+
+        // Track total stakes for each asset class
+        uint256[] memory totalStakes = new uint256[](3); // [primary, secondary1, secondary2]
+
+        for (uint256 i = 0; i < operators.length; i++) {
+            address operator = operators[i];
+            uint256 operatorStake = (totalStakePerClass * operatorPercentages[i]) / 100;
+            uint256 stakePerNode = operatorStake / middleware.getOperatorNodes(operator).length;
+
+            _setupOperatorStakes(epoch, operator, operatorStake, stakePerNode, totalStakes);
+            _setupVaultDelegations(epoch, operator, operatorStake, timestamp);
+            uptimeTracker.setOperatorUptimePerEpoch(epoch, operator, uptime);
+        }
+
+        // Set total stakes in L1 middleware
+        middleware.setTotalStakeCache(epoch, 1, totalStakes[0]);
+        middleware.setTotalStakeCache(epoch, 2, totalStakes[1]);
+        middleware.setTotalStakeCache(epoch, 3, totalStakes[2]);
+    }
+
+    // Sets up stakes for a single operator's nodes and asset classes
+    function _setupOperatorStakes(
+    uint48 epoch,
+    address operator,
+    uint256 operatorStake,
+    uint256 stakePerNode,
+    uint256[] memory totalStakes
+    ) internal {
+        bytes32[] memory operatorNodes = middleware.getOperatorNodes(operator);
+        for (uint256 j = 0; j < operatorNodes.length; j++) {
+            middleware.setNodeStake(epoch, operatorNodes[j], stakePerNode);
+            totalStakes[0] += stakePerNode; // Primary stake
+        }
+        middleware.setOperatorStake(epoch, operator, 2, operatorStake);
+        middleware.setOperatorStake(epoch, operator, 3, operatorStake);
+        totalStakes[1] += operatorStake; // Secondary stake 1
+        totalStakes[2] += operatorStake; // Secondary stake 2
+    }
+
+    // Sets up vault delegations for a single operator
+    function _setupVaultDelegations(
+        uint48,
+        address operator,
+        uint256 operatorStake,
+        uint256 timestamp
+    ) internal {
+        for (uint256 j = 0; j < delegators.length; j++) {
+            delegators[j].setStake(
+            middleware.L1_VALIDATOR_MANAGER(),
+            uint96(j + 1),
+            operator,
+            uint48(timestamp),
+            operatorStake
+            );
+        }
+    }
+
     function test_claimRewards() public {
         uint48 epoch = 1;
         address staker = makeAddr("Staker");
@@ -1012,11 +1087,400 @@ contract RewardsTest is Test {
     // 3: Now try to set class 1 to 80% - this should fail because 80% + 30% = 110%
     vm.expectRevert(
         abi.encodeWithSelector(
-            Rewards.AssetClassSharesExceed100.selector,
+            IRewards.AssetClassSharesExceed100.selector,
             11000 // 80% + 30% + 0% = 110%
         )
     );
     rewards.setRewardsShareForAssetClass(1, 8000); // This should fail 
     vm.stopPrank();
+    }
+
+    // function test_claimRewards_multipleTokens_staker() public {
+    //     // Deploy a second reward token
+    //     ERC20Mock rewardsToken2 = new ERC20Mock();
+    //     rewardsToken2.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken2.approve(address(rewards), 1_000_000 * 10 ** 18);
+        
+    //     // Mint additional tokens for the original rewardsToken to cover 3 epochs
+    //     rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 300_000 * 10 ** 18);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken.approve(address(rewards), 400_000 * 10 ** 18); // Total: 100k (from setup) + 300k = 400k
+        
+    //     uint48 startEpoch = 1;
+    //     uint48 numberOfEpochs = 3;
+    //     uint256 rewardsAmount = 100_000 * 10 ** 18;
+
+    //     // Set rewards for both tokens
+    //     vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
+    //     rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken2), rewardsAmount);
+    //     vm.stopPrank();
+
+    //     // Setup staker
+    //     address staker = makeAddr("Staker");
+    //     address vault = vaultManager.vaults(0);
+    //     uint256 epochTs = middleware.getEpochStartTs(startEpoch);
+    //     MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+    //     MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+
+    //     // Distribute rewards for epochs 1 to 3
+    //     for (uint48 epoch = startEpoch; epoch < startEpoch + numberOfEpochs; epoch++) {
+    //         _setupStakesAudit(epoch, 4 hours);
+    //         vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+    //         address[] memory operators = middleware.getAllOperators();
+    //         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //         rewards.distributeRewards(epoch, uint48(operators.length));
+    //     }
+
+    //     // Warp to epoch 4
+    //     vm.warp((startEpoch + numberOfEpochs) * middleware.EPOCH_DURATION());
+
+    //     // Claim for rewardsToken (should succeed)
+    //     vm.prank(staker);
+    //     rewards.claimRewards(address(rewardsToken), staker);
+    //     assertGt(rewardsToken.balanceOf(staker), 0, "Staker should receive rewardsToken");
+
+    //     // Try to claim for rewardsToken2 (should revert)
+    //     vm.prank(staker);
+    //     vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, staker, numberOfEpochs));
+    //     rewards.claimRewards(address(rewardsToken2), staker);
+    // }
+
+    // function test_claimOperatorFee_multipleTokens_operator() public {
+    //     // Deploy a second reward token
+    //     ERC20Mock rewardsToken2 = new ERC20Mock();
+    //     rewardsToken2.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken2.approve(address(rewards), 1_000_000 * 10 ** 18);
+
+    //     // Mint additional tokens for the original rewardsToken to cover 3 epochs
+    //     rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 300_000 * 10 ** 18);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken.approve(address(rewards), 400_000 * 10 ** 18); // Total: 100k (from setup) + 300k = 400k
+
+    //     uint48 startEpoch = 1;
+    //     uint48 numberOfEpochs = 3;
+    //     uint256 rewardsAmount = 100_000 * 10 ** 18;
+
+    //     // Set rewards for both tokens
+    //     vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
+    //     rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken2), rewardsAmount);
+    //     vm.stopPrank();
+
+    //     // Distribute rewards for epochs 1 to 3
+    //     for (uint48 epoch = startEpoch; epoch < startEpoch + numberOfEpochs; epoch++) {
+    //         _setupStakesAudit(epoch, 4 hours);
+    //         vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+    //         address[] memory operators = middleware.getAllOperators();
+    //         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //         rewards.distributeRewards(epoch, uint48(operators.length));
+    //     }
+
+    //     // Warp to epoch 4
+    //     vm.warp((startEpoch + numberOfEpochs) * middleware.EPOCH_DURATION());
+
+    //     address operator = middleware.getAllOperators()[0];
+
+    //     // Claim for rewardsToken (should succeed)
+    //     vm.prank(operator);
+    //     rewards.claimOperatorFee(address(rewardsToken), operator);
+    //     assertGt(rewardsToken.balanceOf(operator), 0, "Operator should receive rewardsToken");
+
+    //     // Try to claim for rewardsToken2 (should revert)
+    //     vm.prank(operator);
+    //     vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, operator, numberOfEpochs));
+    //     rewards.claimOperatorFee(address(rewardsToken2), operator);
+    // }
+
+    // function test_claimCuratorFee_multipleTokens_curator() public {
+    //     // Deploy a second reward token
+    //     ERC20Mock rewardsToken2 = new ERC20Mock();
+    //     rewardsToken2.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken2.approve(address(rewards), 1_000_000 * 10 ** 18);
+
+    //     // Mint additional tokens for the original rewardsToken to cover 3 epochs
+    //     rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 300_000 * 10 ** 18);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken.approve(address(rewards), 400_000 * 10 ** 18); // Total: 100k (from setup) + 300k = 400k
+
+    //     uint48 startEpoch = 1;
+    //     uint48 numberOfEpochs = 3;
+    //     uint256 rewardsAmount = 100_000 * 10 ** 18;
+
+    //     // Set rewards for both tokens
+    //     vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
+    //     rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken2), rewardsAmount);
+    //     vm.stopPrank();
+
+    //     // Distribute rewards for epochs 1 to 3
+    //     for (uint48 epoch = startEpoch; epoch < startEpoch + numberOfEpochs; epoch++) {
+    //         _setupStakesAudit(epoch, 4 hours);
+    //         vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+    //         address[] memory operators = middleware.getAllOperators();
+    //         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //         rewards.distributeRewards(epoch, uint48(operators.length));
+    //     }
+
+    //     // Warp to epoch 4
+    //     vm.warp((startEpoch + numberOfEpochs) * middleware.EPOCH_DURATION());
+
+    //     address vault = vaultManager.vaults(0);
+    //     address curator = MockVault(vault).owner();
+
+    //     // Claim for rewardsToken (should succeed)
+    //     vm.prank(curator);
+    //     rewards.claimCuratorFee(address(rewardsToken), curator);
+    //     assertGt(rewardsToken.balanceOf(curator), 0, "Curator should receive rewardsToken");
+
+    //     // Try to claim for rewardsToken2 (should revert)
+    //     vm.prank(curator);
+    //     vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, curator, numberOfEpochs));
+    //     rewards.claimCuratorFee(address(rewardsToken2), curator);
+    // }
+
+    function test_claimRewards_multipleTokens_staker_Fix() public {
+        // Deploy a second reward token
+        ERC20Mock rewardsToken2 = new ERC20Mock();
+        rewardsToken2.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken2.approve(address(rewards), 1_000_000 * 10 ** 18);
+        
+        // Mint additional tokens for the original rewardsToken to cover 3 epochs
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 300_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), 400_000 * 10 ** 18); // Total: 100k (from setup) + 300k = 400k
+        
+        uint48 startEpoch = 1;
+        uint48 numberOfEpochs = 3;
+        uint256 rewardsAmount = 100_000 * 10 ** 18;
+
+        // Set rewards for both tokens
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
+        rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken2), rewardsAmount);
+        vm.stopPrank();
+
+        // Setup staker
+        address staker = makeAddr("Staker");
+        address vault = vaultManager.vaults(0);
+        uint256 epochTs = middleware.getEpochStartTs(startEpoch);
+        MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+
+        // Distribute rewards for epochs 1 to 3
+        for (uint48 epoch = startEpoch; epoch < startEpoch + numberOfEpochs; epoch++) {
+            _setupStakesAudit(epoch, 4 hours);
+            vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+            address[] memory operators = middleware.getAllOperators();
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch, uint48(operators.length));
+        }
+
+        // Warp to epoch 4
+        vm.warp((startEpoch + numberOfEpochs) * middleware.EPOCH_DURATION());
+
+        // --- claim rewardsToken --------------------------------------------------
+        uint256 bal1Before = rewardsToken.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(address(rewardsToken), staker);
+        uint256 bal1After = rewardsToken.balanceOf(staker);
+        assertGt(bal1After, bal1Before, "Staker received token1");
+
+        // --- claim rewardsToken2 -------------------------------------------------
+        uint256 bal2Before = rewardsToken2.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(address(rewardsToken2), staker);
+        uint256 bal2After = rewardsToken2.balanceOf(staker);
+        assertGt(bal2After, bal2Before, "Staker received token2");
+
+        // --- re‑claim in same epoch must now revert -----------------------------
+        vm.prank(staker);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, staker, numberOfEpochs)
+        );
+        rewards.claimRewards(address(rewardsToken), staker);
+    }
+
+    function test_claimOperatorFee_multipleTokens_operator_Fix() public {
+        // Deploy a second reward token
+        ERC20Mock rewardsToken2 = new ERC20Mock();
+        rewardsToken2.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken2.approve(address(rewards), 1_000_000 * 10 ** 18);
+
+        // Mint additional tokens for the original rewardsToken to cover 3 epochs
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 300_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), 400_000 * 10 ** 18); // Total: 100k (from setup) + 300k = 400k
+
+        uint48 startEpoch = 1;
+        uint48 numberOfEpochs = 3;
+        uint256 rewardsAmount = 100_000 * 10 ** 18;
+
+        // Set rewards for both tokens
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
+        rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken2), rewardsAmount);
+        vm.stopPrank();
+
+        // Distribute rewards for epochs 1 to 3
+        for (uint48 epoch = startEpoch; epoch < startEpoch + numberOfEpochs; epoch++) {
+            _setupStakesAudit(epoch, 4 hours);
+            vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+            address[] memory operators = middleware.getAllOperators();
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch, uint48(operators.length));
+        }
+
+        // Warp to epoch 4
+        vm.warp((startEpoch + numberOfEpochs) * middleware.EPOCH_DURATION());
+        address operator = middleware.getAllOperators()[0];
+
+        // --- claim rewardsToken --------------------------------------------------
+        uint256 bal1Before = rewardsToken.balanceOf(operator);
+        vm.prank(operator);
+        rewards.claimOperatorFee(address(rewardsToken), operator);
+        uint256 bal1After = rewardsToken.balanceOf(operator);
+        assertGt(bal1After, bal1Before, "Operator received token1");
+
+        // --- claim rewardsToken2 -------------------------------------------------
+        uint256 bal2Before = rewardsToken2.balanceOf(operator);
+        vm.prank(operator);
+        rewards.claimOperatorFee(address(rewardsToken2), operator);
+        uint256 bal2After = rewardsToken2.balanceOf(operator);
+        assertGt(bal2After, bal2Before, "Operator received token2");
+
+        // --- re‑claim must revert ----------------------------------------------
+        vm.prank(operator);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, operator, numberOfEpochs)
+        );
+        rewards.claimOperatorFee(address(rewardsToken), operator);
+    }
+
+    function test_claimCuratorFee_multipleTokens_curator_Fix() public {
+        // Deploy a second reward token
+        ERC20Mock rewardsToken2 = new ERC20Mock();
+        rewardsToken2.mint(REWARDS_DISTRIBUTOR_ROLE, 1_000_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken2.approve(address(rewards), 1_000_000 * 10 ** 18);
+
+        // Mint additional tokens for the original rewardsToken to cover 3 epochs
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, 300_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), 400_000 * 10 ** 18); // Total: 100k (from setup) + 300k = 400k
+
+        uint48 startEpoch = 1;
+        uint48 numberOfEpochs = 3;
+        uint256 rewardsAmount = 100_000 * 10 ** 18;
+
+        // Set rewards for both tokens
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken), rewardsAmount);
+        rewards.setRewardsAmountForEpochs(startEpoch, numberOfEpochs, address(rewardsToken2), rewardsAmount);
+        vm.stopPrank();
+
+        // Distribute rewards for epochs 1 to 3
+        for (uint48 epoch = startEpoch; epoch < startEpoch + numberOfEpochs; epoch++) {
+            _setupStakesAudit(epoch, 4 hours);
+            vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+            address[] memory operators = middleware.getAllOperators();
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch, uint48(operators.length));
+        }
+
+        // Warp to epoch 4
+        vm.warp((startEpoch + numberOfEpochs) * middleware.EPOCH_DURATION());
+        address vault  = vaultManager.vaults(0);
+        address curator = MockVault(vault).owner();
+
+        // --- claim rewardsToken --------------------------------------------------
+        uint256 bal1Before = rewardsToken.balanceOf(curator);
+        vm.prank(curator);
+        rewards.claimCuratorFee(address(rewardsToken), curator);
+        uint256 bal1After = rewardsToken.balanceOf(curator);
+        assertGt(bal1After, bal1Before, "Curator received token1");
+
+        // --- claim rewardsToken2 -------------------------------------------------
+        uint256 bal2Before = rewardsToken2.balanceOf(curator);
+        vm.prank(curator);
+        rewards.claimCuratorFee(address(rewardsToken2), curator);
+        uint256 bal2After = rewardsToken2.balanceOf(curator);
+        assertGt(bal2After, bal2Before, "Curator received token2");
+
+        // --- re‑claim must revert ----------------------------------------------
+        vm.prank(curator);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, curator, numberOfEpochs)
+        );
+        rewards.claimCuratorFee(address(rewardsToken), curator);
+    }
+
+    function test_claimSparseEpochs() public {
+        /* rewardToken is funded for epoch 5 only,
+        staker claims at epoch 10 => loop crosses empty epochs */
+        uint48 start = 5;
+        uint48 num   = 1;
+        uint256 amount = 1e20;
+        
+        // Mint additional tokens and approve for this test
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amount);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amount);
+        
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(start, num, address(rewardsToken), amount);
+
+        _setupStakesAudit(start, 4 hours);
+        vm.warp((start + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(start, 10);
+
+        // fast‑forward to epoch 10
+        vm.warp((10) * middleware.EPOCH_DURATION());
+
+        address staker = makeAddr("SparseStaker");
+        address vault  = vaultManager.vaults(0);
+        uint256 ts = middleware.getEpochStartTs(start);
+        MockVault(vault).setActiveBalance(staker, 1e18);
+        MockVault(vault).setTotalActiveShares(uint48(ts), 1e18);
+
+        vm.prank(staker);
+        rewards.claimRewards(address(rewardsToken), staker);   // must not revert
+    }
+
+    function test_reentrancyGuard() public {
+        EvilToken evil = new EvilToken(rewards);
+        evil.mint(REWARDS_DISTRIBUTOR_ROLE, 1e20);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        evil.approve(address(rewards), 1e20);
+
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(1, 1, address(evil), 1e20);
+
+        _setupStakesAudit(1, 4 hours);
+        vm.warp((4) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(1, 10);
+
+        // claim as protocol owner (re‑entrancy attempt lives in transfer)
+        vm.prank(PROTOCOL_OWNER);
+        rewards.claimProtocolFee(address(evil), PROTOCOL_OWNER);
+    }
+
+}
+
+contract EvilToken is ERC20Mock {
+    Rewards target;
+    constructor(Rewards _t) ERC20Mock() { target = _t; }
+    function transfer(address to, uint256 value) public override returns (bool) {
+        super.transfer(to, value);
+        // try re‑enter (should revert due to nonReentrant)
+        try target.claimProtocolFee(address(this), msg.sender) {} catch {}
+        return true;
     }
 }

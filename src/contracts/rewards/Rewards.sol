@@ -15,8 +15,9 @@ import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {VaultTokenized} from "../vault/VaultTokenized.sol";
 import {IRewards, DistributionBatch} from "../../interfaces/rewards/IRewards.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-contract Rewards is AccessControlUpgradeable, IRewards {
+contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewards {
     using SafeERC20 for IERC20;
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -57,10 +58,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
     mapping(uint48 epoch => EnumerableMap.AddressToUintMap rewardsTokenToAmount) private rewardsAmountPerTokenFromEpoch;
 
     // Last claimed epoch tracking
-    mapping(address staker => uint48 epoch) public lastEpochClaimedStaker;
-    mapping(address curator => uint48 epoch) public lastEpochClaimedCurator;
-    mapping(address protocolOwner => uint48 epoch) public lastEpochClaimedProtocol;
-    mapping(address operator => uint48 epoch) public lastEpochClaimedOperator;
+    mapping(address staker => mapping(address rewardToken => uint48 epoch)) public lastEpochClaimedStaker;
+    mapping(address curator => mapping(address rewardToken => uint48 epoch)) public lastEpochClaimedCurator;
+    mapping(address operator => mapping(address rewardToken => uint48 epoch)) public lastEpochClaimedOperator;
+    mapping(address protocolOwner => mapping(address rewardToken => uint48 epoch)) public lastEpochClaimedProtocol;
 
     // Asset class configuration
     mapping(uint96 assetClass => uint16 rewardsShare) public rewardsSharePerAssetClass;
@@ -85,6 +86,8 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
         if (protocolFee_ + operatorFee_ + curatorFee_ > BASIS_POINTS_DENOMINATOR)
             revert FeeConfigurationExceeds100(protocolFee_ + operatorFee_ + curatorFee_);
+
+        __ReentrancyGuard_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
         _grantRole(REWARDS_MANAGER_ROLE, admin_);
@@ -136,10 +139,10 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
     // Claiming functions
     /// @inheritdoc IRewards
-    function claimRewards(address rewardsToken, address recipient) external {
+    function claimRewards(address rewardsToken, address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
-        uint48 lastClaimedEpoch = lastEpochClaimedStaker[msg.sender];
+        uint48 lastClaimedEpoch = lastEpochClaimedStaker[msg.sender][rewardsToken];
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
 
         if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
@@ -149,11 +152,11 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint256 totalRewards = 0;
 
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            (bool found, uint256 epochRewards) =
+                rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+            if (!found || epochRewards == 0) continue;
             address[] memory vaults = _getStakerVaults(msg.sender, epoch);
             uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
-            uint256 epochRewards = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
-
-            if (epochRewards == 0) continue;
 
             for (uint256 i = 0; i < vaults.length; i++) {
                 address vault = vaults[i];
@@ -185,16 +188,16 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
         if (totalRewards == 0) revert NoRewardsToClaim(msg.sender);
 
+        lastEpochClaimedStaker[msg.sender][rewardsToken] = currentEpoch - 1;
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
-        lastEpochClaimedStaker[msg.sender] = currentEpoch - 1;
     }
 
     /// @inheritdoc IRewards
-    function claimOperatorFee(address rewardsToken, address recipient) external {
+    function claimOperatorFee(address rewardsToken, address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
-        uint48 lastClaimedEpoch = lastEpochClaimedOperator[msg.sender];
+        uint48 lastClaimedEpoch = lastEpochClaimedOperator[msg.sender][rewardsToken];
 
         if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
             revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
@@ -203,28 +206,28 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint256 totalRewards = 0;
 
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            (bool found, uint256 rewardsAmount) =
+                rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+            if (!found || rewardsAmount == 0) continue;
+
             uint256 operatorShare = operatorShares[epoch][msg.sender];
             if (operatorShare == 0) continue;
-
-            // get rewards amount per token for epoch
-            uint256 rewardsAmount = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
-            if (rewardsAmount == 0) continue;
 
             uint256 operatorRewards = Math.mulDiv(rewardsAmount, operatorShare, BASIS_POINTS_DENOMINATOR);
             totalRewards += operatorRewards;
         }
 
         if (totalRewards == 0) revert NoRewardsToClaim(msg.sender);
+        lastEpochClaimedOperator[msg.sender][rewardsToken] = currentEpoch - 1;
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
-        lastEpochClaimedOperator[msg.sender] = currentEpoch - 1;
     }
 
     /// @inheritdoc IRewards
-    function claimCuratorFee(address rewardsToken, address recipient) external {
+    function claimCuratorFee(address rewardsToken, address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
-        uint48 lastClaimedEpoch = lastEpochClaimedCurator[msg.sender];
+        uint48 lastClaimedEpoch = lastEpochClaimedCurator[msg.sender][rewardsToken];
 
         if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
             revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
@@ -232,30 +235,31 @@ contract Rewards is AccessControlUpgradeable, IRewards {
 
         uint256 totalCuratorRewards = 0;
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
+            (bool found, uint256 rewardsAmount) =
+                rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+            if (!found || rewardsAmount == 0) continue;
+
             uint256 curatorShare = curatorShares[epoch][msg.sender];
             if (curatorShare == 0) continue;
-
-            uint256 rewardsAmount = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
-            if (rewardsAmount == 0) continue;
 
             uint256 curatorRewards = Math.mulDiv(rewardsAmount, curatorShare, BASIS_POINTS_DENOMINATOR);
             totalCuratorRewards += curatorRewards;
         }
         if (totalCuratorRewards == 0) revert NoRewardsToClaim(msg.sender);
 
+        lastEpochClaimedCurator[msg.sender][rewardsToken] = currentEpoch - 1;
         IERC20(rewardsToken).safeTransfer(recipient, totalCuratorRewards);
-        lastEpochClaimedCurator[msg.sender] = currentEpoch - 1;
     }
 
     /// @inheritdoc IRewards
-    function claimProtocolFee(address rewardsToken, address recipient) external onlyRole(PROTOCOL_OWNER_ROLE) {
+    function claimProtocolFee(address rewardsToken, address recipient) external nonReentrant onlyRole(PROTOCOL_OWNER_ROLE) {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
         uint256 rewards = protocolRewards[rewardsToken];
         if (rewards == 0) revert NoRewardsToClaim(msg.sender);
 
-        IERC20(rewardsToken).safeTransfer(recipient, rewards);
         protocolRewards[rewardsToken] = 0;
+        IERC20(rewardsToken).safeTransfer(recipient, rewards);
     }
 
     /// @inheritdoc IRewards
@@ -263,7 +267,7 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         uint48 epoch,
         address rewardsToken,
         address recipient
-    ) external onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
+    ) external nonReentrant onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
         // Check if epoch distribution is complete
@@ -275,8 +279,9 @@ contract Rewards is AccessControlUpgradeable, IRewards {
         if (currentEpoch < epoch + 2) revert EpochStillClaimable(epoch);
 
         // Get total rewards for the epoch
-        uint256 totalRewardsForEpoch = rewardsAmountPerTokenFromEpoch[epoch].get(rewardsToken);
-        if (totalRewardsForEpoch == 0) revert NoRewardsToClaim(msg.sender);
+        (bool foundRewards, uint256 totalRewardsForEpoch) =
+            rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+        if (!foundRewards || totalRewardsForEpoch == 0) revert NoRewardsToClaim(msg.sender);
 
         // Calculate total distributed shares for the epoch
         uint256 totalDistributedShares = 0;
