@@ -2876,6 +2876,136 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(middleware.getOperatorNodesLength(alice), 1, "Alice should have 1 node remaining");
     }
 
+    // function test_UnconfirmedStakeImmediateRewards() public {
+    //     // Setup: Alice has 100 ETH equivalent stake
+    //     uint48 epoch = _calcAndWarpOneEpoch();
+
+    //     // increasuing vaults total stake
+    //     (, uint256 additionalMinted) = _deposit(staker, 500 ether);
+        
+    //     // Now allocate more of this deposited stake to Alice (the operator)
+    //     uint256 totalAliceShares = mintedShares + additionalMinted;
+    //     _setL1Limit(bob, validatorManagerAddress, assetClassId, 3000 ether, delegator);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalAliceShares, delegator);
+
+    //     // Move to next epoch to make the new stake available
+    //     epoch = _calcAndWarpOneEpoch();
+    
+    //     // Verify Alice now has sufficient available stake
+    //     uint256 aliceAvailableStake = middleware.getOperatorAvailableStake(alice);
+    //     console2.log("Alice available stake: %s ETH", aliceAvailableStake / 1 ether);
+
+    //     // Alice adds a node with 10 ETH stake
+    //     (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = 
+    //         _createAndConfirmNodes(alice, 1, 10 ether, true);
+    //     bytes32 nodeId = nodeIds[0];
+    //     bytes32 validationID = validationIDs[0];
+        
+    //     // Move to next epoch and confirm initial state
+    //     epoch = _calcAndWarpOneEpoch();
+    //     uint256 initialStake = middleware.getNodeStake(epoch, validationID);
+    //     assertEq(initialStake, 10 ether, "Initial stake should be 10 ETH");
+        
+    //     // Alice increases stake to 1000 ETH (10x increase)
+    //     uint256 modifiedStake = 50 ether;
+    //     vm.prank(alice);
+    //     middleware.initializeValidatorStakeUpdate(nodeId, modifiedStake);
+        
+    //     // Check: Stake cache immediately updated for next epoch (unconfirmed!)
+    //     uint48 nextEpoch = middleware.getCurrentEpoch() + 1;
+    //     uint256 unconfirmedStake = middleware.nodeStakeCache(nextEpoch, validationID);
+    //     assertEq(unconfirmedStake, modifiedStake, "Unconfirmed stake should be immediately set");
+        
+    //     // Verify: P-Chain operation is still pending
+    //     assertTrue(
+    //         mockValidatorManager.isValidatorPendingWeightUpdate(validationID),
+    //         "P-Chain operation should still be pending"
+    //     );
+        
+    //     // Move to next epoch (when unconfirmed stake takes effect)
+    //     epoch = _calcAndWarpOneEpoch();
+        
+    //     // Reward calculations now use unconfirmed 1000 ETH stake
+    //     uint256 operatorStakeForRewards = middleware.getOperatorUsedStakeCachedPerEpoch(
+    //         epoch, alice, middleware.PRIMARY_ASSET_CLASS()
+    //     );
+    //     assertEq(
+    //         operatorStakeForRewards, 
+    //         modifiedStake, 
+    //         "Reward calculations should use unconfirmed 500 ETH stake"
+    //     );
+    //     console2.log("Stake used for rewards: %s ETH", operatorStakeForRewards / 1 ether);            
+    // }
+
+    function test_UnconfirmedStakeImmediateRewards_Fix() public {
+        // Setup: Alice has 100 ETH equivalent stake
+        uint48 epoch = _calcAndWarpOneEpoch();
+
+        // Increase vaults total stake
+        (, uint256 additionalMinted) = _deposit(staker, 500 ether);
+        
+        // Now allocate more of this deposited stake to Alice (the operator)
+        uint256 totalAliceShares = mintedShares + additionalMinted;
+        _setL1Limit(bob, validatorManagerAddress, assetClassId, 3000 ether, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalAliceShares, delegator);
+
+        // Move to next epoch to make the new stake available
+        epoch = _calcAndWarpOneEpoch();
+    
+        // Verify Alice now has sufficient available stake
+        uint256 aliceAvailableStake = middleware.getOperatorAvailableStake(alice);
+        console2.log("Alice available stake: %s ETH", aliceAvailableStake / 1 ether);
+
+        // Alice adds a node with 10 ETH stake
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = 
+            _createAndConfirmNodes(alice, 1, 10 ether, true);
+        bytes32 nodeId = nodeIds[0];
+        bytes32 validationID = validationIDs[0];
+        
+        // Move to next epoch and confirm initial state
+        epoch = _calcAndWarpOneEpoch();
+        uint256 initialStake = middleware.getNodeStake(epoch, validationID);
+        assertEq(initialStake, 10 ether, "Initial stake should be 10 ETH");
+        
+        // Alice increases stake to 1000 ETH (10x increase)
+        uint256 modifiedStake = 50 ether;
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, modifiedStake);
+        
+        // FIXED: Stake cache should NOT be immediately updated (only after P-Chain confirmation)
+        uint48 nextEpoch = middleware.getCurrentEpoch() + 1;
+        uint256 unconfirmedStake = middleware.nodeStakeCache(nextEpoch, validationID);
+        assertEq(unconfirmedStake, 0, "Stake cache should NOT be updated before P-Chain confirmation");
+        
+        // Verify: P-Chain operation is still pending
+        assertTrue(
+            mockValidatorManager.isValidatorPendingWeightUpdate(validationID),
+            "P-Chain operation should still be pending"
+        );
+        
+        // Complete the stake update (P-Chain confirmation)
+        vm.prank(alice);
+        middleware.completeStakeUpdate(nodeId, 0);
+        
+        // NOW the cache should be updated for next epoch
+        uint256 confirmedStake = middleware.nodeStakeCache(nextEpoch, validationID);
+        assertEq(confirmedStake, modifiedStake, "Stake cache should be updated after P-Chain confirmation");
+        
+        // Move to next epoch (when confirmed stake takes effect)
+        epoch = _calcAndWarpOneEpoch();
+        
+        // Reward calculations now use confirmed 50 ETH stake (not unconfirmed)
+        uint256 operatorStakeForRewards = middleware.getOperatorUsedStakeCachedPerEpoch(
+            epoch, alice, middleware.PRIMARY_ASSET_CLASS()
+        );
+        assertEq(
+            operatorStakeForRewards, 
+            modifiedStake, 
+            "Reward calculations should use confirmed 50 ETH stake"
+        );
+        console2.log("Stake used for rewards: %s ETH", operatorStakeForRewards / 1 ether);            
+    }
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////

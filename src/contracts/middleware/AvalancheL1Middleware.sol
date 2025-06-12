@@ -74,6 +74,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStakeCache;
     mapping(bytes32 => bool) public nodePendingUpdate;
+    mapping(bytes32 => uint256) private _pendingStake;
     mapping(bytes32 => bool) public nodePendingRemoval;
     mapping(address => uint256) public operatorLockedStake;
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
@@ -349,7 +350,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         bytes32 valId = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 available = _getOperatorAvailableStake(operator);
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePendingRemoval(nodeId);
-        if (nodePendingUpdate[valId]) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
+        if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
 
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
@@ -381,7 +382,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         validationIdToOperator[validationID] = operator;
         nodeStakeCache[epoch][validationID] = newStake;
         nodeStakeCache[epoch + 1][validationID] = newStake;
-        nodePendingUpdate[validationID] = true;
 
         emit NodeAdded(operator, nodeId, newStake, validationID);
     }
@@ -707,30 +707,21 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
-            // If no removal/update, just carry over from prevEpoch (only if we haven't set it yet)
-            if (!nodePendingRemoval[valID] && !nodePendingUpdate[valID]) {
+            // If not pending removal, simply carry forward from previous epoch
+            if (!nodePendingRemoval[valID]) {
                 if (nodeStakeCache[epoch][valID] == 0) {
                     nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID];
                 }
-                continue;
-            }
-
-            if (nodePendingRemoval[valID] && nodeStakeCache[epoch][valID] == 0 && nodeStakeCache[prevEpoch][valID] != 0)
-            {
-                _removeNodeFromArray(operator, nodeId);
-                nodePendingRemoval[valID] = false;
-            }
-
-            // If there was a pending update, finalize and clear the pending markers
-            if (nodePendingUpdate[valID]) {
-                nodePendingUpdate[valID] = false;
+            } else {
+                // Handle node removal if needed
+                if (nodeStakeCache[epoch][valID] == 0 && nodeStakeCache[prevEpoch][valID] != 0) {
+                    _removeNodeFromArray(operator, nodeId);
+                    nodePendingRemoval[valID] = false;
+                }
             }
         }
 
-        // Reset operator locked stake once per epoch
-        if (operatorLockedStake[operator] > 0) {
-            operatorLockedStake[operator] = 0;
-        }
+        // The lock is released only after completeValidatorWeightUpdate succeeds.
     }
 
     /**
@@ -812,8 +803,27 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (!balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdateNotPending(validationID);
         }
-        // if the completeValidatorWeightUpdate fails, not sure if the previous bool is secure.
+
+        // Finish the weight update on the P-Chain
         balancerValidatorManager.completeValidatorWeightUpdate(validationID, messageIndex);
+
+        uint48 currentEpoch = getCurrentEpoch();
+        uint256 newStake = _pendingStake[validationID];
+
+        // write to cache active validators
+        Validator memory v = balancerValidatorManager.getValidator(validationID);
+        if (v.status == ValidatorStatus.Active && !nodePendingRemoval[validationID]) {
+            nodeStakeCache[currentEpoch + 1][validationID] = newStake;
+        }
+
+        // unlock stake
+        uint256 prevStake = getEffectiveNodeStake(currentEpoch, validationID);
+        if (newStake > prevStake) {
+            uint256 release = newStake - prevStake;
+            uint256 lockBal = operatorLockedStake[operator];
+            operatorLockedStake[operator] = (release > lockBal) ? 0 : lockBal - release;
+        }
+        delete _pendingStake[validationID];
     }
 
     /**
@@ -838,9 +848,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             }
         }
         operatorLockedStake[operator] += delta;
-        nodePendingUpdate[validationID] = true;
-        nodeStakeCache[currentEpoch + 1][validationID] = newStake;
-        // if newStake < cachedStake, no lock should happen, it's locked in the cache
+
+        _pendingStake[validationID] = newStake;
 
         uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
 
