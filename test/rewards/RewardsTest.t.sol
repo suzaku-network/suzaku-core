@@ -1472,6 +1472,72 @@ contract RewardsTest is Test {
         rewards.claimProtocolFee(address(evil), PROTOCOL_OWNER);
     }
 
+    // function test_RewardsDistribution_DivisionByZero_NewAssetClass() public {
+    //     uint48 epoch = 1;
+    //     _setupStakes(epoch, 4 hours);
+        
+    //     vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
+        
+    //     // Add a new asset class (4) after epoch 1 has passed    
+    //     uint96 newAssetClass = 4;
+    //     uint96[] memory currentAssetClasses = middleware.getAssetClassIds();
+    //     uint96[] memory newAssetClasses = new uint96[](currentAssetClasses.length + 1);
+    //     for (uint256 i = 0; i < currentAssetClasses.length; i++) {
+    //         newAssetClasses[i] = currentAssetClasses[i];
+    //     }
+    //     newAssetClasses[currentAssetClasses.length] = newAssetClass;
+        
+    //     // Update the middleware to return the new asset class list
+    //     middleware.setAssetClassIds(newAssetClasses);
+        
+    //     // Re‑balance so that the overall sum stays 100 %
+    //     vm.startPrank(REWARDS_MANAGER_ROLE);
+    //     rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
+    //     rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
+    //     vm.stopPrank();
+
+    //     // distribute rewards   
+    //     vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+    //     assertEq(middleware.totalStakeCache(epoch, newAssetClass), 0, "New asset class should have zero stake for historical epoch 1");
+
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);    
+    //     vm.expectRevert(); // Division by zero in Math.mulDiv when totalStake = 0
+    //     rewards.distributeRewards(epoch, 1);
+    // }
+
+    function test_RewardsDistribution_DivisionByZero_NewAssetClass_Fix() public {
+        uint48 epoch = 1;
+        _setupStakes(epoch, 4 hours);
+        
+        vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
+        
+        // Add a new asset class (4) after epoch 1 has passed    
+        uint96 newAssetClass = 4;
+        uint96[] memory currentAssetClasses = middleware.getAssetClassIds();
+        uint96[] memory newAssetClasses = new uint96[](currentAssetClasses.length + 1);
+        for (uint256 i = 0; i < currentAssetClasses.length; i++) {
+            newAssetClasses[i] = currentAssetClasses[i];
+        }
+        newAssetClasses[currentAssetClasses.length] = newAssetClass;
+        
+        // Update the middleware to return the new asset class list
+        middleware.setAssetClassIds(newAssetClasses);
+        
+        // Re‑balance so that the overall sum stays 100 %
+        vm.startPrank(REWARDS_MANAGER_ROLE);
+        rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
+        rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
+        vm.stopPrank();
+
+        // distribute rewards   
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        assertEq(middleware.totalStakeCache(epoch, newAssetClass), 0, "New asset class should have zero stake for historical epoch 1");
+
+        // after the contract fix this must succeed (guard skips the div‑0 path)
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(epoch, 1);
+    }
+
 }
 
 contract EvilToken is ERC20Mock {

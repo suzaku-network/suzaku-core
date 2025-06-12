@@ -496,9 +496,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         uint96[] memory assetClasses = l1Middleware.getAssetClassIds();
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClasses[i]);
             uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
             uint16 assetClassShare = rewardsSharePerAssetClass[assetClasses[i]];
+            if (totalStake == 0 || assetClassShare == 0) continue;
+
+            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClasses[i]);
 
             uint256 shareForClass = Math.mulDiv(
                 Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
@@ -544,7 +546,8 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             if (vaultStake > 0) {
                 uint256 operatorActiveStake =
                     l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultAssetClass);
-
+                if (operatorActiveStake == 0) continue;
+                
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
                 vaultShare =
                     Math.mulDiv(vaultShare, rewardsSharePerAssetClass[vaultAssetClass], BASIS_POINTS_DENOMINATOR);

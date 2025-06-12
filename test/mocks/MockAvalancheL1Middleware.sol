@@ -22,6 +22,7 @@ contract MockAvalancheL1Middleware {
 
     uint96 primaryAssetClass = 1;
     uint96[] secondaryAssetClasses = [2, 3];
+    uint96[] private assetClassIds = [1, 2, 3]; // Initialize with default asset classes
 
     constructor(
         uint256 operatorCount,
@@ -124,12 +125,18 @@ contract MockAvalancheL1Middleware {
         return (primaryAssetClass, secondaryAssetClasses);
     }
 
+    function setAssetClassIds(uint96[] memory newAssetClassIds) external {
+        // Clear existing array
+        delete assetClassIds;
+        
+        // Copy new asset class IDs
+        for (uint256 i = 0; i < newAssetClassIds.length; i++) {
+            assetClassIds.push(newAssetClassIds[i]);
+        }
+    }
+
     function getAssetClassIds() external view returns (uint96[] memory) {
-        uint96[] memory assetClasses = new uint96[](3);
-        assetClasses[0] = primaryAssetClass;
-        assetClasses[1] = secondaryAssetClasses[0];
-        assetClasses[2] = secondaryAssetClasses[1];
-        return assetClasses;
+        return assetClassIds;
     }
 
     /// @notice Returns the active nodes for an operator in a given epoch.
