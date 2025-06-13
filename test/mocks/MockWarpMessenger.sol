@@ -83,6 +83,14 @@ contract MockWarpMessenger is IWarpMessenger {
             payload = ValidatorMessages.packValidationUptimeMessage(derivedNode1ID, ZERO_HOURS);
         } else if (messageIndex == 13) {
             payload = ValidatorMessages.packValidationUptimeMessage(derivedNode0ID, TWELVE_HOURS); // 3 * EPOCH_DURATION
+        } else if (messageIndex == 14) {
+            payload = ValidatorMessages.packValidationUptimeMessage(derivedNode0ID, ZERO_HOURS);
+        } else if (messageIndex == 15) {
+            payload = ValidatorMessages.packValidationUptimeMessage(derivedNode2ID, ZERO_HOURS);
+        } else if (messageIndex == 16) {
+            payload = ValidatorMessages.packValidationUptimeMessage(derivedNode0ID, FOUR_HOURS);
+        } else if (messageIndex == 17) {
+            payload = ValidatorMessages.packValidationUptimeMessage(derivedNode2ID, FOUR_HOURS);
         } else {
             return (WarpMessage({sourceChainID: bytes32(uint256(1)), originSenderAddress: address(0), payload: new bytes(0)}), false);
         }

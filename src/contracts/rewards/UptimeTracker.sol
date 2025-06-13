@@ -108,25 +108,26 @@ contract UptimeTracker is IUptimeTracker {
         // The uptime to distribute across the elapsed epochs
         uint256 uptimeToDistribute = recordedUptime - remainingUptime;
 
+        if (elapsedEpochs >= 1 && uptimeToDistribute > 0) {
+            uint256 remaining = uptimeToDistribute;
+
+            for (uint48 i = 0; i < elapsedEpochs && remaining > 0; ++i) {
+                uint48 epoch = currentEpoch - i - 1;
+                uint256 give = remaining > epochDuration ? epochDuration : remaining;
+                if (!isValidatorUptimeSet[epoch][validationID]) {
+                    validatorUptimePerEpoch[epoch][validationID] = give;
+                    isValidatorUptimeSet[epoch][validationID] = true;
+                }
+                remaining -= give;
+            }
+        }
+
         // If the recorded uptime is greater than the elapsed time, carry over the excess uptime else reset it
         validatorLastUptimeCheckpoint[validationID] = LastUptimeCheckpoint({
             remainingUptime: remainingUptime, // Store the leftover uptime for future epochs if any
             attributedUptime: uptime, // Update the last recorded uptime
             timestamp: currentEpochStart // Move the checkpoint forward
         });
-
-        // Distribute the recorded uptime across multiple epochs
-        if (elapsedEpochs >= 1) {
-            uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
-            for (uint48 i = 0; i < elapsedEpochs; i++) {
-                uint48 epoch = lastUptimeEpoch + i;
-                if (isValidatorUptimeSet[epoch][validationID] == true) {
-                    break;
-                }
-                validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch; // Assign uptime to each epoch
-                isValidatorUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
-            }
-        }
 
         emit ValidatorUptimeComputed(validationID, lastUptimeEpoch, uptimeToDistribute, elapsedEpochs);
     }
