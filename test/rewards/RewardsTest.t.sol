@@ -21,6 +21,7 @@ import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 
 contract RewardsTest is Test {
     // EVENTS
+    event ZeroRewardsClaim(address indexed claimer, address indexed rewardsToken, uint48 lastEpoch, string claimType);
     event AdminRoleAssigned(address indexed mewManager);
     event RewardsManagerRoleAssigned(address indexed rewardsManager);
     event RewardsDistributorRoleAssigned(address indexed rewardsDistributor);
@@ -672,11 +673,11 @@ contract RewardsTest is Test {
 
         // Try to claim without any stake or rewards
         vm.prank(staker);
-        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, staker));
+        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaimEpoch.selector, staker, 0));
         rewards.claimRewards(address(rewardsToken), staker);
     }
 
-    function test_claimRewards_revert_NoStakeInVault() public {
+    function test_claimRewards_EmitZeroRewardsClaim_NoStakeInVault() public {
         uint48 epoch = 1;
         address staker = makeAddr("Staker");
 
@@ -692,7 +693,8 @@ contract RewardsTest is Test {
         vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
 
         vm.prank(staker);
-        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, staker));
+        vm.expectEmit(true, true, false, true, address(rewards));
+        emit IRewards.ZeroRewardsClaim(staker, address(rewardsToken), 1, "staker");
         rewards.claimRewards(address(rewardsToken), staker);
     }
 
@@ -712,7 +714,7 @@ contract RewardsTest is Test {
         vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
 
         vm.prank(staker);
-        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, staker));
+        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaimEpoch.selector, staker, 0));
         rewards.claimRewards(address(rewardsToken), staker);
     }
 
@@ -1421,38 +1423,44 @@ contract RewardsTest is Test {
         rewards.claimCuratorFee(address(rewardsToken), curator);
     }
 
-    function test_claimSparseEpochs() public {
-        /* rewardToken is funded for epoch 5 only,
-        staker claims at epoch 10 => loop crosses empty epochs */
-        uint48 start = 5;
-        uint48 num   = 1;
-        uint256 amount = 1e20;
+    // Sparse claiming is not supported anymore
+    // function test_claimSparseEpochs() public {
+    //     /* Fund only epoch 5, stake epochs 4 & 5, then claim at epoch 10 */
+    //     uint48 fundEpoch = 5;
+    //     uint256 amount = 1e20;
         
-        // Mint additional tokens and approve for this test
-        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amount);
-        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
-        rewardsToken.approve(address(rewards), amount);
-        
-        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
-        rewards.setRewardsAmountForEpochs(start, num, address(rewardsToken), amount);
+    //     // Fund epoch 5 within window
+    //     rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amount);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewardsToken.approve(address(rewards), amount);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewards.setRewardsAmountForEpochs(fundEpoch, 1, address(rewardsToken), amount);
 
-        _setupStakesAudit(start, 4 hours);
-        vm.warp((start + 3) * middleware.EPOCH_DURATION());
-        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
-        rewards.distributeRewards(start, 10);
+    //     // Set up stakes for epochs 4 & 5
+    //     _setupStakesAudit(4, 4 hours);
+    //     _setupStakesAudit(fundEpoch, 4 hours);
 
-        // fast‑forward to epoch 10
-        vm.warp((10) * middleware.EPOCH_DURATION());
+    //     // Move to currentEpoch = fundEpoch + FUNDING_DEADLINE_OFFSET so funding window for epoch 4 is closed
+    //     vm.warp((fundEpoch + rewards.FUNDING_DEADLINE_OFFSET()) * middleware.EPOCH_DURATION());
 
-        address staker = makeAddr("SparseStaker");
-        address vault  = vaultManager.vaults(0);
-        uint256 ts = middleware.getEpochStartTs(start);
-        MockVault(vault).setActiveBalance(staker, 1e18);
-        MockVault(vault).setTotalActiveShares(uint48(ts), 1e18);
+    //     // Sequential requirement: distribute epoch 4 (unfunded, now allowed) then epoch 5
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewards.distributeRewards(4, 10);
+    //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+    //     rewards.distributeRewards(fundEpoch, 10);
 
-        vm.prank(staker);
-        rewards.claimRewards(address(rewardsToken), staker);   // must not revert
-    }
+    //     // Fast-forward to epoch 10 and claim
+    //     vm.warp(10 * middleware.EPOCH_DURATION());
+
+    //     address staker = makeAddr("SparseStaker");
+    //     address vault = vaultManager.vaults(0);
+    //     uint256 ts = middleware.getEpochStartTs(fundEpoch);
+    //     MockVault(vault).setActiveBalance(staker, 1e18);
+    //     MockVault(vault).setTotalActiveShares(uint48(ts), 1e18);
+
+    //     vm.prank(staker);
+    //     rewards.claimRewards(address(rewardsToken), staker);
+    // }
 
     function test_reentrancyGuard() public {
         EvilToken evil = new EvilToken(rewards);
@@ -1606,6 +1614,312 @@ contract RewardsTest is Test {
         assertEq(rewards.getRewardsAmountPerTokenFromEpoch(5, address(rewardsToken1)), (rewardsAmount - Math.mulDiv(rewardsAmount, 1000, 10000)) * 2);
     }
 
+    function test_distributeRewards_claimFee(uint256 uptime) public {
+        uint48 epoch = 1;
+        uptime = bound(uptime, 0, 4 hours);
+        
+        // Ensure we start at beginning to fund within window
+        vm.warp(0);
+        
+        _setupStakes(epoch, uptime);
+        _setupStakes(epoch + 2, uptime);
+
+        // fund epochs 1 **and 3** (epoch+2) so both can be distributed
+        uint256 amount = 100_000 * 1e18;
+        uint48 numberOfEpochs = 3;
+        // Mint additional tokens needed for this test
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amount * numberOfEpochs);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amount * numberOfEpochs);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(epoch, numberOfEpochs, address(rewardsToken), amount);
+
+        address[] memory operators = middleware.getAllOperators();
+        uint256 batchSize = 3;
+        uint256 remainingOperators = operators.length;
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        while (remainingOperators > 0) {
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch, uint48(batchSize));
+            remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
+        }
+        vm.warp((epoch + 4) * middleware.EPOCH_DURATION());
+        for (uint256 i = 0; i < operators.length; i++) {
+            uint256 operatorShare = rewards.operatorShares(epoch, operators[i]);
+            if (operatorShare > 0) {
+                vm.prank(operators[i]);
+                rewards.claimOperatorFee(address(rewardsToken), operators[i]);
+                assertGt(rewardsToken.balanceOf(operators[i]), 0, "Operator should receive rewards ");
+                vm.stopPrank();
+                break;
+            }
+        }
+        vm.warp((epoch + 5) * middleware.EPOCH_DURATION());
+        
+        // Try to distribute epoch 3 before epoch 2 (should fail due to sequential enforcement)
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IRewards.DistributionNotComplete.selector,
+                epoch + 1 // epoch 2
+            )
+        );
+        rewards.distributeRewards(epoch + 2, uint48(batchSize)); // epoch 3
+
+        // Now distribute epoch 2 first (sequential requirement)
+        remainingOperators = operators.length;
+        while (remainingOperators > 0) {
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch + 1, uint48(batchSize)); // epoch 2
+            remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
+        }
+        
+        // Now epoch 3 can be distributed
+        vm.warp((epoch + 6) * middleware.EPOCH_DURATION());
+        remainingOperators = operators.length;
+        while (remainingOperators > 0) {
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch + 2, uint48(batchSize)); // epoch 3
+            remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
+        }
+
+        vm.warp((epoch + 7) * middleware.EPOCH_DURATION());
+        for (uint256 i = 0; i < operators.length; i++) {
+            uint256 operatorShare = rewards.operatorShares(epoch + 2, operators[i]);
+            if (operatorShare > 0) {
+                vm.prank(operators[i]);
+                rewards.claimOperatorFee(address(rewardsToken), operators[i]);
+                vm.stopPrank();
+                break;
+            }
+        }
+    }
+
+    function test_fund_before_deadline_then_distribute_ok() public {
+        uint48 epoch = 1;
+        _setupStakes(epoch, 4 hours);
+
+        // Fund epoch 1 while still well inside the window
+        // Current epoch = epoch + 1, well within funding deadline
+        vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
+        uint256 amt = 100_000 ether;
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amt);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amt);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(rewardsToken), amt);
+
+        // Earliest legal distribution moment is epoch + DISTRIBUTION_EARLIEST_OFFSET
+        vm.warp((epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(epoch, 10);
+    }
+
+    function test_distribution_too_early_reverts() public {
+        uint48 epoch = 1;
+        _setupStakes(epoch, 4 hours);
+
+        // Try to distribute before DISTRIBUTION_EARLIEST_OFFSET
+        // Current epoch = epoch + 1 = 2, which is < epoch + DISTRIBUTION_EARLIEST_OFFSET = 3
+        vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        vm.expectRevert(
+            abi.encodeWithSelector(IRewards.RewardsDistributionTooEarly.selector, epoch, 0)
+        );
+        rewards.distributeRewards(epoch, 10);
+    }
+
+    function test_distributionWithoutFunding_withinWindow_revert() public {
+        uint48 epoch = 2;
+        _setupStakes(epoch, 4 hours);
+
+        // Distribution within funding window should revert for unfunded epoch
+        // Current epoch = epoch + DISTRIBUTION_EARLIEST_OFFSET + 1, still within funding window
+        vm.warp((epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1) * middleware.EPOCH_DURATION());
+
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.EpochNotFunded.selector, epoch));
+        rewards.distributeRewards(epoch, 1);
+    }
+
+    function test_distributionWithoutFunding_afterWindow_ok() public {
+        _setupStakes(1, 4 hours);
+        _setupStakes(2, 4 hours);
+
+        // Jump so funding window for epoch 1 is closed
+        // Current epoch = 1 + FUNDING_DEADLINE_OFFSET + 3, well beyond funding window
+        vm.warp((1 + rewards.FUNDING_DEADLINE_OFFSET() + 3) * middleware.EPOCH_DURATION());
+
+        // Sequential requirement: distribute epoch 1 first, then epoch 2
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(1, 10);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(2, 10);
+
+        (, bool complete) = rewards.distributionBatches(2);
+        assertTrue(complete, "Epoch 2 should distribute even when unfunded once window closed");
+    }
+
+    function test_fundOldEpoch_afterWindow_beforeDistribution_ok() public {
+        uint48 epoch = 3;
+        uint256 amt = 50_000 * 1e18;
+
+        // Funding after window but before distribution should be allowed
+        // Current epoch = epoch + FUNDING_DEADLINE_OFFSET + 1, beyond funding window
+        vm.warp((epoch + rewards.FUNDING_DEADLINE_OFFSET() + 1) * middleware.EPOCH_DURATION());
+
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amt);
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amt);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(rewardsToken), amt);
+        vm.stopPrank();
+
+        (bool funded,) = rewards.epochStatus(epoch);
+        assertTrue(funded, "epoch must be flagged as funded");
+    }
+
+    function test_pastFundingWindow_distributeAll_thenClaim() public {
+        // Use epochs 4, 5, 6 which are not funded (epoch 1 is already funded in setup)
+        uint48 startEpoch = 4;
+        uint48 numEpochs = 3;
+        
+        // First need to distribute epoch 1 (funded in setup) to satisfy sequential requirement
+        _setupStakes(1, 4 hours);
+        vm.warp((1 + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(1, 10);
+        
+        // Setup stakes for unfunded epochs
+        for (uint48 epoch = startEpoch; epoch < startEpoch + numEpochs; epoch++) {
+            _setupStakes(epoch, 4 hours);
+        }
+
+        // Warp past funding window for the unfunded epochs
+        // Current epoch = startEpoch + numEpochs + FUNDING_DEADLINE_OFFSET, beyond all funding windows
+        vm.warp((startEpoch + numEpochs + rewards.FUNDING_DEADLINE_OFFSET()) * middleware.EPOCH_DURATION());
+
+        // Distribute ALL epochs from 2 up to our target epochs to maintain sequential order
+        // This ensures the claim loop won't break early on undistributed epochs
+        for (uint48 epoch = 2; epoch < startEpoch + numEpochs; epoch++) {
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch, 10);
+            
+            // Verify distribution completed
+            (, bool complete) = rewards.distributionBatches(epoch);
+            assertTrue(complete, "Distribution should be complete for each epoch");
+        }
+
+        // Setup staker for claiming
+        address staker = makeAddr("TestStaker");
+        address vault = vaultManager.vaults(0);
+        uint256 epochTs = middleware.getEpochStartTs(startEpoch);
+        MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+
+        // Warp to next epoch to allow claiming
+        vm.warp((startEpoch + numEpochs + rewards.FUNDING_DEADLINE_OFFSET() + 1) * middleware.EPOCH_DURATION());
+
+        // Test the UX fix: claiming from unfunded epochs should advance pointer and succeed (no revert)
+        ERC20Mock unfundedToken = new ERC20Mock();
+        
+        // 1. Verify staker claiming from unfunded epochs succeeds and advances pointer
+        uint48 stakerLastBefore = rewards.lastEpochClaimedStaker(staker, address(unfundedToken));
+        uint256 stakerBalanceBefore = unfundedToken.balanceOf(staker);
+        vm.prank(staker);
+        vm.expectEmit(true, true, false, true, address(rewards));
+        emit IRewards.ZeroRewardsClaim(staker, address(unfundedToken), startEpoch + numEpochs - 1, "staker");
+        rewards.claimRewards(address(unfundedToken), staker);
+        uint48 stakerLastAfter = rewards.lastEpochClaimedStaker(staker, address(unfundedToken));
+        uint256 stakerBalanceAfter = unfundedToken.balanceOf(staker);
+        assertGt(stakerLastAfter, stakerLastBefore, "Staker pointer should advance even on 0 rewards");
+        assertEq(stakerBalanceAfter, stakerBalanceBefore, "Staker balance should not change on 0 rewards");
+
+        // 2. Test operator claiming (same behavior)
+        address[] memory operators = middleware.getAllOperators();
+        address operator = operators[0];
+        uint48 operatorLastBefore = rewards.lastEpochClaimedOperator(operator, address(unfundedToken));
+        uint256 operatorBalanceBefore = unfundedToken.balanceOf(operator);
+        vm.prank(operator);
+        rewards.claimOperatorFee(address(unfundedToken), operator);
+        uint48 operatorLastAfter = rewards.lastEpochClaimedOperator(operator, address(unfundedToken));
+        uint256 operatorBalanceAfter = unfundedToken.balanceOf(operator);
+        assertGt(operatorLastAfter, operatorLastBefore, "Operator pointer should advance even on 0 rewards");
+        assertEq(operatorBalanceAfter, operatorBalanceBefore, "Operator balance should not change on 0 rewards");
+
+        // 3. Test curator claiming (same behavior)
+        address curator = MockVault(vault).owner();
+        uint48 curatorLastBefore = rewards.lastEpochClaimedCurator(curator, address(unfundedToken));
+        uint256 curatorBalanceBefore = unfundedToken.balanceOf(curator);
+        vm.prank(curator);
+        rewards.claimCuratorFee(address(unfundedToken), curator);
+        uint48 curatorLastAfter = rewards.lastEpochClaimedCurator(curator, address(unfundedToken));
+        uint256 curatorBalanceAfter = unfundedToken.balanceOf(curator);
+        assertGt(curatorLastAfter, curatorLastBefore, "Curator pointer should advance even on 0 rewards");
+        assertEq(curatorBalanceAfter, curatorBalanceBefore, "Curator balance should not change on 0 rewards");
+
+        // 4. Now fund a future epoch and verify users can claim after claiming from unfunded ones
+        uint48 fundedEpoch = 8;
+        uint256 futureRewards = 50_000 * 1e18;
+        
+        // Setup stakes for the funded epoch
+        _setupStakes(fundedEpoch, 4 hours);
+        
+        // Fund epoch 8
+        unfundedToken.mint(REWARDS_DISTRIBUTOR_ROLE, futureRewards);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        unfundedToken.approve(address(rewards), futureRewards);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(fundedEpoch, 1, address(unfundedToken), futureRewards);
+        
+        // Distribute intermediate unfunded epoch 7 first (sequential requirement)
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(7, 10);
+        
+        // Now distribute the funded epoch 8
+        vm.warp((fundedEpoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(fundedEpoch, 10);
+        
+        // Move to next epoch to allow claiming
+        vm.warp((fundedEpoch + 1) * middleware.EPOCH_DURATION());
+        
+        // 5. Verify users can now claim from the funded future epoch (proving pointers advanced correctly)
+        stakerBalanceBefore = unfundedToken.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(address(unfundedToken), staker);
+        stakerBalanceAfter = unfundedToken.balanceOf(staker);
+        assertGt(stakerBalanceAfter, stakerBalanceBefore, "Staker should get rewards from funded future epoch");
+
+        operatorBalanceBefore = unfundedToken.balanceOf(operator);
+        vm.prank(operator);
+        rewards.claimOperatorFee(address(unfundedToken), operator);
+        operatorBalanceAfter = unfundedToken.balanceOf(operator);
+        assertGt(operatorBalanceAfter, operatorBalanceBefore, "Operator should get rewards from funded future epoch");
+    }
+
+    function test_fundAfterDistributionStarted_revert() public {
+        _setupStakes(1, 4 hours);
+        _setupStakes(2, 4 hours);
+
+        // Close funding window and distribute epoch 1 completely
+        // Current epoch = 1 + FUNDING_DEADLINE_OFFSET + 3, well beyond funding window
+        vm.warp((1 + rewards.FUNDING_DEADLINE_OFFSET() + 3) * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(1, 10);
+
+        // Start epoch 2 distribution (only first batch)
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(2, 1);
+
+        // Funding after distribution has started should revert
+        uint256 amt = 10_000 * 1e18;
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amt);
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amt);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.DistributionAlreadyStarted.selector, 2));
+        rewards.setRewardsAmountForEpochs(2, 1, address(rewardsToken), amt);
+        vm.stopPrank();
+    }
 }
 
 contract EvilToken is ERC20Mock {

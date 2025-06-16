@@ -27,6 +27,13 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     bytes32 public constant REWARDS_MANAGER_ROLE = keccak256("REWARDS_MANAGER_ROLE");
     bytes32 public constant REWARDS_DISTRIBUTOR_ROLE = keccak256("REWARDS_DISTRIBUTOR_ROLE");
     bytes32 public constant PROTOCOL_OWNER_ROLE = keccak256("PROTOCOL_OWNER_ROLE");
+    /// @dev Epoch N must be funded no later than N-FUNDING_DEADLINE_OFFSET.
+    ///      If funded earlier, distribution can proceed; otherwise, must wait for the deadline.
+    uint48 public constant FUNDING_DEADLINE_OFFSET = 4;
+
+    /// @dev Epoch N may be distributed no earlier than N+DISTRIBUTION_EARLIEST_OFFSET.
+    ///      It has to wait for state to be finalized across all contracts.
+    uint48 public constant DISTRIBUTION_EARLIEST_OFFSET = 2;
 
     // STATE VARIABLES
     // Fee configuration
@@ -44,6 +51,13 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
     // Batch tracking
     mapping(uint48 epoch => DistributionBatch) public distributionBatches;
+
+    // Epoch status tracking
+    struct EpochStatus {
+        bool funded;
+        bool distributionComplete;
+    }
+    mapping(uint48 => EpochStatus) public epochStatus;
 
     // Share tracking
     mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorBeneficiariesShares;
@@ -112,11 +126,29 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     /// @inheritdoc IRewards
     function distributeRewards(uint48 epoch, uint48 batchSize) external onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
         DistributionBatch storage batch = distributionBatches[epoch];
+        EpochStatus storage st = epochStatus[epoch];
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
 
+        // window guards 
+        uint48 earliestDistributionEpoch = currentEpoch - DISTRIBUTION_EARLIEST_OFFSET;
+        if (epoch >= earliestDistributionEpoch)
+            revert RewardsDistributionTooEarly(epoch, earliestDistributionEpoch);
+            
+        bool fundingWindowOpen = epoch + FUNDING_DEADLINE_OFFSET >= currentEpoch;
+        if (fundingWindowOpen && !st.funded) {
+            if (l1Middleware.getAllOperators().length != 0)
+                revert EpochNotFunded(epoch);
+        }
+
+        // Enforce sequential distribution - cannot skip epochs
+        if (epoch > 1) {
+            EpochStatus storage prevSt = epochStatus[epoch - 1];
+            if (!prevSt.distributionComplete) {
+                revert DistributionNotComplete(epoch - 1);
+            }
+        }
+
         if (batch.isComplete) revert AlreadyCompleted(epoch);
-        // We need to wait for 2 epochs before we can distribute rewards
-        if (epoch >= currentEpoch - 2) revert RewardsDistributionTooEarly(epoch, currentEpoch - 2);
 
         address[] memory operators = l1Middleware.getAllOperators();
         uint256 operatorCount = 0;
@@ -134,6 +166,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         if (batch.lastProcessedOperator >= operators.length) {
             batch.isComplete = true;
+            st.distributionComplete = true;
         }
     }
 
@@ -150,45 +183,59 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         }
 
         uint256 totalRewards = 0;
+        uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
-            (bool found, uint256 epochRewards) =
-                rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
-            if (!found || epochRewards == 0) continue;
-            address[] memory vaults = _getStakerVaults(msg.sender, epoch);
-            uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+            EpochStatus memory st = epochStatus[epoch];
 
-            for (uint256 i = 0; i < vaults.length; i++) {
-                address vault = vaults[i];
-                uint256 vaultShare = vaultShares[epoch][vault];
-                if (vaultShare == 0) continue;
+            if (!st.distributionComplete) break;
 
-                uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0));
-                if (stakerVaultShare == 0) continue;
+            (bool funded, uint256 epochRewards) = rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+            if (funded && epochRewards > 0) {
+                address[] memory vaults = _getStakerVaults(msg.sender, epoch);
+                uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
 
-                // Get total raw shares in this specific vault at that time
-                uint256 totalRawSharesInVault = IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0));
-                if (totalRawSharesInVault == 0) continue;
+                for (uint256 i = 0; i < vaults.length; i++) {
+                    address vault = vaults[i];
+                    uint256 vaultShare = vaultShares[epoch][vault];
+                    if (vaultShare == 0) continue;
 
-                uint256 tokensForVault = Math.mulDiv(
-                    epochRewards,
-                    vaultShare,
-                    BASIS_POINTS_DENOMINATOR
-                );
+                    uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0));
+                    if (stakerVaultShare == 0) continue;
 
-                uint256 rewards = Math.mulDiv(
-                    tokensForVault,
-                    stakerVaultShare,
-                    totalRawSharesInVault
-                );
-                
-                totalRewards += rewards;
+                    // Get total raw shares in this specific vault at that time
+                    uint256 totalRawSharesInVault = IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0));
+                    if (totalRawSharesInVault == 0) continue;
+
+                    uint256 tokensForVault = Math.mulDiv(
+                        epochRewards,
+                        vaultShare,
+                        BASIS_POINTS_DENOMINATOR
+                    );
+
+                    uint256 rewards = Math.mulDiv(
+                        tokensForVault,
+                        stakerVaultShare,
+                        totalRawSharesInVault
+                    );
+                    
+                    totalRewards += rewards;
+                }
             }
+            newLast = epoch;
         }
 
-        if (totalRewards == 0) revert NoRewardsToClaim(msg.sender);
+        // Always update pointer
+        lastEpochClaimedStaker[msg.sender][rewardsToken] = newLast;
 
-        lastEpochClaimedStaker[msg.sender][rewardsToken] = currentEpoch - 1;
+        if (totalRewards == 0) {
+            if (newLast > lastClaimedEpoch) {
+                emit ZeroRewardsClaim(msg.sender, rewardsToken, newLast, "staker");
+                return;
+            }
+            revert NoRewardsToClaimEpoch(msg.sender, lastClaimedEpoch);
+        }
+
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
     }
 
@@ -204,21 +251,34 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         }
 
         uint256 totalRewards = 0;
+        uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
-            (bool found, uint256 rewardsAmount) =
-                rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
-            if (!found || rewardsAmount == 0) continue;
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+            EpochStatus memory st = epochStatus[epoch];
 
-            uint256 operatorShare = operatorShares[epoch][msg.sender];
-            if (operatorShare == 0) continue;
+            if (!st.distributionComplete) break;
 
-            uint256 operatorRewards = Math.mulDiv(rewardsAmount, operatorShare, BASIS_POINTS_DENOMINATOR);
-            totalRewards += operatorRewards;
+            (bool funded, uint256 epochRewards) = rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+            if (funded && epochRewards > 0) {
+                uint256 share = operatorShares[epoch][msg.sender];
+                if (share > 0) {
+                    totalRewards += Math.mulDiv(epochRewards, share, BASIS_POINTS_DENOMINATOR);
+                }
+            }
+            newLast = epoch;
         }
 
-        if (totalRewards == 0) revert NoRewardsToClaim(msg.sender);
-        lastEpochClaimedOperator[msg.sender][rewardsToken] = currentEpoch - 1;
+        // Update pointer
+        lastEpochClaimedOperator[msg.sender][rewardsToken] = newLast;
+
+        if (totalRewards == 0) {
+            if (newLast > lastClaimedEpoch) {
+                emit ZeroRewardsClaim(msg.sender, rewardsToken, newLast, "operator");
+                return;
+            }
+            revert NoRewardsToClaimEpoch(msg.sender, lastClaimedEpoch);
+        }
+        
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
     }
 
@@ -233,22 +293,36 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
         }
 
-        uint256 totalCuratorRewards = 0;
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
-            (bool found, uint256 rewardsAmount) =
-                rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
-            if (!found || rewardsAmount == 0) continue;
+        uint256 totalRewards = 0;
+        uint48 newLast = lastClaimedEpoch;
 
-            uint256 curatorShare = curatorShares[epoch][msg.sender];
-            if (curatorShare == 0) continue;
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+            EpochStatus memory st = epochStatus[epoch];
 
-            uint256 curatorRewards = Math.mulDiv(rewardsAmount, curatorShare, BASIS_POINTS_DENOMINATOR);
-            totalCuratorRewards += curatorRewards;
+            if (!st.distributionComplete) break;
+
+            (bool funded, uint256 epochRewards) = rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
+            if (funded && epochRewards > 0) {
+                uint256 share = curatorShares[epoch][msg.sender];
+                if (share > 0) {
+                    totalRewards += Math.mulDiv(epochRewards, share, BASIS_POINTS_DENOMINATOR);
+                }
+            }
+            newLast = epoch;
         }
-        if (totalCuratorRewards == 0) revert NoRewardsToClaim(msg.sender);
 
-        lastEpochClaimedCurator[msg.sender][rewardsToken] = currentEpoch - 1;
-        IERC20(rewardsToken).safeTransfer(recipient, totalCuratorRewards);
+        // Update pointer
+        lastEpochClaimedCurator[msg.sender][rewardsToken] = newLast;
+
+        if (totalRewards == 0) {
+            if (newLast > lastClaimedEpoch) {
+                emit ZeroRewardsClaim(msg.sender, rewardsToken, newLast, "curator");
+                return;
+            }
+            revert NoRewardsToClaimEpoch(msg.sender, lastClaimedEpoch);
+        }
+
+        IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
     }
 
     /// @inheritdoc IRewards
@@ -332,6 +406,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (rewardsAmount == 0) revert InvalidRewardsAmount(rewardsAmount);
         if (numberOfEpochs == 0) revert InvalidNumberOfEpochs(numberOfEpochs);
 
+        DistributionBatch storage startBatch = distributionBatches[startEpoch];
+        if (startBatch.lastProcessedOperator > 0 || startBatch.isComplete) {
+            revert DistributionAlreadyStarted(startEpoch);
+        }
+
         uint256 totalRewards = rewardsAmount * numberOfEpochs;
         IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), totalRewards);
 
@@ -342,6 +421,9 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         for (uint48 i = 0; i < numberOfEpochs; i++) {
             uint48 targetEpoch = startEpoch + i;
+            EpochStatus storage st = epochStatus[targetEpoch];
+
+            st.funded = true;
             (, uint256 existing) = rewardsAmountPerTokenFromEpoch[targetEpoch].tryGet(rewardsToken);
             rewardsAmountPerTokenFromEpoch[targetEpoch].set(rewardsToken, existing + rewardsAmount);
         }

@@ -36,6 +36,12 @@ interface IRewards {
     error NoRewardsToClaim(address user);
 
     /**
+     * @dev Error thrown when a user attempts to claim rewards but has no claimable balance
+     * @param user Address of user attempting to claim
+     */
+    error NoRewardsToClaimEpoch(address user, uint48 lastClaimedEpoch);
+
+    /**
      * @dev Error thrown when the recipient address is invalid (zero address)
      * @param recipient Invalid recipient address
      */
@@ -165,6 +171,12 @@ interface IRewards {
     error DistributionNotComplete(uint48 epoch);
 
     /**
+     * @notice Error thrown when trying to distribute rewards for an epoch that has already been distributed
+     * @param epoch Epoch for which rewards were already distributed
+     */
+    error DistributionAlreadyStarted(uint48 epoch);
+
+    /**
      * @notice Error thrown when trying to claim rewards for an epoch that is still claimable
      * @param epoch Epoch for which rewards are still claimable
      */
@@ -180,7 +192,19 @@ interface IRewards {
      * @notice Error thrown when the sum of all fees exceeds 100%
      * @param totalBp Sum of all basis points
      */
-    error FeeConfigurationExceeds100(uint256 totalBp);  
+    error FeeConfigurationExceeds100(uint256 totalBp);
+
+    /**
+     * @notice Error thrown when trying to distribute rewards for an epoch that was never funded
+     * @param epoch Epoch that was never funded
+     */
+    error EpochNotFunded(uint48 epoch);
+
+    /**
+     * @notice Error thrown when trying to fund an epoch outside the funding window
+     * @param epoch Epoch that cannot be funded
+     */
+    error FundingWindowClosed(uint48 epoch);  
 
     // ============================
     //         EVENTS
@@ -222,6 +246,15 @@ interface IRewards {
      * @param amount Amount of reward tokens claimed
      */
     event ProtocolFeeClaimed(address indexed rewardsToken, address indexed recipient, uint256 amount);
+
+    /**
+     * @notice Emitted when a claim attempt results in zero rewards but advances the epoch pointer
+     * @param claimer Address that attempted to claim
+     * @param rewardsToken Address of the rewards token
+     * @param lastEpoch Last epoch pointer was advanced to
+     * @param claimType Type of claim: "staker", "operator", or "curator"
+     */
+    event ZeroRewardsClaim(address indexed claimer, address indexed rewardsToken, uint48 lastEpoch, string claimType);
 
     /**
      * @notice Emitted when a new admin role is assigned
