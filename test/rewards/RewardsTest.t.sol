@@ -5,6 +5,7 @@ pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {MockAvalancheL1Middleware} from "../mocks/MockAvalancheL1Middleware.sol";
 import {MockUptimeTracker} from "../mocks/MockUptimeTracker.sol";
@@ -1587,6 +1588,22 @@ contract RewardsTest is Test {
             0,
             "Active operator should have non-zero shares"
         );
+    }
+
+    function test_setRewardsAmountForEpochs() public {
+        uint256 rewardsAmount = 1_000_000 * 10 ** 18;
+        ERC20Mock rewardsToken1 = new ERC20Mock();
+        rewardsToken1.mint(REWARDS_DISTRIBUTOR_ROLE, 2 * 1_000_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken1.approve(address(rewards), 2 * 1_000_000 * 10 ** 18);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(5, 1, address(rewardsToken1), rewardsAmount);
+        assertEq(rewards.getRewardsAmountPerTokenFromEpoch(5, address(rewardsToken1)), rewardsAmount - Math.mulDiv(rewardsAmount, 1000, 10000));
+        assertEq(rewardsToken1.balanceOf(address(rewards)), rewardsAmount);
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.setRewardsAmountForEpochs(5, 1, address(rewardsToken1), rewardsAmount);
+        assertEq(rewardsToken1.balanceOf(address(rewards)), rewardsAmount * 2 );
+        assertEq(rewards.getRewardsAmountPerTokenFromEpoch(5, address(rewardsToken1)), (rewardsAmount - Math.mulDiv(rewardsAmount, 1000, 10000)) * 2);
     }
 
 }

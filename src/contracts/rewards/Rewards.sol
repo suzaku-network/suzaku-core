@@ -341,7 +341,9 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         rewardsAmount -= Math.mulDiv(rewardsAmount, protocolFee, BASIS_POINTS_DENOMINATOR);
 
         for (uint48 i = 0; i < numberOfEpochs; i++) {
-            rewardsAmountPerTokenFromEpoch[startEpoch + i].set(rewardsToken, rewardsAmount);
+            uint48 targetEpoch = startEpoch + i;
+            (, uint256 existing) = rewardsAmountPerTokenFromEpoch[targetEpoch].tryGet(rewardsToken);
+            rewardsAmountPerTokenFromEpoch[targetEpoch].set(rewardsToken, existing + rewardsAmount);
         }
 
         emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsAmount);
