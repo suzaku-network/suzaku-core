@@ -61,6 +61,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
     uint48 public constant MAX_AUTO_EPOCH_UPDATES = 1;
+    uint48 public constant REMOVAL_DELAY_EPOCHS = 6;
     MiddlewareVaultManager private vaultManager;
     EnumerableMap.AddressToUintMap private operators;
     EnumerableSet.UintSet private secondaryAssetClasses;
@@ -322,7 +323,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
         }
         (, uint48 disabledTime) = operators.getTimes(operator);
-        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
+        uint48 disabledEpoch = getEpochAtTs(disabledTime);
+        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp() || getCurrentEpoch() < disabledEpoch + REMOVAL_DELAY_EPOCHS) {
             revert AvalancheL1Middleware__OperatorGracePeriodNotPassed(disabledTime, SLASHING_WINDOW);
         }
         operators.remove(operator);

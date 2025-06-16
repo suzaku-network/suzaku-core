@@ -1492,8 +1492,8 @@ contract RewardsTest is Test {
         
     //     // Re‑balance so that the overall sum stays 100 %
     //     vm.startPrank(REWARDS_MANAGER_ROLE);
-    //     rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
-    //     rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
+    //     rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
+    //     rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
     //     vm.stopPrank();
 
     //     // distribute rewards   
@@ -1536,6 +1536,57 @@ contract RewardsTest is Test {
         // after the contract fix this must succeed (guard skips the div‑0 path)
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
         rewards.distributeRewards(epoch, 1);
+    }
+
+    function test_distributeRewards_removedOperator() public {
+        uint48 epoch = 1;
+        uint256 uptime = 4 hours;
+
+        // Set up stakes for operators in epoch 1
+        _setupStakes(epoch, uptime);
+
+        // Get the list of operators
+        address[] memory operators = middleware.getAllOperators();
+        address removedOperator = operators[0]; // Operator to be removed
+        address activeOperator = operators[1]; // Operator to remain active
+
+        // Disable operator[0] at the start of epoch 2
+        uint256 epoch2Start = middleware.getEpochStartTs(epoch + 1); // T = 8h
+        vm.warp(epoch2Start);
+        middleware.disableOperator(removedOperator);
+
+        // Warp to after the slashing window to allow removal
+        uint256 removalTime = epoch2Start + middleware.SLASHING_WINDOW()
+            + (middleware.REMOVAL_DELAY_EPOCHS() * middleware.EPOCH_DURATION()); // T = 37h (8h + 5h + 24h)
+        vm.warp(removalTime);
+        middleware.removeOperator(removedOperator);
+
+        // Warp to epoch 4 to distribute rewards for epoch 1
+        uint256 distributionTime = middleware.getEpochStartTs(epoch + 3); // T = 16h
+        vm.warp(distributionTime);
+
+        // Distribute rewards in batches
+        uint256 batchSize = 3;
+        uint256 remainingOperators = middleware.getAllOperators().length; // Now 9 operators
+        while (remainingOperators > 0) {
+            vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+            rewards.distributeRewards(epoch, uint48(batchSize));
+            remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
+        }
+
+        // Verify that the removed operator has zero shares
+        assertEq(
+            rewards.operatorShares(epoch, removedOperator),
+            0,
+            "Removed operator should have zero shares if the delay period passed and they were removed"
+        );
+
+        // Verify that an active operator has non-zero shares
+        assertGt(
+            rewards.operatorShares(epoch, activeOperator),
+            0,
+            "Active operator should have non-zero shares"
+        );
     }
 
 }

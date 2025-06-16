@@ -2666,9 +2666,9 @@ contract AvalancheL1MiddlewareTest is Test {
         vm.prank(validatorManagerAddress);
         middleware.disableOperator(alice);
         
-        // Warp past the slashing window to allow removal
-        uint48 slashingWindow = middleware.SLASHING_WINDOW();
-        vm.warp(block.timestamp + slashingWindow + 1);
+        // Warp past the window to allow removal
+        uint48 removalDelay = middleware.REMOVAL_DELAY_EPOCHS();
+        _moveToNextEpochAndCalc(removalDelay);
         
         // Now removal should work since operator has no active nodes
         vm.prank(validatorManagerAddress);
