@@ -44,6 +44,7 @@ import {
 } from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 
 import {Token} from "../mocks/MockToken.sol";
+import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
 
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
 import {IOperatorRegistry} from "../../src/interfaces/IOperatorRegistry.sol";
@@ -1764,7 +1765,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Another epoch to ensure everything finalizes
         _calcAndWarpOneEpoch();
 
-        // That’s it. Optionally, verify final aggregator of node stakes == operatorUsedStake
+        // That's it. Optionally, verify final aggregator of node stakes == operatorUsedStake
         // for each operator. Just a quick check:
         _checkSumMatchesOperatorUsed(alice, nodeIdsAlice);
         _checkSumMatchesOperatorUsed(charlie, nodeIdsCharlie);
@@ -3004,6 +3005,157 @@ contract AvalancheL1MiddlewareTest is Test {
             "Reward calculations should use confirmed 50 ETH stake"
         );
         console2.log("Stake used for rewards: %s ETH", operatorStakeForRewards / 1 ether);            
+    }
+
+    function test_operatorStakeWithoutNormalization() public {
+        uint48 epoch = 1;
+        // Deploy tokens with different decimals
+        ERC20WithDecimals tokenA1 = new ERC20WithDecimals("TokenA", "TKA", 6); // e.g., USDC
+        ERC20WithDecimals tokenB1 = new ERC20WithDecimals("TokenB", "TKB", 18); // e.g., DAI
+
+        // Deploy vaults and associate with asset class 1
+        vm.startPrank(validatorManagerAddress);
+        address vaultAddress1 = vaultFactory.create(
+            1,
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(tokenA1),
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        address vaultAddress2 = vaultFactory.create(
+            1,
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(tokenB1),
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized vaultTokenA = VaultTokenized(vaultAddress1);
+        VaultTokenized vaultTokenB = VaultTokenized(vaultAddress2);
+        vm.startPrank(validatorManagerAddress);
+        middleware.addAssetClass(2, 0, 100, address(tokenA1));
+        middleware.activateSecondaryAssetClass(2);
+        middleware.addAssetToClass(2, address(tokenB1));
+        vm.stopPrank();
+
+        address[] memory l1LimitSetRoleHolders = new address[](1);
+        l1LimitSetRoleHolders[0] = bob;
+        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+        operatorL1SharesSetRoleHolders[0] = bob;
+
+        address delegatorAddress2 = delegatorFactory.create(
+            0,
+            abi.encode(
+                address(vaultTokenA),
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                    })
+                )
+            )
+        );
+        L1RestakeDelegator _delegator2 = L1RestakeDelegator(delegatorAddress2);
+
+        address delegatorAddress3 = delegatorFactory.create(
+            0,
+            abi.encode(
+                address(vaultTokenB),
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                    })
+                )
+            )
+        );
+        L1RestakeDelegator _delegator3 = L1RestakeDelegator(delegatorAddress3);
+
+        vm.prank(bob);
+        vaultTokenA.setDelegator(delegatorAddress2);
+
+        // Set the delegator in vault3
+        vm.prank(bob);
+        vaultTokenB.setDelegator(delegatorAddress3);
+
+        _setOperatorL1Shares(bob, validatorManagerAddress, 2, alice, 100, _delegator2);
+        _setOperatorL1Shares(bob, validatorManagerAddress, 2, alice, 100, _delegator3);
+
+        vm.startPrank(validatorManagerAddress);
+        vaultManager.registerVault(address(vaultTokenA), 2, 3000 ether);
+        vaultManager.registerVault(address(vaultTokenB), 2, 3000 ether);
+        vm.stopPrank();
+
+        _optInOperatorVault(alice, address(vaultTokenA));
+        _optInOperatorVault(alice, address(vaultTokenB));
+        //_optInOperatorL1(alice, validatorManagerAddress);
+
+        _setL1Limit(bob, validatorManagerAddress, 2, 10000 * 10**6, _delegator2);
+        _setL1Limit(bob, validatorManagerAddress, 2, 10 * 10**18, _delegator3);
+
+        // Define stakes without normalization
+        uint256 stakeA = 10000 * 10**6; // 10,000 TokenA (6 decimals)
+        uint256 stakeB = 10 * 10**18; // 10 TokenB (18 decimals)
+
+        uint256 normalised = stakeA * 10**12 + stakeB; 
+
+        tokenA1.transfer(staker, stakeA);
+        vm.startPrank(staker);
+        tokenA1.approve(address(vaultTokenA), stakeA);
+        vaultTokenA.deposit(staker, stakeA);
+        vm.stopPrank();
+
+        tokenB1.transfer(staker, stakeB);
+        vm.startPrank(staker);
+        tokenB1.approve(address(vaultTokenB), stakeB);
+        vaultTokenB.deposit(staker, stakeB);
+        vm.stopPrank();
+
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+
+        assertEq(middleware.getOperatorStake(alice, 2, 2), normalised);
+        assertNotEq(middleware.getOperatorStake(alice, 2, 2), stakeA + stakeB);
     }
 
     ///////////////////////////////

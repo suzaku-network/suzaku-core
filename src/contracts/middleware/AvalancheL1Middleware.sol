@@ -6,6 +6,7 @@ pragma solidity 0.8.25;
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {
     Validator,
@@ -1008,6 +1009,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 L1_VALIDATOR_MANAGER, assetClassId, operator, epochStartTs, new bytes(0)
             );
+
+            address collateral = IVaultTokenized(vault).collateral();
+            uint8 dec = IERC20Metadata(collateral).decimals();
+
+            if (dec < 18) {
+                vaultStake *= 10 ** uint256(18 - dec);
+            } else if (dec > 18) {
+                vaultStake /= 10 ** uint256(dec - 18);
+            }
 
             stake += vaultStake;
         }
