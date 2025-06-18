@@ -60,10 +60,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     mapping(uint48 => EpochStatus) public epochStatus;
 
     // Share tracking
-    mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorBeneficiariesShares;
     mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorShares;
     mapping(uint48 epoch => mapping(address vault => uint256 share)) public vaultShares; // vault stakes owners shares
     mapping(uint48 epoch => mapping(address curator => uint256 share)) public curatorShares; // vault owner shares
+    mapping(uint48 epoch => mapping(address operator => mapping(uint96 assetClass => uint256 share)))
+        public operatorBeneficiariesSharesPerAssetClass;
 
     // Protocol rewards
     mapping(address rewardsToken => uint256 rewardsAmount) public protocolRewards;
@@ -151,17 +152,12 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (batch.isComplete) revert AlreadyCompleted(epoch);
 
         address[] memory operators = l1Middleware.getAllOperators();
-        uint256 operatorCount = 0;
+        uint48 operatorCount = 0;
 
-        for (uint256 i = batch.lastProcessedOperator; i < operators.length && operatorCount < batchSize; i++) {
-            // Calculate operator's total share based on stake and uptime
-            _calculateOperatorShare(epoch, operators[i]);
-
-            // Calculate and store vault shares
-            _calculateAndStoreVaultShares(epoch, operators[i]);
-
-            batch.lastProcessedOperator = i + 1;
-            operatorCount++;
+        for (uint256 i = batch.lastProcessedOperator; i < operators.length && operatorCount < batchSize; ++i) {
+            _processOperator(epoch, operators[i]);
+            batch.lastProcessedOperator = uint48(i + 1);
+            unchecked { ++operatorCount; }
         }
 
         if (batch.lastProcessedOperator >= operators.length) {
@@ -570,40 +566,42 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     function _calculateOperatorShare(uint48 epoch, address operator) internal {
         uint256 uptime = uptimeTracker.operatorUptimePerEpoch(epoch, operator);
         if (uptime < minRequiredUptime) {
-            operatorBeneficiariesShares[epoch][operator] = 0;
             operatorShares[epoch][operator] = 0;
             return;
         }
 
         uint256 operatorUptime = Math.mulDiv(uptime, BASIS_POINTS_DENOMINATOR, epochDuration);
-        uint256 totalShare = 0;
+
+        uint256 totalBeneficiaryShare = 0;
+        uint256 totalOperatorFeeShare = 0;
 
         uint96[] memory assetClasses = l1Middleware.getAssetClassIds();
+        uint256 rawShare;
+        uint256 operatorFeeShare;
         for (uint256 i = 0; i < assetClasses.length; i++) {
-            uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClasses[i]);
-            uint16 assetClassShare = rewardsSharePerAssetClass[assetClasses[i]];
+            uint96 assetClass = assetClasses[i];
+            uint16 assetClassShare = rewardsSharePerAssetClass[assetClass];
+            uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClass);
             if (totalStake == 0 || assetClassShare == 0) continue;
 
-            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClasses[i]);
+            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClass);
 
-            uint256 shareForClass = Math.mulDiv(
+            rawShare = Math.mulDiv(
                 Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
                 assetClassShare,
                 BASIS_POINTS_DENOMINATOR
             );
-            totalShare += shareForClass;
+            rawShare = Math.mulDiv(rawShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
+
+            operatorFeeShare = Math.mulDiv(rawShare, operatorFee, BASIS_POINTS_DENOMINATOR);
+
+            operatorBeneficiariesSharesPerAssetClass[epoch][operator][assetClass] = rawShare - operatorFeeShare;
+
+            totalOperatorFeeShare += operatorFeeShare;
+            totalBeneficiaryShare += rawShare - operatorFeeShare;
         }
 
-        totalShare = Math.mulDiv(totalShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
-
-        // Calculate operator fee share and store it
-        uint256 operatorFeeShare = Math.mulDiv(totalShare, operatorFee, BASIS_POINTS_DENOMINATOR);
-        operatorShares[epoch][operator] = operatorFeeShare;
-
-        // Remove operator fee share from total share
-        totalShare -= operatorFeeShare;
-
-        operatorBeneficiariesShares[epoch][operator] = totalShare;
+        operatorShares[epoch][operator] = totalOperatorFeeShare;
     }
 
     /**
@@ -612,16 +610,15 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
      * @param operator The operator to calculate the vault shares for
      */
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
-        uint256 operatorShare = operatorBeneficiariesShares[epoch][operator];
-        if (operatorShare == 0) return;
-
         address[] memory vaults = middlewareVaultManager.getVaults(epoch);
         uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
 
-        // First pass: calculate raw shares and total
         for (uint256 i = 0; i < vaults.length; i++) {
             address vault = vaults[i];
             uint96 vaultAssetClass = middlewareVaultManager.getVaultAssetClass(vault);
+
+            uint256 operatorAssetClassShare = operatorBeneficiariesSharesPerAssetClass[epoch][operator][vaultAssetClass];
+            if (operatorAssetClassShare == 0) continue;
 
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 l1Middleware.L1_VALIDATOR_MANAGER(), vaultAssetClass, operator, epochTs, new bytes(0)
@@ -633,28 +630,21 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
                 if (operatorActiveStake == 0) continue;
                 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
-                vaultShare =
-                    Math.mulDiv(vaultShare, rewardsSharePerAssetClass[vaultAssetClass], BASIS_POINTS_DENOMINATOR);
-                vaultShare = Math.mulDiv(vaultShare, operatorShare, BASIS_POINTS_DENOMINATOR);
+                vaultShare = Math.mulDiv(vaultShare, operatorAssetClassShare, BASIS_POINTS_DENOMINATOR);
 
-                uint256 operatorTotalStake = l1Middleware.getOperatorStake(operator, epoch, vaultAssetClass);
-
-                if (operatorTotalStake > 0) {
-                    uint256 operatorStakeRatio =
-                        Math.mulDiv(operatorActiveStake, BASIS_POINTS_DENOMINATOR, operatorTotalStake);
-                    vaultShare = Math.mulDiv(vaultShare, operatorStakeRatio, BASIS_POINTS_DENOMINATOR);
-                }
-
-                // Calculate curator share
                 uint256 curatorShare = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
                 address curator = VaultTokenized(vault).owner();
                 curatorShares[epoch][curator] += curatorShare;
                 _epochCurators[epoch].add(curator);
 
-                // Store vault share after removing curator share
                 vaultShares[epoch][vault] += vaultShare - curatorShare;
             }
         }
+    }
+
+    function _processOperator(uint48 epoch, address operator) private {
+        _calculateOperatorShare(epoch, operator);
+        _calculateAndStoreVaultShares(epoch, operator);
     }
 
     // Getter functions
