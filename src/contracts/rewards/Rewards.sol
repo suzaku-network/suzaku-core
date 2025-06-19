@@ -558,6 +558,15 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     }
 
     // Calculation functions
+    /// @dev Ensures the total stake cache is populated for the given epoch and asset class
+    function _ensureStakeCache(uint48 epoch, uint96 assetClass) internal returns (uint256 totalStake) {
+        totalStake = l1Middleware.totalStakeCache(epoch, assetClass);
+        if (totalStake == 0) {
+            try l1Middleware.calcAndCacheStakes(epoch, assetClass) {} catch {}
+            totalStake = l1Middleware.totalStakeCache(epoch, assetClass);
+        }
+    }
+
     /**
      * @dev Calculates the operator share for a given epoch and operator
      * @param epoch The epoch to calculate the operator share for
@@ -581,7 +590,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         for (uint256 i = 0; i < assetClasses.length; i++) {
             uint96 assetClass = assetClasses[i];
             uint16 assetClassShare = rewardsSharePerAssetClass[assetClass];
-            uint256 totalStake = l1Middleware.totalStakeCache(epoch, assetClass);
+            uint256 totalStake = _ensureStakeCache(epoch, assetClass);
             if (totalStake == 0 || assetClassShare == 0) continue;
 
             uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClass);

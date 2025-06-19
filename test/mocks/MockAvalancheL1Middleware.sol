@@ -202,4 +202,22 @@ contract MockAvalancheL1Middleware {
     function getVaultManager() external view returns (address) {
         return VAULT_MANAGER;
     }
+
+    /**
+     * @notice Simulates the real contract's stake calculation and caching.
+     * @dev This now has the correct signature `public returns (uint256)` to match the interface.
+     */
+    function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
+        // This logic mimics the real contract by summing the individual operator stakes
+        // that were configured during the test's setup phase.
+        for (uint256 i = 0; i < OPERATORS.length; i++) {
+            totalStake += operatorStake[epoch][OPERATORS[i]][assetClassId];
+        }
+
+        // Cache the calculated total stake so the Rewards contract can read it.
+        totalStakeCache[epoch][assetClassId] = totalStake;
+
+        // Return the calculated value as per the real interface.
+        return totalStake;
+    }
 }

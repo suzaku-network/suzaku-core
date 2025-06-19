@@ -1920,6 +1920,36 @@ contract RewardsTest is Test {
         rewards.setRewardsAmountForEpochs(2, 1, address(rewardsToken), amt);
         vm.stopPrank();
     }
+
+    function test_RewardsDistributionDOS_With_UncachedSecondaryAssetClasses() public {
+        uint48 epoch = 1;
+        uint256 uptime = 4 hours;
+
+        // Setup stakes for operators normally
+        _setupStakes(epoch, uptime);
+
+        // Set totalStakeCache to 0 for secondary asset classes to simulate uncached state
+        middleware.setTotalStakeCache(epoch, 2, 0); // Secondary asset class 2
+        middleware.setTotalStakeCache(epoch, 3, 0); // Secondary asset class 3
+
+        // Keep primary asset class cached (this would be cached by addNode/forceUpdateNodes)
+        middleware.setTotalStakeCache(epoch, 1, 100000); // This stays cached
+
+        // Move to epoch where distribution is allowed (must be at least 2 epochs ahead)
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+
+        // With the fix, this should now succeed instead of reverting
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(epoch, 3);
+
+        // Verify that the stakes were cached on-demand
+        assertGt(middleware.totalStakeCache(epoch, 2), 0, "Secondary asset class 2 stake should be cached");
+        assertGt(middleware.totalStakeCache(epoch, 3), 0, "Secondary asset class 3 stake should be cached");
+
+        // Verify distribution progressed as expected
+        (uint256 lastProcessed, ) = rewards.distributionBatches(epoch);
+        assertEq(lastProcessed, 3, "Should have processed 3 operators");
+    }
 }
 
 contract EvilToken is ERC20Mock {
