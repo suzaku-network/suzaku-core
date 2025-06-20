@@ -35,6 +35,10 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     ///      It has to wait for state to be finalized across all contracts.
     uint48 public constant DISTRIBUTION_EARLIEST_OFFSET = 2;
 
+    /// @dev The number of epochs after distribution is possible that users have to claim
+    ///      before undistributed rewards can be swept.
+    uint48 public constant CLAIM_GRACE_PERIOD_EPOCHS = 1;
+
     // STATE VARIABLES
     // Fee configuration
     uint16 public protocolFee;
@@ -83,6 +87,9 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
     // Epoch curators tracking
     mapping(uint48 epoch => EnumerableSet.AddressSet curators) private _epochCurators;
+
+    // Undistributed rewards tracking - epoch => token => swept
+    mapping(uint48 => mapping(address => bool)) private _undistributedClaimed;
 
     // INITIALIZER
     function initialize(
@@ -340,13 +347,20 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     ) external nonReentrant onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
+        // prevent double‑sweep
+        if (_undistributedClaimed[epoch][rewardsToken]) revert NoRewardsToClaim(msg.sender);
+
         // Check if epoch distribution is complete
         DistributionBatch storage batch = distributionBatches[epoch];
         if (!batch.isComplete) revert DistributionNotComplete(epoch);
 
-        // Check if current epoch is at least 2 epochs ahead (to ensure all claims are done)
+        // The sweep can only happen after the distribution offset AND the claim grace period have passed.
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
-        if (currentEpoch < epoch + 2) revert EpochStillClaimable(epoch);
+        uint48 requiredEpoch = epoch + DISTRIBUTION_EARLIEST_OFFSET + CLAIM_GRACE_PERIOD_EPOCHS;
+        
+        if (currentEpoch < requiredEpoch) {
+            revert EpochStillClaimable(epoch);
+        }
 
         // Get total rewards for the epoch
         (bool foundRewards, uint256 totalRewardsForEpoch) =
@@ -374,16 +388,20 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             totalDistributedShares += curatorShares[epoch][curators[i]];
         }
 
-        // Calculate and transfer undistributed rewards
-        uint256 undistributedRewards =
-            totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
+            // Calculate and transfer undistributed rewards
+    uint256 undistributedRewards =
+        totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
 
-        if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
+    if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
 
-        // Clear the rewards amount to prevent double claiming
-        rewardsAmountPerTokenFromEpoch[epoch].set(rewardsToken, 0);
+    // Keep pool consistent for later user claims
+    uint256 remaining = totalRewardsForEpoch - undistributedRewards;
+    rewardsAmountPerTokenFromEpoch[epoch].set(rewardsToken, remaining);
 
-        IERC20(rewardsToken).safeTransfer(recipient, undistributedRewards);
+    // mark as swept *before* transfer - prevents second sweep
+    _undistributedClaimed[epoch][rewardsToken] = true;
+
+    IERC20(rewardsToken).safeTransfer(recipient, undistributedRewards);
 
         emit UndistributedRewardsClaimed(epoch, rewardsToken, recipient, undistributedRewards);
     }

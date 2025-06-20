@@ -746,19 +746,26 @@ contract RewardsTest is Test {
         // Warp to 2 epochs ahead to allow claiming
         vm.warp(block.timestamp + 3 * middleware.EPOCH_DURATION());
 
-        // Record balances before claim
+        // Record balances and rewards amount before claim
         uint256 recipientBalanceBefore = rewardsToken.balanceOf(REWARDS_DISTRIBUTOR_ROLE);
+        uint256 rewardsAmountBefore = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
 
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
         rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_DISTRIBUTOR_ROLE);
 
         // Verify rewards were transferred
         uint256 recipientBalanceAfter = rewardsToken.balanceOf(REWARDS_DISTRIBUTOR_ROLE);
-        assertGt(recipientBalanceAfter, recipientBalanceBefore, "Should receive undistributed rewards");
+        uint256 undistributedAmount = recipientBalanceAfter - recipientBalanceBefore;
+        assertGt(undistributedAmount, 0, "Should receive undistributed rewards");
 
-        // Verify rewards amount was cleared
+        // Verify rewards amount was reduced by undistributed amount (maintaining accounting invariant)
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
-        assertEq(rewardsAmountAfter, 0, "Rewards amount should be cleared");
+        uint256 expectedRemaining = rewardsAmountBefore - undistributedAmount;
+        assertEq(rewardsAmountAfter, expectedRemaining, "Rewards amount should be reduced by swept amount");
+        assertGt(rewardsAmountAfter, 0, "Some rewards should remain claimable by users");
+        
+        // Verify accounting invariant: remaining + swept = original
+        assertEq(rewardsAmountAfter + undistributedAmount, rewardsAmountBefore, "Accounting invariant should hold");
     }
 
     function test_claimUndistributedRewards_revert_InvalidRecipient() public {
@@ -830,6 +837,43 @@ contract RewardsTest is Test {
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
         vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaim.selector, REWARDS_DISTRIBUTOR_ROLE));
         rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_DISTRIBUTOR_ROLE);
+    }
+
+    function test_claimUndistributedRewards_usersCanStillClaim() public {
+        uint48 epoch = 1;
+        address staker = makeAddr("Staker");
+        
+        // Setup staker balance
+        address vault = vaultManager.vaults(0);
+        MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+
+        // Setup and distribute rewards with partial uptime to create undistributed rewards
+        test_distributeRewards(3.9 hours);
+
+        // Warp to after grace period to allow undistributed rewards claim
+        vm.warp(block.timestamp + 3 * middleware.EPOCH_DURATION());
+
+        // Record initial state
+        uint256 rewardsAmountBefore = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
+        uint256 stakerBalanceBefore = rewardsToken.balanceOf(staker);
+
+        // Claim undistributed rewards
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_DISTRIBUTOR_ROLE);
+
+        // Verify remaining rewards are still available
+        uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
+        assertGt(rewardsAmountAfter, 0, "Should have remaining rewards for users");
+        assertLt(rewardsAmountAfter, rewardsAmountBefore, "Should have reduced rewards after undistributed claim");
+
+        // User should still be able to claim their allocated rewards
+        vm.prank(staker);
+        rewards.claimRewards(address(rewardsToken), staker);
+
+        uint256 stakerBalanceAfter = rewardsToken.balanceOf(staker);
+        assertGt(stakerBalanceAfter, stakerBalanceBefore, "Staker should receive their allocated rewards");
     }
 
     function test_claimRewardsForOtherParties() public {
@@ -1950,6 +1994,41 @@ contract RewardsTest is Test {
         (uint256 lastProcessed, ) = rewards.distributionBatches(epoch);
         assertEq(lastProcessed, 3, "Should have processed 3 operators");
     }
+
+    // function test_distributeRewards_andRemoveVault(
+    //     uint256 uptime
+    // ) public {
+    //     uint48 epoch = 1;
+    //     uptime = bound(uptime, 0, 4 hours);
+    //     address staker = makeAddr("Staker");
+    //     address staker1 = makeAddr("Staker1");
+    //     // Set staker balance in vault
+    //     address vault = vaultManager.vaults(0);
+    //     MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+    //     MockVault(vault).setActiveBalance(staker1, 300_000 * 1e18);
+    //     // Set up stakes for operators, nodes, delegators and l1 middleware
+    //     _setupStakes(epoch, uptime);
+    //     vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+    //     uint256 epochTs = middleware.getEpochStartTs(epoch);
+    //     MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+    //     // Distribute rewards
+    //     test_distributeRewards(4 hours);
+    //     vm.warp((epoch + 4) * middleware.EPOCH_DURATION());
+    //     uint256 stakerBalanceBefore = rewardsToken.balanceOf(staker);
+    //     vm.prank(staker);
+    //     rewards.claimRewards(address(rewardsToken), staker);
+    //     uint256 stakerBalanceAfter = rewardsToken.balanceOf(staker);
+    //     uint256 stakerRewards = stakerBalanceAfter - stakerBalanceBefore;
+    //     assertGt(stakerRewards, 0, "Staker should receive rewards");
+    //     vaultManager.removeVault(vaultManager.vaults(0));
+    //     uint256 stakerBalanceBefore1 = rewardsToken.balanceOf(staker1);
+    //     vm.prank(staker1);
+    //     rewards.claimRewards(address(rewardsToken), staker1);
+    //     uint256 stakerBalanceAfter1 = rewardsToken.balanceOf(staker1);
+    //     uint256 stakerRewards1 = stakerBalanceAfter1 - stakerBalanceBefore1;
+    //     assertGt(stakerRewards1, 0, "Staker should receive rewards");
+    // }
+
 }
 
 contract EvilToken is ERC20Mock {
