@@ -18,6 +18,7 @@ import {Rewards} from "../../src/contracts/rewards/Rewards.sol";
 import {IRewards, DistributionBatch} from "../../src/interfaces/rewards/IRewards.sol";
 import {BaseDelegator} from "../../src/contracts/delegator/BaseDelegator.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
+import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
 
 contract RewardsTest is Test {
     // EVENTS
@@ -65,6 +66,10 @@ contract RewardsTest is Test {
         console2.log("Vault manager deployed");
         middleware = new MockAvalancheL1Middleware(operatorCount, nodesPerOperator, address(0), address(vaultManager));
         console2.log("Middleware deployed");
+        
+        // Link the middleware to the vault manager
+        vaultManager.setMiddleware(address(middleware));
+        console2.log("Vault manager and middleware linked");
         uptimeTracker = new MockUptimeTracker();
         console2.log("Uptime tracker deployed");
 
@@ -1995,39 +2000,54 @@ contract RewardsTest is Test {
         assertEq(lastProcessed, 3, "Should have processed 3 operators");
     }
 
-    // function test_distributeRewards_andRemoveVault(
-    //     uint256 uptime
-    // ) public {
-    //     uint48 epoch = 1;
-    //     uptime = bound(uptime, 0, 4 hours);
-    //     address staker = makeAddr("Staker");
-    //     address staker1 = makeAddr("Staker1");
-    //     // Set staker balance in vault
-    //     address vault = vaultManager.vaults(0);
-    //     MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
-    //     MockVault(vault).setActiveBalance(staker1, 300_000 * 1e18);
-    //     // Set up stakes for operators, nodes, delegators and l1 middleware
-    //     _setupStakes(epoch, uptime);
-    //     vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
-    //     uint256 epochTs = middleware.getEpochStartTs(epoch);
-    //     MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
-    //     // Distribute rewards
-    //     test_distributeRewards(4 hours);
-    //     vm.warp((epoch + 4) * middleware.EPOCH_DURATION());
-    //     uint256 stakerBalanceBefore = rewardsToken.balanceOf(staker);
-    //     vm.prank(staker);
-    //     rewards.claimRewards(address(rewardsToken), staker);
-    //     uint256 stakerBalanceAfter = rewardsToken.balanceOf(staker);
-    //     uint256 stakerRewards = stakerBalanceAfter - stakerBalanceBefore;
-    //     assertGt(stakerRewards, 0, "Staker should receive rewards");
-    //     vaultManager.removeVault(vaultManager.vaults(0));
-    //     uint256 stakerBalanceBefore1 = rewardsToken.balanceOf(staker1);
-    //     vm.prank(staker1);
-    //     rewards.claimRewards(address(rewardsToken), staker1);
-    //     uint256 stakerBalanceAfter1 = rewardsToken.balanceOf(staker1);
-    //     uint256 stakerRewards1 = stakerBalanceAfter1 - stakerBalanceBefore1;
-    //     assertGt(stakerRewards1, 0, "Staker should receive rewards");
-    // }
+    function test_distributeRewards_andRemoveVault(
+        uint256 uptime
+    ) public {
+        uint48 epoch = 1;
+        uptime = bound(uptime, 0, 4 hours);
+        address staker = makeAddr("Staker");
+        address staker1 = makeAddr("Staker1");
+        // Set staker balance in vault
+        address vault = vaultManager.vaults(0);
+        MockVault(vault).setActiveBalance(staker, 300_000 * 1e18);
+        MockVault(vault).setActiveBalance(staker1, 300_000 * 1e18);
+        // Set up stakes for operators, nodes, delegators and l1 middleware
+        _setupStakes(epoch, uptime);
+        vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 400_000 * 1e18);
+        // Distribute rewards
+        test_distributeRewards(4 hours);
+        vm.warp((epoch + 4) * middleware.EPOCH_DURATION());
+        uint256 stakerBalanceBefore = rewardsToken.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(address(rewardsToken), staker);
+        uint256 stakerBalanceAfter = rewardsToken.balanceOf(staker);
+        uint256 stakerRewards = stakerBalanceAfter - stakerBalanceBefore;
+        assertGt(stakerRewards, 0, "Staker should receive rewards");
+        
+        // Properly disable the vault first, wait for grace period, then remove it
+        address vaultToRemove = vaultManager.vaults(0);
+        uint96 assetClass = vaultManager.getVaultAssetClass(vaultToRemove);
+        vaultManager.updateVaultMaxL1Limit(vaultToRemove, assetClass, 0); // Disable vault
+        
+        vm.expectRevert(abi.encodeWithSelector(IMiddlewareVaultManager.AvalancheL1Middleware__VaultGracePeriodNotPassed.selector));
+        vaultManager.removeVault(vaultToRemove);
+
+        // Wait for the vault removal epoch delay to pass
+        uint48 epochDuration = middleware.EPOCH_DURATION();
+        uint48 epochsToWait = vaultManager.VAULT_REMOVAL_EPOCH_DELAY() + 1;
+        vm.warp(block.timestamp + (epochsToWait * epochDuration));
+        
+        vaultManager.removeVault(vaultToRemove); // Now remove it
+        
+        uint256 stakerBalanceBefore1 = rewardsToken.balanceOf(staker1);
+        vm.prank(staker1);
+        rewards.claimRewards(address(rewardsToken), staker1);
+        uint256 stakerBalanceAfter1 = rewardsToken.balanceOf(staker1);
+        uint256 stakerRewards1 = stakerBalanceAfter1 - stakerBalanceBefore1;
+        assertEq(stakerRewards1, 0, "Now staker should have 0 rewards");
+    }
 
 }
 

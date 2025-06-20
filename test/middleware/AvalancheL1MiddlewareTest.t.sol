@@ -355,7 +355,7 @@ contract AvalancheL1MiddlewareTest is Test {
             primaryAssetWeightScaleFactor
         );
 
-        vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
+        vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware), 24); // 24 epoch delay
         // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
         // middleware.activateSecondaryAssetClass(0);
 
@@ -2554,7 +2554,7 @@ contract AvalancheL1MiddlewareTest is Test {
         console2.log("Operator stake (epoch", epoch, "):", operatorStake);
         assertGt(operatorStake, 0);
 
-        MiddlewareVaultManager vaultManager2 = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware));
+        MiddlewareVaultManager vaultManager2 = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware), 24); // 24 epoch delay
 
         vm.startPrank(validatorManagerAddress);
         vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__VaultManagerAlreadySet.selector, address(vaultManager)));

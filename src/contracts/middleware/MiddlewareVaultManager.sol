@@ -29,10 +29,17 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     address public immutable VAULT_REGISTRY;
     AvalancheL1Middleware public immutable middleware;
 
+    uint48 public immutable VAULT_REMOVAL_EPOCH_DELAY; // 1 epoch delay for removal, affects rewards 
+
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
-    constructor(address vaultRegistry, address owner, address middlewareAddress) Ownable(owner) {
+    constructor(
+        address vaultRegistry,
+        address owner,
+        address middlewareAddress,
+        uint48 vaultRemovalEpochDelay_
+    ) Ownable(owner) {
         if (vaultRegistry == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress("vaultRegistry");
         }
@@ -41,6 +48,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         }
         VAULT_REGISTRY = vaultRegistry;
         middleware = AvalancheL1Middleware(payable(middlewareAddress));
+        VAULT_REMOVAL_EPOCH_DELAY = vaultRemovalEpochDelay_;
     }
 
     /**
@@ -112,7 +120,10 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
             revert AvalancheL1Middleware__VaultNotDisabled();
         }
 
-        if (disabledTime + middleware.SLASHING_WINDOW() > Time.timestamp()) {
+        uint48 epochDuration = middleware.EPOCH_DURATION();
+        uint48 disabledEpoch = disabledTime / epochDuration;
+        uint48 currentEpoch = uint48(Time.timestamp() / epochDuration);
+        if (currentEpoch < disabledEpoch + VAULT_REMOVAL_EPOCH_DELAY) {
             revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
         }
 
