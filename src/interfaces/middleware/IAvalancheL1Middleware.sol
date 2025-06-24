@@ -115,16 +115,6 @@ interface IAvalancheL1Middleware {
     event NodeStakeCacheManuallyProcessed(uint48 upToEpoch, uint48 epochsProcessedCount);
 
     /**
-     * @notice Emitted when the secondary asset class check is performed
-     * @param operator The operator
-     * @param classId The asset class ID
-     * @param stake The stake
-     * @param nodeCount The number of nodes
-     * @param minValidatorStake The minimum validator stake
-     */
-    event DebugSecondaryAssetClassCheck(address indexed operator, uint256 classId, uint256 stake, uint256 nodeCount, uint256 minValidatorStake);
-
-    /**
      * @dev Simple struct to return operator stake and key.
      */
     struct OperatorData {

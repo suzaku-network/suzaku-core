@@ -106,8 +106,6 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (uptimeTracker_ == address(0)) revert InvalidUptimeTracker(uptimeTracker_);
         if (admin_ == address(0)) revert InvalidAdmin(admin_);
         if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
-        if (protocolFee_ + operatorFee_ + curatorFee_ > BASIS_POINTS_DENOMINATOR)
-            revert FeeConfigurationExceeds100(protocolFee_ + operatorFee_ + curatorFee_);
 
         __ReentrancyGuard_init();
 

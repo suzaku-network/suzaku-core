@@ -454,8 +454,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint256 minMeaningfulStake = WEIGHT_SCALE_FACTOR;
 
         if (leftoverStake < minMeaningfulStake && secondaryOk) {
-            emit AllNodeStakesUpdated(operator, newTotalStake);
-            return;
+            revert AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(operator, leftoverStake);
         }
         // If limitStake is provided, ensure it's at least the minimum meaningful amount
         if (limitStake > 0 && limitStake < minMeaningfulStake) {
@@ -888,7 +887,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, scaledWeight);
     }
 
-    function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal returns (bool) {
+    function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {
         uint48 epoch = getCurrentEpoch();
         
         // active nodes now excludes those already pending removal
@@ -903,7 +902,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             uint256 stake   = getOperatorStake(operator, epoch, uint96(classId));
             // Check ratio vs. class's min stake, could add an emit here to debug
             if (stake / nodeCount < assetClasses[classId].minValidatorStake) {
-                emit DebugSecondaryAssetClassCheck(operator, classId, stake, nodeCount, assetClasses[classId].minValidatorStake);
                 return false;
             }
         }
