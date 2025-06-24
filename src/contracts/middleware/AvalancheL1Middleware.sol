@@ -351,17 +351,24 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         bytes32 valId = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 available = _getOperatorAvailableStake(operator);
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePendingRemoval(nodeId);
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
 
+        uint256 available = _getOperatorAvailableStake(operator);
+        uint256 alreadyAllocated = getOperatorUsedStakeCached(operator);
+        uint256 freeStake = (available > alreadyAllocated) ? available - alreadyAllocated : 0;
+
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
-        uint256 newStake = (stakeAmount != 0) ? stakeAmount : available;
+        uint256 newStake = (stakeAmount != 0) ? stakeAmount : minStake;
 
         newStake = (newStake > maxStake) ? maxStake : newStake;
 
-        if (newStake < minStake || newStake > available) {
+        if (newStake < minStake) {
+            revert AvalancheL1Middleware__StakeTooLow(newStake, minStake);
+        }
+
+        if (newStake > freeStake) {
             revert AvalancheL1Middleware__NotEnoughFreeStake(newStake);
         }
 
@@ -420,28 +427,32 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint256 newTotalStake = _getOperatorAvailableStake(operator);
         uint256 registeredStake = getOperatorUsedStakeCached(operator);
         uint256 leftoverStake;
+        bool    secondaryOk     = _requireMinSecondaryAssetClasses(0, operator); // ← NEW
 
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         uint256 length = nodesArr.length;
 
-        // If nothing changed, do nothing
-        if (newTotalStake == registeredStake) {
+        // If nothing changed *and* secondary‑stake ratios are fine, quit early
+        if (newTotalStake == registeredStake && secondaryOk) {
             return;
         }
 
-        if (newTotalStake > registeredStake) {
+        // Primary stake increased → only emit events when secondary is OK
+        if (newTotalStake > registeredStake && secondaryOk) {
             leftoverStake = newTotalStake - registeredStake;
             emit OperatorHasLeftoverStake(operator, leftoverStake);
             emit AllNodeStakesUpdated(operator, newTotalStake);
             return;
         }
-        // We only handle the scenario newTotalStake < registeredStake, when removing stake
-        leftoverStake = registeredStake - newTotalStake;
+        // Otherwise we must free stake (primary shrank) **or** fix a secondary deficit
+        leftoverStake = (newTotalStake < registeredStake)
+            ? registeredStake - newTotalStake   // classic path
+            : 0;                                // fix secondary only
 
         // The minimum stake that results in a weight change of at least 1
         uint256 minMeaningfulStake = WEIGHT_SCALE_FACTOR;
 
-        if (leftoverStake < minMeaningfulStake) {
+        if (leftoverStake < minMeaningfulStake && secondaryOk) {
             emit AllNodeStakesUpdated(operator, newTotalStake);
             return;
         }
@@ -452,7 +463,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
         bool hasUpdatedAnyNode = false;
 
-        for (uint256 i = length; i > 0 && leftoverStake > 0;) {
+        for (uint256 i = length; i > 0 && (leftoverStake > 0 || !secondaryOk);) {
             i--;
             bytes32 nodeId = nodesArr[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
@@ -470,7 +481,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             if (previousStake == 0) {
                 continue;
             }
-            uint256 stakeToRemove = leftoverStake < previousStake ? leftoverStake : previousStake;
+            uint256 stakeToRemove = (leftoverStake == 0)
+                ? previousStake                                   // secondary deficit ⇒ drop whole node
+                : (leftoverStake < previousStake ? leftoverStake : previousStake);
             if (limitStake > 0 && stakeToRemove > limitStake) {
                 stakeToRemove = limitStake;
             }
@@ -488,25 +501,25 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 continue;
             }
 
-            leftoverStake -= stakeToRemove;
-            hasUpdatedAnyNode = true;
+            if (leftoverStake > 0) {
+                leftoverStake -= stakeToRemove;
+            }
 
 
-            if (
-                (newStake < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake)
-                    || !_requireMinSecondaryAssetClasses(0, operator)
-            ) {
+            if (newStake < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
                 newStake = 0;
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
                 _initializeValidatorStakeUpdate(operator, valID, newStake);
                 emit NodeStakeUpdated(operator, nodeId, newStake, valID);
             }
+
+            hasUpdatedAnyNode = true;
+            secondaryOk       = _requireMinSecondaryAssetClasses(0, operator);
         }
 
-        if (!hasUpdatedAnyNode && leftoverStake >= minMeaningfulStake) {
+        if (!hasUpdatedAnyNode)
             revert AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(operator, leftoverStake);
-        }
 
         if (hasUpdatedAnyNode) {
             rebalancedThisEpoch[operator][currentEpoch] = true;
@@ -733,6 +746,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      */
     function _removeNode(address operator, bytes32 nodeId) internal {
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
+            revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
+        }
         _initializeEndValidationAndFlag(operator, validationID, nodeId);
     }
 
@@ -864,7 +880,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         
         // active nodes now excludes those already pending removal
         uint256 nodeCount = _getActiveNodeCount(operator) + extraNode;
-        if (nodeCount == 0) return false;         // no active nodes ⇒ fail fast
+        if (nodeCount == 0) return true;
         
         uint256 secCount = secondaryAssetClasses.length();
         if (secCount == 0) return true;           // nothing to check

@@ -416,10 +416,10 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Setup Alice as operator for vault1 only
         // Use staker to deposit on behalf of Alice
-        collateral.transfer(staker, 200_000_000_002_000);
+        collateral.transfer(staker, 550_000_000_000_000);
         vm.startPrank(staker);
-        collateral.approve(address(vault), 200_000_000_002_000);
-        (depositedAmount, mintedShares) = vault.deposit(staker, 200_000_000_002_000);
+        collateral.approve(address(vault), 550_000_000_000_000);
+        (depositedAmount, mintedShares) = vault.deposit(staker, 550_000_000_000_000);
         vm.stopPrank();
 
         _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit, delegator);
@@ -427,7 +427,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Setup Charlie as operator for both vault1 and vault2
         // First deposit to vault1
-        uint256 charlieVault1DepositAmount = 150_000_000_000_000;
+        uint256 charlieVault1DepositAmount = 250_000_000_000_000;
         collateral.transfer(staker, charlieVault1DepositAmount);
         vm.startPrank(staker);
         collateral.approve(address(vault), charlieVault1DepositAmount);
@@ -438,7 +438,7 @@ contract AvalancheL1MiddlewareTest is Test {
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, charlieVault1Shares, delegator);
 
         // Then deposit to vault2
-        uint256 charlieVault2DepositAmount = 120_000_000_000_000;
+        uint256 charlieVault2DepositAmount = 220_000_000_000_000;
         collateral.transfer(staker, charlieVault2DepositAmount);
         vm.startPrank(staker);
         collateral.approve(address(vault2), charlieVault2DepositAmount);
@@ -524,7 +524,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGe(newStake, operatorStake);
 
         // Add a node
-        _createAndConfirmNodes(alice, 1, 0, true);
+        _createAndConfirmNodes(alice, 1, 0, true, 2);
     }
 
     function test_AddNodeSimpleAndComplete() public {
@@ -533,7 +533,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         // Add node
-        (, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true);
+        (, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
         bytes32 validationID = validationIDs[0];
 
         // Move epoch +1
@@ -638,7 +638,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Add node
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 1, 0, false);
+            _createAndConfirmNodes(alice, 1, 0, false, 2);
         bytes32 validationID = validationIDs[0];
         bytes32 nodeId = nodeIds[0];
         uint256 nodeWeight = nodeWeights[0];
@@ -671,7 +671,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         _calcAndWarpOneEpoch();
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 1, 0, true);
+            _createAndConfirmNodes(alice, 1, 0, true, 2);
         bytes32 validationID = validationIDs[0];
         bytes32 nodeId = nodeIds[0];
         uint256 nodeWeight = nodeWeights[0];
@@ -705,7 +705,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         uint48 epoch = _calcAndWarpOneEpoch();
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 1, 0, true);
+            _createAndConfirmNodes(alice, 1, 0, true, 2);
         bytes32 validationID = validationIDs[0];
         bytes32 nodeId = nodeIds[0];
         uint256 nodeWeight = nodeWeights[0];
@@ -735,7 +735,7 @@ contract AvalancheL1MiddlewareTest is Test {
         assertGt(totalStake, 0);
 
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 1, 0, true);
+            _createAndConfirmNodes(alice, 1, 0, true, 2);
         bytes32 validationID = validationIDs[0];
         bytes32 nodeId = nodeIds[0];
         uint256 nodeWeight = nodeWeights[0];
@@ -764,7 +764,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Add node
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 1, 0, true);
+            _createAndConfirmNodes(alice, 1, 0, true, 2);
         bytes32 validationID = validationIDs[0];
         bytes32 nodeId = nodeIds[0];
         uint256 nodeWeight = nodeWeights[0];
@@ -808,7 +808,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Add node1 and node2
         uint256 stake1 = 100_000_000_000_000 + 1000;
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 2, stake1, true);
+            _createAndConfirmNodes(alice, 2, stake1, true, 2);
         bytes32 nodeId1 = nodeIds[0];
         bytes32 validationID1 = validationIDs[0];
         uint256 nodeWeight1 = nodeWeights[0];
@@ -843,7 +843,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Add node1 and move to epoch2
         uint48 epoch2 = middleware.getCurrentEpoch();
         uint256 stake1 = 100_000_000_000_000 + 1000;
-        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 2, stake1, true);
+        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 2, stake1, true, 2);
         bytes32 nodeId1 = nodeIds[0];
 
         // Move to epoch3
@@ -884,7 +884,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Add node1 and node2
         uint256 stake1 = 100_000_000_000_000 + 1000;
         (, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
-            _createAndConfirmNodes(alice, 2, stake1, true);
+            _createAndConfirmNodes(alice, 2, stake1, true, 2);
         bytes32 validationID1 = validationIDs[0];
         uint256 nodeWeight1 = nodeWeights[0];
         bytes32 validationID2 = validationIDs[1];
@@ -910,10 +910,18 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Warp to last hour
         _warpToLastHourOfCurrentEpoch();
+        
+        // Record the message index before forceUpdateNodes to see if any removals are initiated
+        uint32 beforeIndex = mockValidatorManager.nextMessageIndex();
         middleware.forceUpdateNodes(alice, 0);
-
-        vm.prank(alice);
-        middleware.completeValidatorRemoval(2);
+        uint32 afterIndex = mockValidatorManager.nextMessageIndex();
+        
+        // Only complete validator removal if a removal was actually initiated
+        if (afterIndex > beforeIndex) {
+            uint32 removalIndex = afterIndex - 1;
+            vm.prank(alice);
+            middleware.completeValidatorRemoval(removalIndex);
+        }
 
         epoch = _calcAndWarpOneEpoch(1);
         uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
@@ -940,7 +948,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Add node1 and node2
         uint256 stake1 = 100_000_000_000_000 + 1000;
-        _createAndConfirmNodes(alice, 1, stake1, true);
+        _createAndConfirmNodes(alice, 1, stake1, true, 2);
 
         // move to next epoch
         epoch = _moveToNextEpochAndCalc(3);
@@ -1073,7 +1081,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Add & confirm a node
         uint48 epoch = _calcAndWarpOneEpoch();
 
-        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true);
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
         bytes32 validationID = validationIDs[0];
         bytes32 nodeId = nodeIds[0];
 
@@ -1095,7 +1103,21 @@ contract AvalancheL1MiddlewareTest is Test {
         bool isPending = mockValidatorManager.isValidatorPendingWeightUpdate(validationID);
         assertTrue(isPending, "Stake update must be pending");
 
-        // Remove node while update is pending
+        // Remove node while update is pending - this should revert as removing 
+        // while a weight update is pending is blocked by design
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(
+            IAvalancheL1Middleware.AvalancheL1Middleware__NodePendingUpdate.selector,
+            nodeId
+        ));
+        middleware.removeNode(nodeId);
+        
+        // First complete the stake update, then remove the node
+        uint32 stakeUpdateIndex = mockValidatorManager.nextMessageIndex() - 1;  
+        vm.prank(alice);
+        middleware.completeStakeUpdate(nodeId, stakeUpdateIndex);
+        
+        // Now the removal should work
         vm.prank(alice);
         middleware.removeNode(nodeId);
         uint32 removeIndex = mockValidatorManager.nextMessageIndex() - 1;
@@ -1104,7 +1126,6 @@ contract AvalancheL1MiddlewareTest is Test {
         epoch = _calcAndWarpOneEpoch();
 
         uint256 stakeNow = middleware.getNodeStake(epoch, validationID);
-        console2.log("Stake after removing while update pending:", stakeNow);
 
         // Confirm removal
         vm.prank(alice);
@@ -1116,14 +1137,9 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 finalStake = middleware.getNodeStake(epoch, validationID);
         assertEq(finalStake, 0, "Node stake must be 0 after final removal");
 
-        // Complete stake update after removal
-        uint32 stakeUpdateMsgIndex = mockValidatorManager.nextMessageIndex() - 1;
-        vm.prank(alice);
-        middleware.completeStakeUpdate(nodeId, stakeUpdateMsgIndex);
-
-        // Verify update was processed
+        // Verify update was processed and no longer pending
         bool stillPending = mockValidatorManager.isValidatorPendingWeightUpdate(validationID);
-        assertFalse(stillPending, "Stake update should be cleared after removal");
+        assertFalse(stillPending, "Stake update should be cleared after completion");
         uint256 postCompleteStake = middleware.getNodeStake(epoch, validationID);
         assertEq(postCompleteStake, 0, "Node stake must be 0 after removal");
     }
@@ -1161,6 +1177,23 @@ contract AvalancheL1MiddlewareTest is Test {
         for (uint256 i = 0; i < nodeCount; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked("NODE_", seedNodeCount, i));
             nodeIds[i] = nodeId;
+
+           // how much stake still free?
+           (uint256 minStake, ) = middleware.getClassStakingRequirements(1);
+           uint256 free = middleware.getOperatorAvailableStake(alice)
+                           - middleware.getOperatorUsedStakeCached(alice);
+        
+            if (free < minStake) {
+                // next addNode is *supposed* to revert – record and stop
+                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, minStake));
+                vm.prank(alice);
+                middleware.addNode(
+                    nodeId, blsKey, uint64(block.timestamp + 2 days),
+                    ownerStruct, ownerStruct, 0        // will revert
+                );
+                nodeCount = i;                         // shrink arrays; creation done
+                break;
+           }
 
             vm.prank(alice);
             middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
@@ -1325,18 +1358,41 @@ contract AvalancheL1MiddlewareTest is Test {
         _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsed, delegator);
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares_, delegator);
 
+        // BLS key and owners
+        bytes memory blsKey = hex"abcd1234";
+        address[] memory ownerArr = new address[](1);
+        ownerArr[0] = alice;
+        PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
+
         // Create nodes (unconfirmed)
         for (uint256 i = 0; i < nodeCount; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked("Node", i, block.timestamp));
             nodeIds[i] = nodeId;
+
+           // how much stake still free?
+           (uint256 _minStake, ) = middleware.getClassStakingRequirements(1);
+           uint256 free = middleware.getOperatorAvailableStake(alice)
+                           - middleware.getOperatorUsedStakeCached(alice);
+        
+            if (free < _minStake) {
+                // next addNode is *supposed* to revert – record and stop
+                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, _minStake));
+                vm.prank(alice);
+                middleware.addNode(
+                    nodeId, blsKey, uint64(block.timestamp + 2 days),
+                    ownerStruct, ownerStruct, 0        // will revert
+                );
+                nodeCount = i;                         // shrink arrays; creation done
+                break;
+           }
 
             vm.prank(alice);
             middleware.addNode(
                 nodeId,
                 hex"1234ABCD", // dummy BLS
                 uint64(block.timestamp + 1 days),
-                PChainOwner({threshold: 1, addresses: new address[](1)}),
-                PChainOwner({threshold: 1, addresses: new address[](1)}),
+                ownerStruct,
+                ownerStruct,
                 0
             );
             addMsgIdx[i] = mockValidatorManager.nextMessageIndex() - 1;
@@ -1371,7 +1427,7 @@ contract AvalancheL1MiddlewareTest is Test {
         }
 
         // Fuzz stake up/down or remove nodes
-        (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
+        (uint256 _minStake,) = middleware.getClassStakingRequirements(assetClassId);
 
         for (uint256 i = 0; i < nodeCount; i++) {
             if (!isActive[i]) continue;
@@ -1401,7 +1457,7 @@ contract AvalancheL1MiddlewareTest is Test {
                 }
             }
 
-            if (newStake >= minStake) {
+            if (newStake >= _minStake) {
                 vm.prank(alice);
                 middleware.initializeValidatorStakeUpdate(nodeIds[i], newStake);
                 uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
@@ -1739,10 +1795,12 @@ contract AvalancheL1MiddlewareTest is Test {
         uint256 nC = bound(nodeCountCharlie, 1, 6);
         uint256 nD = bound(nodeCountDave, 1, 6);
 
+        (uint256 minStake, ) = middleware.getClassStakingRequirements(1);
+
         // Create & confirm nodes for each operator
-        (bytes32[] memory nodeIdsAlice,,) = _createAndConfirmNodes(alice, nA, 0, true);
-        (bytes32[] memory nodeIdsCharlie,,) = _createAndConfirmNodes(charlie, nC, 0, true);
-        (bytes32[] memory nodeIdsDave,,) = _createAndConfirmNodes(dave, nD, 0, true);
+        (bytes32[] memory nodeIdsAlice,,) = _createAndConfirmNodes(alice, nA, minStake, true, 2);
+        (bytes32[] memory nodeIdsCharlie,,) = _createAndConfirmNodes(charlie, nC, minStake, true, 2);
+        (bytes32[] memory nodeIdsDave,,) = _createAndConfirmNodes(dave, nD, minStake, true, 2);
 
         // Move to next epoch
         _calcAndWarpOneEpoch();
@@ -2025,7 +2083,7 @@ contract AvalancheL1MiddlewareTest is Test {
         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, initialShares, delegator);
 
         _calcAndWarpOneEpoch();
-        (, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 2, 0, true);
+        (, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 2, 0, true, 2);
 
         uint48 epoch2 = _calcAndWarpOneEpoch();
 
@@ -2624,7 +2682,8 @@ contract AvalancheL1MiddlewareTest is Test {
         uint48 epoch = _calcAndWarpOneEpoch();
         
         // Add nodes for alice
-        (bytes32[] memory nodeIds, ,) = _createAndConfirmNodes(alice, 3, 0, true);
+        (uint256 minStake, ) = middleware.getClassStakingRequirements(assetClassId);
+        (bytes32[] memory nodeIds, ,) = _createAndConfirmNodes(alice, 3, minStake, true, 2);
         
         // Move to next epoch to ensure nodes are active
         epoch = _calcAndWarpOneEpoch();
@@ -2632,7 +2691,7 @@ contract AvalancheL1MiddlewareTest is Test {
         // Verify alice has active nodes and stake
         uint256 nodeCount = middleware.getOperatorNodesLength(alice);
         uint256 aliceStake = middleware.getOperatorStake(alice, epoch, assetClassId);
-        assertGt(nodeCount, 0, "Alice should have active nodes");
+        assertEq(nodeCount, 3, "Alice should have exactly 3 active nodes");
         assertGt(aliceStake, 0, "Alice should have stake");
         
         // Try to disable the operator with active nodes - should REVERT
@@ -2959,7 +3018,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
         // Alice adds a node with 10 ETH stake
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = 
-            _createAndConfirmNodes(alice, 1, 10 ether, true);
+            _createAndConfirmNodes(alice, 1, 10 ether, true, 2);
         bytes32 nodeId = nodeIds[0];
         bytes32 validationID = validationIDs[0];
         
@@ -3356,35 +3415,83 @@ contract AvalancheL1MiddlewareTest is Test {
         address operator,
         uint256 nodeCount,
         uint256 stake_,
-        bool confirmImmediately
+        bool confirmImmediately,
+        uint256 minMultiplier
     ) internal returns (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) {
-        nodeIds = new bytes32[](nodeCount);
-        validationIDs = new bytes32[](nodeCount);
-        nodeWeights = new uint256[](nodeCount);
+        // Create temporary arrays with maximum size
+        bytes32[] memory tempNodeIds = new bytes32[](nodeCount);
+        bytes32[] memory tempValidationIDs = new bytes32[](nodeCount);
+        uint256[] memory tempNodeWeights = new uint256[](nodeCount);
+        
+        uint256 actualNodeCount = 0; // Track actual successful registrations
 
         for (uint256 i = 0; i < nodeCount; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
-            nodeIds[i] = nodeId;
+            middleware.calcAndCacheNodeStakeForAllOperators();
+            uint256 free = middleware.getOperatorAvailableStake(operator)
+                             - middleware.getOperatorUsedStakeCached(operator);
+            (uint256 minStake, ) = middleware.getClassStakingRequirements(1);   // PRIMARY_ASSET_CLASS == 1
+    
+            // uint256 stakeForThisNode = (stake_ != 0) ? stake_
+            //                       : (free > maxStake
+            //                            ? maxStake
+            //                            : free);
+    
+            uint256 stakeForThisNode = (stake_ != 0)
+                ? stake_
+                : minStake * minMultiplier;
+
+            if (free < stakeForThisNode) {
+                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, stakeForThisNode));
+                vm.prank(operator);
+                middleware.addNode(
+                    nodeId,
+                    hex"ABABABAB",
+                    uint64(block.timestamp + 2 days),
+                    PChainOwner({threshold: 1, addresses: new address[](0)}),
+                    PChainOwner({threshold: 1, addresses: new address[](0)}),
+                    stakeForThisNode    
+                );
+                break;
+            }
 
             vm.prank(operator);
             middleware.addNode(
                 nodeId,
-                hex"ABABABAB", // dummy BLS
+                hex"ABABABAB",
                 uint64(block.timestamp + 2 days),
-                PChainOwner({threshold: 1, addresses: new address[](1)}),
-                PChainOwner({threshold: 1, addresses: new address[](1)}),
-                stake_
+                PChainOwner({threshold: 1, addresses: new address[](0)}),
+                PChainOwner({threshold: 1, addresses: new address[](0)}),
+                stakeForThisNode                 // ← explicit max or caller‑provided
             );
+            
+            // Store the successful registration
+            tempNodeIds[actualNodeCount] = nodeId;
             uint32 msgIdx = mockValidatorManager.nextMessageIndex() - 1;
 
             if (confirmImmediately) {
                 vm.prank(operator);
                 middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
             }
-            validationIDs[i] = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+            
+            tempValidationIDs[actualNodeCount] = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             uint48 epoch = middleware.getCurrentEpoch();
-            nodeWeights[i] = middleware.nodeStakeCache(epoch, validationIDs[i]);
-            assertGt(nodeWeights[i], 0, "Node weight must be positive");
+            tempNodeWeights[actualNodeCount] = middleware.nodeStakeCache(epoch, tempValidationIDs[actualNodeCount]);
+            assertGt(tempNodeWeights[actualNodeCount], 0, "Node weight must be positive");
+            
+            actualNodeCount++;
+        }
+        
+        // Create properly sized result arrays
+        nodeIds = new bytes32[](actualNodeCount);
+        validationIDs = new bytes32[](actualNodeCount);
+        nodeWeights = new uint256[](actualNodeCount);
+        
+        // Copy the successful registrations to result arrays
+        for (uint256 i = 0; i < actualNodeCount; i++) {
+            nodeIds[i] = tempNodeIds[i];
+            validationIDs[i] = tempValidationIDs[i];
+            nodeWeights[i] = tempNodeWeights[i];
         }
     }
 

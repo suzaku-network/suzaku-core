@@ -40,11 +40,11 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
 
         // 2. Alice creates *two* nodes (same stake reused) -------------------
         console2.log("Creating nodes for Alice");
-        _createAndConfirmNodes(alice, 2, 100_000_000_001_000, true);
+        _createAndConfirmNodes(alice, 2, 100_000_000_001_000, true, 2);
 
         // 3. Charlie is honest – single big node -----------------------------
         console2.log("Creating node for Charlie");
-        _createAndConfirmNodes(charlie, 1, 150_000_000_000_000, true);
+        _createAndConfirmNodes(charlie, 1, 150_000_000_000_000, true, 2);
 
         // 4. Roll over so stakes are cached at epoch T ------------------------
         uint48 epoch = _calcAndWarpOneEpoch();
