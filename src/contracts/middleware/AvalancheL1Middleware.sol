@@ -78,6 +78,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     mapping(bytes32 => bool) public nodePendingUpdate;
     mapping(bytes32 => uint256) private _pendingStake;
     mapping(bytes32 => bool) public nodePendingRemoval;
+    mapping(bytes32 => bytes32) private pendingRemovalValId;        // nodeId -> valID (0x0 == not‑pending)
     mapping(address => uint256) public operatorLockedStake;
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
     mapping(bytes32 => address) public validationIdToOperator;
@@ -722,6 +723,16 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             i--;
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+            // validator already deleted on manager → use local cache
+            if (valID == bytes32(0)) {
+                bytes32 saved = pendingRemovalValId[nodeId];
+                if (saved != bytes32(0)) {
+                    _removeNodeFromArray(operator, nodeId);
+                    nodePendingRemoval[saved] = false;
+                    delete pendingRemovalValId[nodeId];
+                }
+                continue;
+            }
 
             // If not pending removal, simply carry forward from previous epoch
             if (!nodePendingRemoval[valID]) {
@@ -733,6 +744,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 if (nodeStakeCache[epoch][valID] == 0 && nodeStakeCache[prevEpoch][valID] != 0) {
                     _removeNodeFromArray(operator, nodeId);
                     nodePendingRemoval[valID] = false;
+                    delete pendingRemovalValId[nodeId];
                 }
             }
         }
@@ -756,6 +768,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint48 nextEpoch = getCurrentEpoch() + 1;
         nodeStakeCache[nextEpoch][validationID] = 0;
         nodePendingRemoval[validationID] = true;
+        pendingRemovalValId[nodeId] = validationID;
 
         balancerValidatorManager.initializeEndValidation(validationID);
 
