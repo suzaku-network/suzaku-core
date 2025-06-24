@@ -344,7 +344,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint256 stakeAmount // optional
     ) external updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS) updateGlobalNodeStakeOncePerEpoch {
         address operator = msg.sender;
-        if (!operators.contains(operator)) {
+        (, uint48 disabledTime) = operators.getTimes(operator);
+        if (!operators.contains(operator) || disabledTime > 0) {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
         if (!_requireMinSecondaryAssetClasses(1, operator)) {
