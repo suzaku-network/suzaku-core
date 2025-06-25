@@ -56,6 +56,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__CannotCacheFutureEpoch(uint48 epoch);
     error AvalancheL1Middleware__VaultManagerAlreadySet(address vaultManager);
     error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
+    error AvalancheL1Middleware__InvalidUpdateWindow(uint48 stakeUpdateWindow, uint48 epochDuration);
 
     // Events
     /**

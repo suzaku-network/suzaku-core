@@ -129,6 +129,18 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
         }
+
+        // 0 < stakeUpdateWindow < epochDuration ≤ slashingWindow
+        if (
+            settings.stakeUpdateWindow == 0 ||
+            settings.stakeUpdateWindow >= settings.epochDuration
+        ) {
+            revert AvalancheL1Middleware__InvalidUpdateWindow(
+                settings.stakeUpdateWindow,
+                settings.epochDuration
+            );
+        }
+
         if (primaryAssetWeightScaleFactor == 0) {
             revert AvalancheL1Middleware__InvalidScaleFactor();
         }
