@@ -133,6 +133,21 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__InvalidScaleFactor();
         }
 
+        uint256 _minAllowed = (primaryAssetMaxStake + type(uint64).max - 1)
+            / type(uint64).max;  // ceiling (maxStake / (2⁶⁴‑1))
+        uint256 _maxAllowed = primaryAssetMinStake;   // ensures minStake implies weight ≥ 1
+
+        if (
+            primaryAssetWeightScaleFactor < _minAllowed ||
+            primaryAssetWeightScaleFactor > _maxAllowed
+        ) {
+            revert AvalancheL1Middleware__ScaleFactorOutOfBounds(
+                primaryAssetWeightScaleFactor,
+                _minAllowed,
+                _maxAllowed
+            );
+        }
+
         START_TIME = Time.timestamp();
         EPOCH_DURATION = settings.epochDuration;
         L1_VALIDATOR_MANAGER = settings.l1ValidatorManager;

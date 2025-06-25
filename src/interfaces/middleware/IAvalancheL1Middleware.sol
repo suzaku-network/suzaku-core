@@ -47,6 +47,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
     error AvalancheL1Middleware__ZeroAddress(string name);
     error AvalancheL1Middleware__InvalidScaleFactor();
+    error AvalancheL1Middleware__ScaleFactorOutOfBounds(uint256 supplied, uint256 minAllowed, uint256 maxAllowed);
     error AvalancheL1Middleware__ManualEpochUpdateRequired(uint48 epochsPending, uint48 maxAutoUpdates);
     error AvalancheL1Middleware__NoEpochsToProcess();
     error AvalancheL1Middleware__TooManyEpochsRequested(uint48 requested, uint48 pending);
