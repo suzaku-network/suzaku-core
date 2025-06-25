@@ -15,6 +15,7 @@ interface IVaultTokenized {
     error Vault__InsufficientRedemption();
     error Vault__InsufficientWithdrawal();
     error Vault__InvalidAccount();
+    error Vault__InvalidBurner();
     error Vault__InvalidCaptureEpoch();
     error Vault__InvalidClaimer();
     error Vault__InvalidCollateral();
