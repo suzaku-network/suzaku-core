@@ -143,6 +143,10 @@ contract VaultTokenized is
             revert Vault__InvalidCollateral();
         }
 
+        if (params.burner == address(0)) {
+            revert Vault__InvalidBurner();
+        }
+
         if (params.epochDuration == 0) {
             revert Vault__InvalidEpochDuration();
         }
