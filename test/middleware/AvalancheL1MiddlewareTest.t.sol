@@ -3627,7 +3627,7 @@ contract AvalancheL1MiddlewareTest is Test {
         uint48 epoch3 = _moveToNextEpochAndCalc(1);
         
         // All 3 vaults active again
-        assertEq(vaultManager.getVaults(epoch3).length, 2, "epoch3 should have 3 vaults: vault1 + vault2 + vault3 (all active)");
+        assertEq(vaultManager.getVaults(epoch3).length, 3, "epoch3 should have 3 vaults: vault1 + vault2 + vault3 (all active)");
 
         // Verify historical epochs return correct counts
         // epoch0: only vault1 from setUp (epoch0 timestamp captured before vault2/vault3 registration)
