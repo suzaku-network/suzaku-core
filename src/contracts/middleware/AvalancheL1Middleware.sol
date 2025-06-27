@@ -406,14 +406,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             disableOwner: disableOwner
         });
 
-        // Track node in our time-based map and dynamic array.
-        operatorNodes[operator].add(nodeId);
-        operatorNodesArray[operator].push(nodeId);
-        uint48 epoch = getCurrentEpoch();
-
         bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
             input, StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR)
         );
+
+        operatorNodes[operator].add(nodeId);
+        operatorNodesArray[operator].push(nodeId);
+        uint48 epoch = getCurrentEpoch();
 
         validationIdToOperator[validationID] = operator;
         nodeStakeCache[epoch][validationID] = newStake;
@@ -912,20 +911,22 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
-        uint256 delta;
+        
+        // Check if increase is valid and calculate delta
         if (newStake > cachedStake) {
-            delta = newStake - cachedStake;
+            uint256 delta = newStake - cachedStake;
             if (delta > _getOperatorAvailableStake(operator)) {
                 revert AvalancheL1Middleware__NotEnoughFreeStake(newStake);
             }
+            // Lock the delta for the pending update
+            operatorLockedStake[operator] += delta;
         }
-        operatorLockedStake[operator] += delta;
-
-        _pendingStake[validationID] = newStake;
 
         uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
 
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, scaledWeight);
+        
+        _pendingStake[validationID] = newStake;
     }
 
     function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {
