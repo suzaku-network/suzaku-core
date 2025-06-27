@@ -1181,8 +1181,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
            // how much stake still free?
            (uint256 minStake, ) = middleware.getClassStakingRequirements(1);
-           uint256 free = middleware.getOperatorAvailableStake(alice)
-                           - middleware.getOperatorUsedStakeCached(alice);
+           uint256 free = middleware.getOperatorAvailableStake(alice);
         
             if (free < minStake) {
                 // next addNode is *supposed* to revert – record and stop
@@ -1372,8 +1371,7 @@ contract AvalancheL1MiddlewareTest is Test {
 
            // how much stake still free?
            (uint256 _minStakes, ) = middleware.getClassStakingRequirements(1);
-           uint256 free = middleware.getOperatorAvailableStake(alice)
-                           - middleware.getOperatorUsedStakeCached(alice);
+           uint256 free = middleware.getOperatorAvailableStake(alice);
         
             if (free < _minStakes) {
                 // next addNode is *supposed* to revert – record and stop
@@ -3895,8 +3893,7 @@ contract AvalancheL1MiddlewareTest is Test {
         for (uint256 i = 0; i < nodeCount; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
             middleware.calcAndCacheNodeStakeForAllOperators();
-            uint256 free = middleware.getOperatorAvailableStake(operator)
-                             - middleware.getOperatorUsedStakeCached(operator);
+            uint256 free = middleware.getOperatorAvailableStake(operator);
             (uint256 minStake, ) = middleware.getClassStakingRequirements(1);   // PRIMARY_ASSET_CLASS == 1
     
             // uint256 stakeForThisNode = (stake_ != 0) ? stake_

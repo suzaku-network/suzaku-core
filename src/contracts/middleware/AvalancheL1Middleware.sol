@@ -382,9 +382,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePendingRemoval(nodeId);
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
 
-        uint256 available = _getOperatorAvailableStake(operator);
-        uint256 alreadyAllocated = getOperatorUsedStakeCached(operator);
-        uint256 freeStake = (available > alreadyAllocated) ? available - alreadyAllocated : 0;
+        uint256 freeStake = _getOperatorAvailableStake(operator);
 
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
@@ -451,8 +449,17 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
 
-        uint256 newTotalStake = _getOperatorAvailableStake(operator);
-        uint256 registeredStake = getOperatorUsedStakeCached(operator);
+        uint48 epoch = getCurrentEpoch();
+        uint256 newTotalStake = getOperatorStake(operator, epoch, PRIMARY_ASSET_CLASS);
+        
+        // Enforce max security module weight cap
+        (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
+        uint256 stakeCap = StakeConversion.weightToStake(securityModuleMaxWeight, WEIGHT_SCALE_FACTOR);
+        if (newTotalStake > stakeCap) {
+            newTotalStake = stakeCap;
+        }
+        
+        uint256 registeredStake = getOperatorUsedStakeCached(operator) + operatorLockedStake[operator];
         uint256 leftoverStake;
         bool    secondaryOk     = _requireMinSecondaryAssetClasses(0, operator);
 
@@ -575,6 +582,16 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        
+        // Check if operator has enough available stake for the increase
+        uint48 currentEpoch = getCurrentEpoch();
+        uint256 currentStake = getEffectiveNodeStake(currentEpoch, validationID);
+        if (stakeAmount > currentStake) {
+            uint256 delta = stakeAmount - currentStake;
+            if (delta > _getOperatorAvailableStake(msg.sender)) {
+                revert AvalancheL1Middleware__NotEnoughFreeStake(stakeAmount);
+            }
+        }
 
         _initializeValidatorStakeUpdate(msg.sender, validationID, stakeAmount);
     }
@@ -1247,10 +1264,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         uint256 lockedStake = operatorLockedStake[operator];
-        if (totalStake <= lockedStake) {
+        uint256 usedStake = getOperatorUsedStakeCached(operator);
+        
+        if (totalStake <= lockedStake + usedStake) {
             return 0;
         }
-        return totalStake - lockedStake;
+        return totalStake - lockedStake - usedStake;
     }
 
     /**
