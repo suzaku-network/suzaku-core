@@ -108,6 +108,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
 
         __ReentrancyGuard_init();
+        __AccessControl_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, admin_);
         _grantRole(REWARDS_MANAGER_ROLE, admin_);
@@ -137,7 +138,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         // window guards 
         uint48 earliestDistributionEpoch = currentEpoch - DISTRIBUTION_EARLIEST_OFFSET;
-        if (epoch >= earliestDistributionEpoch)
+        if (epoch > earliestDistributionEpoch)
             revert RewardsDistributionTooEarly(epoch, earliestDistributionEpoch);
             
         bool fundingWindowOpen = epoch + FUNDING_DEADLINE_OFFSET >= currentEpoch;

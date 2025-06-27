@@ -17,7 +17,7 @@ import {
  */
 interface IAvalancheL1Middleware {
     // Errors
-    error AvalancheL1Middleware__ActiveSecondaryAssetCLass(uint256 assetClassId);
+    error AvalancheL1Middleware__ActiveSecondaryAssetClass(uint256 assetClassId);
     error AvalancheL1Middleware__AssetClassNotActive(uint256 assetClassId);
     error AvalancheL1Middleware__AssetStillInUse(uint256 assetClassId);
     error AvalancheL1Middleware__AlreadyRebalanced(address operator, uint48 epoch);

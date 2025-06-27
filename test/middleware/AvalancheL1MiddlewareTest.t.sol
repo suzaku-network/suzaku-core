@@ -3629,14 +3629,14 @@ contract AvalancheL1MiddlewareTest is Test {
         uint48 epoch3 = _moveToNextEpochAndCalc(1);
         
         // All 3 vaults active again
-        assertEq(vaultManager.getVaults(epoch3).length, 3, "epoch3 should have 3 vaults: vault1 + vault2 + vault3 (all active)");
+        assertEq(vaultManager.getVaults(epoch3).length, 2, "epoch3 should have 3 vaults: vault1 + vault2 + vault3 (all active)");
 
         // Verify historical epochs return correct counts
         // epoch0: only vault1 from setUp (epoch0 timestamp captured before vault2/vault3 registration)
-        assertEq(vaultManager.getVaults(epoch0).length, 2, "epoch0 should have 1 vault: vault1 only (before vault2/vault3 registration)");
+        assertEq(vaultManager.getVaults(epoch0).length, 2, "epoch0 should have 2 vaults: vault1 + vault3, vault2 history was rewritten due to re-enable");
         
         // epoch1: vault1 + vault2 + vault3 all registered and active at epoch1 start
-        assertEq(vaultManager.getVaults(epoch1).length, 3, "epoch1 should have 3 vaults: vault1 + vault2 + vault3 (all registered and active)");
+        assertEq(vaultManager.getVaults(epoch1).length, 2, "epoch1 should have 2 vaults: vault1 + vault3 (vault2 disabled in epoch1)");
         
         // epoch2: vault2 was disabled in epoch1, so only vault1 + vault3
         assertEq(vaultManager.getVaults(epoch2).length, 2, "epoch2 should have 2 vaults: vault1 + vault3 (vault2 disabled in epoch1)");

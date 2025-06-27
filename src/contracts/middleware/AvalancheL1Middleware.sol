@@ -75,7 +75,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     mapping(address => bytes32[]) public operatorNodesArray;
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStakeCache;
-    mapping(bytes32 => bool) public nodePendingUpdate;
     mapping(bytes32 => uint256) private _pendingStake;
     mapping(bytes32 => bool) public nodePendingRemoval;
     mapping(bytes32 => bytes32) private pendingRemovalValId;        // nodeId -> valID (0x0 == not‑pending)
@@ -230,8 +229,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__ZeroAddress("vaultManager");
         }
         vaultManagerSet = true;
-        emit VaultManagerUpdated(address(vaultManager), vaultManager_);
         vaultManager = MiddlewareVaultManager(vaultManager_);
+        emit VaultManagerUpdated(address(vaultManager), vaultManager_);
     }
 
     /**
@@ -293,9 +292,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      */
     function removeAssetClass(
         uint256 assetClassId
-    ) public override updateGlobalNodeStakeOncePerEpoch {
+    ) public override onlyOwner updateGlobalNodeStakeOncePerEpoch {
         if (secondaryAssetClasses.contains(assetClassId)) {
-            revert AvalancheL1Middleware__ActiveSecondaryAssetCLass(assetClassId);
+            revert AvalancheL1Middleware__ActiveSecondaryAssetClass(assetClassId);
         }
 
         super.removeAssetClass(assetClassId);
@@ -452,28 +451,25 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
 
-        // Calculate the new total stake for the operator and compare it to the registered stake
         uint256 newTotalStake = _getOperatorAvailableStake(operator);
         uint256 registeredStake = getOperatorUsedStakeCached(operator);
         uint256 leftoverStake;
-        bool    secondaryOk     = _requireMinSecondaryAssetClasses(0, operator); // ← NEW
+        bool    secondaryOk     = _requireMinSecondaryAssetClasses(0, operator);
 
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         uint256 length = nodesArr.length;
 
-        // If nothing changed *and* secondary‑stake ratios are fine, quit early
         if (newTotalStake == registeredStake && secondaryOk) {
             return;
         }
 
-        // Primary stake increased → only emit events when secondary is OK
         if (newTotalStake > registeredStake && secondaryOk) {
             leftoverStake = newTotalStake - registeredStake;
             emit OperatorHasLeftoverStake(operator, leftoverStake);
             emit AllNodeStakesUpdated(operator, newTotalStake);
             return;
         }
-        // Otherwise we must free stake (primary shrank) **or** fix a secondary deficit
+
         leftoverStake = (newTotalStake < registeredStake)
             ? registeredStake - newTotalStake   // classic path
             : 0;                                // fix secondary only
@@ -510,7 +506,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 continue;
             }
             uint256 stakeToRemove = (leftoverStake == 0)
-                ? previousStake                                   // secondary deficit ⇒ drop whole node
+                ? previousStake                                   // secondary deficit: drop whole node
                 : (leftoverStake < previousStake ? leftoverStake : previousStake);
             if (limitStake > 0 && stakeToRemove > limitStake) {
                 stakeToRemove = limitStake;
