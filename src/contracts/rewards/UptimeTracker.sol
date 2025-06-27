@@ -118,13 +118,25 @@ contract UptimeTracker is IUptimeTracker {
         // Distribute the recorded uptime across multiple epochs
         if (elapsedEpochs >= 1) {
             uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
+            uint256 remainder = uptimeToDistribute % elapsedEpochs;
+
             for (uint48 i = 0; i < elapsedEpochs; i++) {
                 uint48 epoch = lastUptimeEpoch + i;
+
+                // Skip epochs already processed
                 if (isValidatorUptimeSet[epoch][validationID] == true) {
-                    break;
+                    continue;
                 }
-                validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch; // Assign uptime to each epoch
-                isValidatorUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
+
+                uint256 epochUptime = uptimePerEpoch;
+                // Distribute the leftover seconds one by one to the earliest available epochs
+                if (remainder > 0) {
+                    epochUptime += 1;
+                    remainder -= 1;
+                }
+
+                validatorUptimePerEpoch[epoch][validationID] = epochUptime;
+                isValidatorUptimeSet[epoch][validationID] = true;
             }
         }
 

@@ -14,4 +14,5 @@ struct MiddlewareConfig {
     uint48 epochDuration;
     uint48 slashingWindow;
     uint48 stakeUpdateWindow;
+    uint48 vaultRemovalEpochDelay;
 }

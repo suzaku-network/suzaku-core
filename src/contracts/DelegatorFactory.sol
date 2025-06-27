@@ -94,6 +94,10 @@ contract DelegatorFactory is IDelegatorFactory, Ownable, ERC165 {
      * @inheritdoc IDelegatorFactory
      */
     function create(uint64 type_, bytes calldata data) external returns (address entity_) {
+        if (blacklisted[type_]) {
+            revert DelegatorFactory__VersionBlacklisted();
+        }
+
         entity_ = implementation(type_).cloneDeterministic(keccak256(abi.encode(totalEntities(), type_, data)));
 
         _addDelegatorEntity(entity_);

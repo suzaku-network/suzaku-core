@@ -151,6 +151,10 @@ contract VaultFactory is Ownable, IMigratablesFactory {
             revert MigratableFactory__OldVersion();
         }
 
+        if (blacklisted[newVersion]) {
+            revert MigratableFactory__VersionBlacklisted();
+        }
+
         IMigratableEntityProxy(entity_).upgradeToAndCall(
             implementation(newVersion), abi.encodeCall(IVaultTokenized.migrate, (newVersion, data))
         );
