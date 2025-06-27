@@ -30,14 +30,14 @@ contract MockVaultManager is Ownable {
 
     // Use exact same error names as MiddlewareVaultManager
     error AvalancheL1Middleware__ZeroAddress(string param);
-    error AvalancheL1Middleware__ZeroVaultMaxL1Limit();
-    error AvalancheL1Middleware__VaultAlreadyRegistered();
-    error AvalancheL1Middleware__VaultEpochTooShort();
-    error AvalancheL1Middleware__NotVault(address vault);
-    error AvalancheL1Middleware__WrongVaultAssetClass();
-    error AvalancheL1Middleware__VaultNotDisabled();
-    error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-    error AvalancheL1Middleware__SlasherNotImplemented();
+    error MiddlewareVaultManager__ZeroVaultMaxL1Limit();
+    error MiddlewareVaultManager__VaultAlreadyRegistered();
+    error MiddlewareVaultManager__VaultEpochTooShort();
+    error MiddlewareVaultManager__NotVault(address vault);
+    error MiddlewareVaultManager__WrongVaultAssetClass();
+    error MiddlewareVaultManager__VaultNotDisabled();
+    error MiddlewareVaultManager__VaultGracePeriodNotPassed();
+    error MiddlewareVaultManager__SlasherNotImplemented();
     error AvalancheL1Middleware__AssetClassNotActive(uint96 assetClass);
     error AvalancheL1Middleware__CollateralNotInAssetClass(address collateral, uint96 assetClass);
 
@@ -55,10 +55,10 @@ contract MockVaultManager is Ownable {
      */
     function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (vaultMaxL1Limit == 0) {
-            revert AvalancheL1Middleware__ZeroVaultMaxL1Limit();
+            revert MiddlewareVaultManager__ZeroVaultMaxL1Limit();
         }
         if (_vaults.contains(vault)) {
-            revert AvalancheL1Middleware__VaultAlreadyRegistered();
+            revert MiddlewareVaultManager__VaultAlreadyRegistered();
         }
 
         // Mock vault epoch validation (simplified)
@@ -68,7 +68,7 @@ contract MockVaultManager is Ownable {
         //     vaultEpoch -= IVetoSlasher(slasher).vetoDuration();
         // }
         // if (vaultEpoch < middleware.SLASHING_WINDOW()) {
-        //     revert AvalancheL1Middleware__VaultEpochTooShort();
+        //     revert MiddlewareVaultManager__VaultEpochTooShort();
         // }
 
         vaultToAssetClass[vault] = assetClassId;
@@ -87,10 +87,10 @@ contract MockVaultManager is Ownable {
      */
     function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!_vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
         if (vaultToAssetClass[vault] != assetClassId) {
-            revert AvalancheL1Middleware__WrongVaultAssetClass();
+            revert MiddlewareVaultManager__WrongVaultAssetClass();
         }
 
         _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
@@ -108,19 +108,19 @@ contract MockVaultManager is Ownable {
      */
     function removeVault(address vault) external onlyOwner {
         if (!_vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
 
         (, uint48 disabledTime) = _vaults.getTimes(vault);
         if (disabledTime == 0) {
-            revert AvalancheL1Middleware__VaultNotDisabled();
+            revert MiddlewareVaultManager__VaultNotDisabled();
         }
 
         uint48 epochDuration = middleware.EPOCH_DURATION();
         uint48 disabledEpoch = disabledTime / epochDuration;
         uint48 currentEpoch = uint48(Time.timestamp() / epochDuration);
         if (currentEpoch < disabledEpoch + VAULT_REMOVAL_EPOCH_DELAY) {
-            revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
+            revert MiddlewareVaultManager__VaultGracePeriodNotPassed();
         }
 
         // Remove from vaults and clear mapping
@@ -146,12 +146,12 @@ contract MockVaultManager is Ownable {
     function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal {
         // Mock implementation - basic validation
         if (vault == address(0)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
         
         // In real implementation, this would check registry and call delegator
         // if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
-        //     revert AvalancheL1Middleware__NotVault(vault);
+        //     revert MiddlewareVaultManager__NotVault(vault);
         // }
         // if (!middleware.isActiveAssetClass(assetClassId)) {
         //     revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive(assetClassId);
@@ -167,7 +167,7 @@ contract MockVaultManager is Ownable {
     }
 
     function slashVault() external pure {
-        revert AvalancheL1Middleware__SlasherNotImplemented();
+        revert MiddlewareVaultManager__SlasherNotImplemented();
     }
 
     // Existing functions for backward compatibility

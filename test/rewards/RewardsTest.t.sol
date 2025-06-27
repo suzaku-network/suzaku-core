@@ -2031,7 +2031,7 @@ contract RewardsTest is Test {
         uint96 assetClass = vaultManager.getVaultAssetClass(vaultToRemove);
         vaultManager.updateVaultMaxL1Limit(vaultToRemove, assetClass, 0); // Disable vault
         
-        vm.expectRevert(abi.encodeWithSelector(IMiddlewareVaultManager.AvalancheL1Middleware__VaultGracePeriodNotPassed.selector));
+        vm.expectRevert(abi.encodeWithSelector(IMiddlewareVaultManager.MiddlewareVaultManager__VaultGracePeriodNotPassed.selector));
         vaultManager.removeVault(vaultToRemove);
 
         // Wait for the vault removal epoch delay to pass

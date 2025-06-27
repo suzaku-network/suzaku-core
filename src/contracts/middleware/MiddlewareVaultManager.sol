@@ -41,10 +41,10 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         uint48 vaultRemovalEpochDelay_
     ) Ownable(owner) {
         if (vaultRegistry == address(0)) {
-            revert AvalancheL1Middleware__ZeroAddress("vaultRegistry");
+            revert MiddlewareVaultManager__ZeroAddress("vaultRegistry");
         }
         if (middlewareAddress == address(0)) {
-            revert AvalancheL1Middleware__ZeroAddress("middlewareAddress");
+            revert MiddlewareVaultManager__ZeroAddress("middlewareAddress");
         }
         VAULT_REGISTRY = vaultRegistry;
         middleware = AvalancheL1Middleware(payable(middlewareAddress));
@@ -59,10 +59,10 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (vaultMaxL1Limit == 0) {
-            revert AvalancheL1Middleware__ZeroVaultMaxL1Limit();
+            revert MiddlewareVaultManager__ZeroVaultMaxL1Limit();
         }
         if (vaults.contains(vault)) {
-            revert AvalancheL1Middleware__VaultAlreadyRegistered();
+            revert MiddlewareVaultManager__VaultAlreadyRegistered();
         }
 
         uint48 vaultEpoch = IVaultTokenized(vault).epochDuration();
@@ -71,7 +71,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
             vaultEpoch -= IVetoSlasher(slasher).vetoDuration();
         }
         if (vaultEpoch < middleware.SLASHING_WINDOW()) {
-            revert AvalancheL1Middleware__VaultEpochTooShort();
+            revert MiddlewareVaultManager__VaultEpochTooShort();
         }
 
         vaultToAssetClass[vault] = assetClassId;
@@ -89,19 +89,29 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
         if (vaultToAssetClass[vault] != assetClassId) {
-            revert AvalancheL1Middleware__WrongVaultAssetClass();
+            revert MiddlewareVaultManager__WrongVaultAssetClass();
         }
 
         _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
 
+        (uint48 enabledTime, uint48 disabledTime) = vaults.getTimes(vault);
+
+        // disable vault
         if (vaultMaxL1Limit == 0) {
-            vaults.disable(vault);
-        } else {
-            vaults.enable(vault);
+            if (disabledTime == 0 && enabledTime != 0) {
+                vaults.disable(vault);
+            }
+            return;
         }
+
+        // nothing to do
+        if (vaultMaxL1Limit > 0 && disabledTime == 0 && enabledTime != 0) return;
+
+        // enable vault
+        vaults.enable(vault);
     }
 
     /**
@@ -112,19 +122,19 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         address vault
     ) external onlyOwner {
         if (!vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
 
         (, uint48 disabledTime) = vaults.getTimes(vault);
         if (disabledTime == 0) {
-            revert AvalancheL1Middleware__VaultNotDisabled();
+            revert MiddlewareVaultManager__VaultNotDisabled();
         }
 
         uint48 epochDuration = middleware.EPOCH_DURATION();
         uint48 disabledEpoch = disabledTime / epochDuration;
         uint48 currentEpoch = uint48(Time.timestamp() / epochDuration);
         if (currentEpoch < disabledEpoch + VAULT_REMOVAL_EPOCH_DELAY) {
-            revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
+            revert MiddlewareVaultManager__VaultGracePeriodNotPassed();
         }
 
         // Remove from vaults and clear mapping
@@ -140,7 +150,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
         if (!middleware.isActiveAssetClass(assetClassId)) {
             revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive(assetClassId);
@@ -156,7 +166,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     }
 
     function slashVault() external pure {
-        revert AvalancheL1Middleware__SlasherNotImplemented();
+        revert MiddlewareVaultManager__SlasherNotImplemented();
     }
 
     function getVaultCount() external view returns (uint256) {
