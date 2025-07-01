@@ -20,3 +20,7 @@ Suzaku Core contracts are inspired by [Symbiotic Core contracts](https://github.
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | [L1Registry](./src/contracts/L1Registry.sol)               | [NetworkRegistry](https://github.com/symbioticfi/core/blob/main/src/contracts/NetworkRegistry.sol)   |
 | [OperatorRegistry](./src/interfaces/IOperatorRegistry.sol) | [OperatorRegistry](https://github.com/symbioticfi/core/blob/main/src/contracts/OperatorRegistry.sol) |
+
+## Collateral
+
+Suzaku Collateral enables flexible and capital-efficient staking by allowing multiple types of ERC-20 tokens to be used as collateral for securing L1s. See [src/contracts/defaultCollateral/README.md](./src/contracts/defaultCollateral/README.md) for details.
