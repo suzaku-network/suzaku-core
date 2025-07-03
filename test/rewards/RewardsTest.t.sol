@@ -19,6 +19,8 @@ import {IRewards, DistributionBatch} from "../../src/interfaces/rewards/IRewards
 import {BaseDelegator} from "../../src/contracts/delegator/BaseDelegator.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
+// import {IAccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/IAccessControlUpgradeable.sol";
+
 
 contract RewardsTest is Test {
     // EVENTS
@@ -2048,6 +2050,110 @@ contract RewardsTest is Test {
         uint256 stakerRewards1 = stakerBalanceAfter1 - stakerBalanceBefore1;
         assertEq(stakerRewards1, 0, "Now staker should have 0 rewards");
     }
+
+    /// @dev 1. Distribution window off‑by‑one reverts when it should pass.
+    function test_HI_DistributionWindowOffByOne_DoS() public {
+        uint48 epoch = 1;
+        _setupStakes(epoch, 4 hours);
+
+        // fund the epoch so only the window‑guard matters
+        uint256 amt = 100_000 ether;
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amt);
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amt);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(rewardsToken), amt);
+        vm.stopPrank();
+
+        // Warp to the *first* epoch that SHOULD be legal:
+        // currentEpoch == epoch + DISTRIBUTION_EARLIEST_OFFSET
+        uint48 offset = rewards.DISTRIBUTION_EARLIEST_OFFSET(); // = 2
+        vm.warp((epoch + offset) * middleware.EPOCH_DURATION());
+
+        // Off‑by‑one fixed: call should now succeed.
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(epoch, 10);
+    }
+
+    /// @dev 2. No operators → funding check bypassed, unfunded epoch is marked complete.
+    function test_HI_UnfundedEpochZeroOperators_SkipsFundingCheck() public {
+        uint48 epoch = 1;
+
+        // ‑‑ remove every operator so getAllOperators() returns 0
+        address[] memory ops = middleware.getAllOperators();
+        for (uint256 i; i < ops.length; ++i) middleware.disableOperator(ops[i]);
+
+        vm.warp(
+            block.timestamp + middleware.SLASHING_WINDOW()
+                + middleware.REMOVAL_DELAY_EPOCHS() * middleware.EPOCH_DURATION()
+        );
+        for (uint256 i; i < ops.length; ++i) middleware.removeOperator(ops[i]);
+
+        assertEq(middleware.getAllOperators().length, 0, "operators not empty");
+
+        // Jump past DISTRIBUTION_EARLIEST_OFFSET but still inside funding window
+        vm.warp(
+            (epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1) * middleware.EPOCH_DURATION()
+        );
+
+        // BUG: should revert (EpochNotFunded) but succeeds
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(epoch, 1);
+
+        (, bool complete) = rewards.distributionBatches(epoch);
+        assertTrue(complete, "BUG: unfunded epoch was finalised with 0 operators");
+    }
+
+    /// Patch removed – overflow impossible since
+    /// _checkValidatorShares() now prevents sum > 100 %.
+    /*
+    function test_HI_ClaimUndistributedUnderflow_BricksEpoch() public {
+        uint48 epoch = 1;
+
+        // crank asset‑class weights to total 200 %
+        vm.startPrank(REWARDS_MANAGER_ROLE);
+        rewards.updateAllFees(0, 0, 0); // keep math simple
+        rewards.setRewardsShareForAssetClass(1, 8000);
+        rewards.setRewardsShareForAssetClass(2, 7000);
+        rewards.setRewardsShareForAssetClass(3, 5000); // 20 000 bp total
+        vm.stopPrank();
+
+        // fund & stake normally
+        uint256 amt = 100_000 ether;
+        rewardsToken.mint(REWARDS_DISTRIBUTOR_ROLE, amt);
+        vm.startPrank(REWARDS_DISTRIBUTOR_ROLE);
+        rewardsToken.approve(address(rewards), amt);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(rewardsToken), amt);
+        vm.stopPrank();
+
+        _setupStakes(epoch, 4 hours);
+
+        vm.warp((epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1)
+            * middleware.EPOCH_DURATION());
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.distributeRewards(epoch, 10);
+
+        // fast‑forward past grace period
+        vm.warp(block.timestamp
+            + (rewards.DISTRIBUTION_EARLIEST_OFFSET()
+            + rewards.CLAIM_GRACE_PERIOD_EPOCHS() + 1) * middleware.EPOCH_DURATION());
+
+        // BUG: totalDistributedShares > 10 000 → underflow inside claim, reverts forever
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        vm.expectRevert(); // any selector – it’s a panic arithmetic underflow
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_DISTRIBUTOR_ROLE);
+    }
+    */
+
+    /// @dev 4. Missing __AccessControl_init() → contract lies about supportsInterface.
+    // function test_HI_MissingAccessControlInit_InterfaceNotRegistered() public {
+    //     bytes4 id = type(IAccessControlUpgradeable).interfaceId;
+    //     bool advertises = rewards.supportsInterface(id);
+    //     assertFalse(
+    //         advertises,
+    //         "BUG: AccessControl interface should be reported, __AccessControl_init was skipped"
+    //     );
+    // }
+
 
 }
 

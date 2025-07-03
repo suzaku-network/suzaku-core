@@ -28,7 +28,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     bytes32 public constant REWARDS_DISTRIBUTOR_ROLE = keccak256("REWARDS_DISTRIBUTOR_ROLE");
     bytes32 public constant PROTOCOL_OWNER_ROLE = keccak256("PROTOCOL_OWNER_ROLE");
     /// @dev Epoch N must be funded no later than N-FUNDING_DEADLINE_OFFSET.
-    ///      If funded earlier, distribution can proceed; otherwise, must wait for the deadline.
+    ///      If funded earlier, distribution can proceed; if not funded earlier, it must wait for the deadline before distribution can proceed.
     uint48 public constant FUNDING_DEADLINE_OFFSET = 4;
 
     /// @dev Epoch N may be distributed no earlier than N+DISTRIBUTION_EARLIEST_OFFSET.
@@ -131,12 +131,15 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     // EXTERNAL FUNCTIONS
     // Distribution
     /// @inheritdoc IRewards
-    function distributeRewards(uint48 epoch, uint48 batchSize) external onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
+    function distributeRewards(uint48 epoch, uint48 batchSize) external nonReentrant onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
         DistributionBatch storage batch = distributionBatches[epoch];
         EpochStatus storage st = epochStatus[epoch];
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();
 
-        // window guards 
+        // window guards
+        if (currentEpoch < DISTRIBUTION_EARLIEST_OFFSET) 
+            revert RewardsDistributionTooEarly(epoch, 0);
+
         uint48 earliestDistributionEpoch = currentEpoch - DISTRIBUTION_EARLIEST_OFFSET;
         if (epoch > earliestDistributionEpoch)
             revert RewardsDistributionTooEarly(epoch, earliestDistributionEpoch);
@@ -350,8 +353,8 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (_undistributedClaimed[epoch][rewardsToken]) revert NoRewardsToClaim(msg.sender);
 
         // Check if epoch distribution is complete
-        DistributionBatch storage batch = distributionBatches[epoch];
-        if (!batch.isComplete) revert DistributionNotComplete(epoch);
+        EpochStatus storage st = epochStatus[epoch];
+        if (!st.distributionComplete) revert DistributionNotComplete(epoch);
 
         // The sweep can only happen after the distribution offset AND the claim grace period have passed.
         uint48 currentEpoch = l1Middleware.getCurrentEpoch();

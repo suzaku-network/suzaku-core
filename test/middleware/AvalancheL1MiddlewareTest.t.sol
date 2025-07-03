@@ -3682,6 +3682,37 @@ contract AvalancheL1MiddlewareTest is Test {
         assertEq(activeVaults.length, 1); // Only the original vault should be active
     }
 
+    function test_StakeUpdateCannotOverallocate() public {
+        // 1. Roll to a fresh epoch so node‑stake cache is up‑to‑date
+        _calcAndWarpOneEpoch();
+
+        // 2. Alice registers a single, minimum‑stake node and confirms it
+        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 1, 0, true, 1);
+        bytes32 nodeId = nodeIds[0];
+
+        // 3. Gather current numbers
+        uint48  epoch         = middleware.getCurrentEpoch();
+        bytes32 valID         =
+            mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        uint256 currentStake  = middleware.getNodeStake(epoch, valID);
+        // free‑stake as the contract sees it
+        uint256 freeStake = middleware.getOperatorAvailableStake(alice);
+        assertGt(freeStake, 0, "setup needs free stake");
+
+        // 4. Craft a stake that exceeds Alice's free‑stake by ≥ one weight unit
+        uint256 newStake = currentStake + freeStake + middleware.WEIGHT_SCALE_FACTOR();
+
+        // 5. The patched contract must reject the attempt
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector,
+                newStake
+            )
+        );
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, newStake);
+    }
+    
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////
