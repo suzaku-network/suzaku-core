@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.25;
+
 //
 // PoC: Exploiting the missing stake-locking in addNode()
 //
-import {AvalancheL1MiddlewareTest} from "./AvalancheL1MiddlewareTest.t.sol";
+import {MiddlewareTestBase} from "./MiddlewareTestBase.t.sol";
 import {Rewards} from "src/contracts/rewards/Rewards.sol";
 import {MockUptimeTracker} from "../mocks/MockUptimeTracker.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
@@ -10,7 +14,7 @@ import {PChainOwner} from "@avalabs/teleporter/validator-manager/interfaces/IVal
 import {console2} from "forge-std/console2.sol";
 import {IAvalancheL1Middleware} from "src/interfaces/middleware/IAvalancheL1Middleware.sol";
 
-contract PoCMissingLockingRewards is AvalancheL1MiddlewareTest {
+contract PoCMissingLockingRewards is MiddlewareTestBase {
     // helpers & globals
     MockUptimeTracker internal uptimeTracker;
     // Simulates uptime records

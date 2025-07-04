@@ -1,14 +1,18 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.25;
+
 //
-// PoC – “Phantom” / Irremovable Node
+// PoC – "Phantom" / Irremovable Node
 // Shows how a node can be removed *logically* on the P-Chain yet remain stuck
 // inside `operatorNodesArray`, blowing up storage & breaking future logic.
 //
-import {AvalancheL1MiddlewareTest} from "./AvalancheL1MiddlewareTest.t.sol";
+import {MiddlewareTestBase} from "./MiddlewareTestBase.t.sol";
 import {PChainOwner} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 import {StakeConversion} from "src/contracts/middleware/libraries/StakeConversion.sol";
 import {console2} from "forge-std/console2.sol";
 
-contract PoCIrremovableNode is AvalancheL1MiddlewareTest {
+contract PoCIrremovableNode is MiddlewareTestBase {
     /// Demonstrates *expected* vs *buggy* behaviour side-by-side
     function test_PoCIrremovableNode() public {
         //
