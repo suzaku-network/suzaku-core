@@ -600,7 +600,7 @@ contract VaultTokenized is
 
         uint256 currentEpoch_ = currentEpoch();
         uint256 captureEpoch = epochAt(captureTimestamp);
-        if ((currentEpoch_ > 0 && captureEpoch < currentEpoch_ - 1) || captureEpoch > currentEpoch_) {
+        if ((currentEpoch_ > 0 && captureEpoch + 1 < currentEpoch_) || captureEpoch > currentEpoch_) {
             revert Vault__InvalidCaptureEpoch();
         }
 
