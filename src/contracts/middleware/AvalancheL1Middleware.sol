@@ -6,6 +6,7 @@ pragma solidity 0.8.25;
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {
     Validator,
@@ -61,10 +62,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
 
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
     uint48 public constant MAX_AUTO_EPOCH_UPDATES = 1;
-
+    uint48 public constant REMOVAL_DELAY_EPOCHS = 6;
     MiddlewareVaultManager private vaultManager;
     EnumerableMap.AddressToUintMap private operators;
     EnumerableSet.UintSet private secondaryAssetClasses;
+    bool private vaultManagerSet;
 
     BalancerValidatorManager public balancerValidatorManager;
 
@@ -73,10 +75,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     mapping(address => bytes32[]) public operatorNodesArray;
     mapping(uint48 => mapping(uint96 => mapping(address => uint256))) public operatorStakeCache;
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStakeCache;
-    mapping(bytes32 => bool) public nodePendingUpdate;
+    mapping(bytes32 => uint256) private _pendingStake;
     mapping(bytes32 => bool) public nodePendingRemoval;
+    mapping(bytes32 => bytes32) private pendingRemovalValId;        // nodeId -> valID (0x0 == not‑pending)
     mapping(address => uint256) public operatorLockedStake;
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
+    mapping(bytes32 => address) public validationIdToOperator;
     // operatorNodesArray[operator] is used for iteration during certain
     // rebalancing or node-update operations, and has nodes removed once
     // they are effectively retired. This means a node can remain in
@@ -124,8 +128,35 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (settings.slashingWindow < settings.epochDuration) {
             revert AvalancheL1Middleware__SlashingWindowTooShort(settings.slashingWindow, settings.epochDuration);
         }
+
+        // 0 < stakeUpdateWindow < epochDuration ≤ slashingWindow
+        if (
+            settings.stakeUpdateWindow == 0 ||
+            settings.stakeUpdateWindow >= settings.epochDuration
+        ) {
+            revert AvalancheL1Middleware__InvalidUpdateWindow(
+                settings.stakeUpdateWindow,
+                settings.epochDuration
+            );
+        }
+
         if (primaryAssetWeightScaleFactor == 0) {
             revert AvalancheL1Middleware__InvalidScaleFactor();
+        }
+
+        uint256 _minAllowed = (primaryAssetMaxStake + type(uint64).max - 1)
+            / type(uint64).max;  // ceiling (maxStake / (2⁶⁴‑1))
+        uint256 _maxAllowed = primaryAssetMinStake;   // ensures minStake implies weight ≥ 1
+
+        if (
+            primaryAssetWeightScaleFactor < _minAllowed ||
+            primaryAssetWeightScaleFactor > _maxAllowed
+        ) {
+            revert AvalancheL1Middleware__ScaleFactorOutOfBounds(
+                primaryAssetWeightScaleFactor,
+                _minAllowed,
+                _maxAllowed
+            );
         }
 
         START_TIME = Time.timestamp();
@@ -191,11 +222,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function setVaultManager(
         address vaultManager_
     ) external onlyOwner {
+        if (vaultManagerSet) {
+            revert AvalancheL1Middleware__VaultManagerAlreadySet(address(vaultManager));
+        }
         if (vaultManager_ == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress("vaultManager");
         }
-        emit VaultManagerUpdated(address(vaultManager), vaultManager_);
+        vaultManagerSet = true;
         vaultManager = MiddlewareVaultManager(vaultManager_);
+        emit VaultManagerUpdated(address(vaultManager), vaultManager_);
     }
 
     /**
@@ -257,9 +292,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      */
     function removeAssetClass(
         uint256 assetClassId
-    ) public override updateGlobalNodeStakeOncePerEpoch {
+    ) public override onlyOwner updateGlobalNodeStakeOncePerEpoch {
         if (secondaryAssetClasses.contains(assetClassId)) {
-            revert AvalancheL1Middleware__ActiveSecondaryAssetCLass(assetClassId);
+            revert AvalancheL1Middleware__ActiveSecondaryAssetClass(assetClassId);
         }
 
         super.removeAssetClass(assetClassId);
@@ -291,6 +326,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function disableOperator(
         address operator
     ) external onlyOwner updateGlobalNodeStakeOncePerEpoch {
+        if (operatorNodesArray[operator].length > 0) {
+            revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
+        }
         operators.disable(operator);
     }
 
@@ -309,8 +347,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function removeOperator(
         address operator
     ) external onlyOwner updateGlobalNodeStakeOncePerEpoch {
+        if (operatorNodesArray[operator].length > 0) {
+            revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
+        }
         (, uint48 disabledTime) = operators.getTimes(operator);
-        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp()) {
+        uint48 disabledEpoch = getEpochAtTs(disabledTime);
+        if (disabledTime == 0 || disabledTime + SLASHING_WINDOW > Time.timestamp() || getCurrentEpoch() < disabledEpoch + REMOVAL_DELAY_EPOCHS) {
             revert AvalancheL1Middleware__OperatorGracePeriodNotPassed(disabledTime, SLASHING_WINDOW);
         }
         operators.remove(operator);
@@ -328,7 +370,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint256 stakeAmount // optional
     ) external updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS) updateGlobalNodeStakeOncePerEpoch {
         address operator = msg.sender;
-        if (!operators.contains(operator)) {
+        (, uint48 disabledTime) = operators.getTimes(operator);
+        if (!operators.contains(operator) || disabledTime > 0) {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
         if (!_requireMinSecondaryAssetClasses(1, operator)) {
@@ -336,17 +379,22 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         bytes32 valId = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-        uint256 available = _getOperatorAvailableStake(operator);
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePendingRemoval(nodeId);
-        if (nodePendingUpdate[valId]) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
+        if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
+
+        uint256 freeStake = _getOperatorAvailableStake(operator);
 
         uint256 minStake = assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = assetClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
-        uint256 newStake = (stakeAmount != 0) ? stakeAmount : available;
+        uint256 newStake = (stakeAmount != 0) ? stakeAmount : minStake;
 
         newStake = (newStake > maxStake) ? maxStake : newStake;
 
-        if (newStake < minStake || newStake > available) {
+        if (newStake < minStake) {
+            revert AvalancheL1Middleware__StakeTooLow(newStake, minStake);
+        }
+
+        if (newStake > freeStake) {
             revert AvalancheL1Middleware__NotEnoughFreeStake(newStake);
         }
 
@@ -358,17 +406,17 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             disableOwner: disableOwner
         });
 
-        // Track node in our time-based map and dynamic array.
+        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
+            input, StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR)
+        );
+
         operatorNodes[operator].add(nodeId);
         operatorNodesArray[operator].push(nodeId);
         uint48 epoch = getCurrentEpoch();
 
-        bytes32 validationID = balancerValidatorManager.initializeValidatorRegistration(
-            input, StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR)
-        );
+        validationIdToOperator[validationID] = operator;
         nodeStakeCache[epoch][validationID] = newStake;
         nodeStakeCache[epoch + 1][validationID] = newStake;
-        nodePendingUpdate[validationID] = true;
 
         emit NodeAdded(operator, nodeId, newStake, validationID);
     }
@@ -395,35 +443,57 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (rebalancedThisEpoch[operator][currentEpoch]) {
             revert AvalancheL1Middleware__AlreadyRebalanced(operator, currentEpoch);
         }
-        rebalancedThisEpoch[operator][currentEpoch] = true;
 
         if (!operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
 
-        // Calculate the new total stake for the operator and compare it to the registered stake
-        uint256 newTotalStake = _getOperatorAvailableStake(operator);
-        uint256 registeredStake = getOperatorUsedStakeCached(operator);
+        uint48 epoch = getCurrentEpoch();
+        uint256 newTotalStake = getOperatorStake(operator, epoch, PRIMARY_ASSET_CLASS);
+        
+        // Enforce max security module weight cap
+        (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
+        uint256 stakeCap = StakeConversion.weightToStake(securityModuleMaxWeight, WEIGHT_SCALE_FACTOR);
+        if (newTotalStake > stakeCap) {
+            newTotalStake = stakeCap;
+        }
+        
+        uint256 registeredStake = getOperatorUsedStakeCached(operator) + operatorLockedStake[operator];
         uint256 leftoverStake;
+        bool    secondaryOk     = _requireMinSecondaryAssetClasses(0, operator);
 
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         uint256 length = nodesArr.length;
 
-        // If nothing changed, do nothing
-        if (newTotalStake == registeredStake) {
+        if (newTotalStake == registeredStake && secondaryOk) {
             return;
         }
 
-        if (newTotalStake > registeredStake) {
+        if (newTotalStake > registeredStake && secondaryOk) {
             leftoverStake = newTotalStake - registeredStake;
             emit OperatorHasLeftoverStake(operator, leftoverStake);
             emit AllNodeStakesUpdated(operator, newTotalStake);
             return;
         }
-        // We only handle the scenario newTotalStake < registeredStake, when removing stake
-        leftoverStake = registeredStake - newTotalStake;
 
-        for (uint256 i = length; i > 0 && leftoverStake > 0;) {
+        leftoverStake = (newTotalStake < registeredStake)
+            ? registeredStake - newTotalStake   // classic path
+            : 0;                                // fix secondary only
+
+        // The minimum stake that results in a weight change of at least 1
+        uint256 minMeaningfulStake = WEIGHT_SCALE_FACTOR;
+
+        if (leftoverStake < minMeaningfulStake && secondaryOk) {
+            revert AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(operator, leftoverStake);
+        }
+        // If limitStake is provided, ensure it's at least the minimum meaningful amount
+        if (limitStake > 0 && limitStake < minMeaningfulStake) {
+            revert AvalancheL1Middleware__LimitStakeTooLow(limitStake, minMeaningfulStake);
+        }
+
+        bool hasUpdatedAnyNode = false;
+
+        for (uint256 i = length; i > 0 && (leftoverStake > 0 || !secondaryOk);) {
             i--;
             bytes32 nodeId = nodesArr[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
@@ -441,26 +511,50 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             if (previousStake == 0) {
                 continue;
             }
-            uint256 stakeToRemove = leftoverStake < previousStake ? leftoverStake : previousStake;
+            uint256 stakeToRemove = (leftoverStake == 0)
+                ? previousStake                                   // secondary deficit: drop whole node
+                : (leftoverStake < previousStake ? leftoverStake : previousStake);
             if (limitStake > 0 && stakeToRemove > limitStake) {
                 stakeToRemove = limitStake;
             }
-            uint256 newStake = previousStake - stakeToRemove;
-            leftoverStake -= stakeToRemove;
 
-            if (
-                (newStake < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake)
-                    || !_requireMinSecondaryAssetClasses(0, operator)
-            ) {
+            if (stakeToRemove < minMeaningfulStake) {
+                continue;
+            }
+
+            uint256 newStake = previousStake - stakeToRemove;
+            uint64 oldWeight = StakeConversion.stakeToWeight(previousStake, WEIGHT_SCALE_FACTOR);
+            uint64 newWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
+
+            // Skip this node if the weight wouldn't change (unless we're removing all stake)
+            if (oldWeight == newWeight && newStake > 0) {
+                continue;
+            }
+
+            if (leftoverStake > 0) {
+                leftoverStake -= stakeToRemove;
+            }
+
+
+            if (newStake < assetClasses[PRIMARY_ASSET_CLASS].minValidatorStake) {
                 newStake = 0;
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
                 _initializeValidatorStakeUpdate(operator, valID, newStake);
                 emit NodeStakeUpdated(operator, nodeId, newStake, valID);
             }
+
+            hasUpdatedAnyNode = true;
+            secondaryOk       = _requireMinSecondaryAssetClasses(0, operator);
         }
 
-        // Finally emit updated stake
+        if (!hasUpdatedAnyNode)
+            revert AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(operator, leftoverStake);
+
+        if (hasUpdatedAnyNode) {
+            rebalancedThisEpoch[operator][currentEpoch] = true;
+        }
+
         emit AllNodeStakesUpdated(operator, newTotalStake);
     }
 
@@ -487,6 +581,16 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        
+        // Check if operator has enough available stake for the increase
+        uint48 currentEpoch = getCurrentEpoch();
+        uint256 currentStake = getEffectiveNodeStake(currentEpoch, validationID);
+        if (stakeAmount > currentStake) {
+            uint256 delta = stakeAmount - currentStake;
+            if (delta > _getOperatorAvailableStake(msg.sender)) {
+                revert AvalancheL1Middleware__NotEnoughFreeStake(stakeAmount);
+            }
+        }
 
         _initializeValidatorStakeUpdate(msg.sender, validationID, stakeAmount);
     }
@@ -508,7 +612,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function completeStakeUpdate(
         bytes32 nodeId,
         uint32 messageIndex
-    ) external onlyRegisteredOperatorNode(msg.sender, nodeId) updateGlobalNodeStakeOncePerEpoch {
+    ) external updateGlobalNodeStakeOncePerEpoch {
         _completeStakeUpdate(msg.sender, nodeId, messageIndex);
     }
 
@@ -534,6 +638,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @inheritdoc IAvalancheL1Middleware
      */
     function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
+        if (epoch > getCurrentEpoch()) {
+            revert AvalancheL1Middleware__CannotCacheFutureEpoch(epoch);
+        }
+
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         uint256 length = operators.length();
@@ -654,31 +762,33 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             i--;
             bytes32 nodeId = nodeArray[i];
             bytes32 valID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-
-            // If no removal/update, just carry over from prevEpoch (only if we haven’t set it yet)
-            if (!nodePendingRemoval[valID] && !nodePendingUpdate[valID]) {
-                if (nodeStakeCache[epoch][valID] == 0) {
-                    nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID];
+            // validator already deleted on manager → use local cache
+            if (valID == bytes32(0)) {
+                bytes32 saved = pendingRemovalValId[nodeId];
+                if (saved != bytes32(0)) {
+                    _removeNodeFromArray(operator, nodeId);
+                    nodePendingRemoval[saved] = false;
+                    delete pendingRemovalValId[nodeId];
                 }
                 continue;
             }
 
-            if (nodePendingRemoval[valID] && nodeStakeCache[epoch][valID] == 0 && nodeStakeCache[prevEpoch][valID] != 0)
-            {
-                _removeNodeFromArray(operator, nodeId);
-                nodePendingRemoval[valID] = false;
-            }
-
-            // If there was a pending update, finalize and clear the pending markers
-            if (nodePendingUpdate[valID]) {
-                nodePendingUpdate[valID] = false;
+            // If not pending removal, simply carry forward from previous epoch
+            if (!nodePendingRemoval[valID]) {
+                if (nodeStakeCache[epoch][valID] == 0) {
+                    nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID];
+                }
+            } else {
+                // Handle node removal if needed
+                if (nodeStakeCache[epoch][valID] == 0 && nodeStakeCache[prevEpoch][valID] != 0) {
+                    _removeNodeFromArray(operator, nodeId);
+                    nodePendingRemoval[valID] = false;
+                    delete pendingRemovalValId[nodeId];
+                }
             }
         }
 
-        // Reset operator locked stake once per epoch
-        if (operatorLockedStake[operator] > 0) {
-            operatorLockedStake[operator] = 0;
-        }
+        // The lock is released only after completeValidatorWeightUpdate succeeds.
     }
 
     /**
@@ -687,6 +797,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      */
     function _removeNode(address operator, bytes32 nodeId) internal {
         bytes32 validationID = balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
+        if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
+            revert AvalancheL1Middleware__NodePendingUpdate(nodeId);
+        }
         _initializeEndValidationAndFlag(operator, validationID, nodeId);
     }
 
@@ -694,6 +807,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         uint48 nextEpoch = getCurrentEpoch() + 1;
         nodeStakeCache[nextEpoch][validationID] = 0;
         nodePendingRemoval[validationID] = true;
+        pendingRemovalValId[nodeId] = validationID;
 
         balancerValidatorManager.initializeEndValidation(validationID);
 
@@ -760,8 +874,27 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (!balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdateNotPending(validationID);
         }
-        // if the completeValidatorWeightUpdate fails, not sure if the previous bool is secure.
+
+        // Finish the weight update on the P-Chain
         balancerValidatorManager.completeValidatorWeightUpdate(validationID, messageIndex);
+
+        uint48 currentEpoch = getCurrentEpoch();
+        uint256 newStake = _pendingStake[validationID];
+
+        // write to cache active validators
+        Validator memory v = balancerValidatorManager.getValidator(validationID);
+        if (v.status == ValidatorStatus.Active && !nodePendingRemoval[validationID]) {
+            nodeStakeCache[currentEpoch + 1][validationID] = newStake;
+        }
+
+        // unlock stake
+        uint256 prevStake = getEffectiveNodeStake(currentEpoch, validationID);
+        if (newStake > prevStake) {
+            uint256 release = newStake - prevStake;
+            uint256 lockBal = operatorLockedStake[operator];
+            operatorLockedStake[operator] = (release > lockBal) ? 0 : lockBal - release;
+        }
+        delete _pendingStake[validationID];
     }
 
     /**
@@ -778,40 +911,60 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
         }
-        uint256 delta;
+        
+        // Check if increase is valid and calculate delta
         if (newStake > cachedStake) {
-            delta = newStake - cachedStake;
+            uint256 delta = newStake - cachedStake;
             if (delta > _getOperatorAvailableStake(operator)) {
                 revert AvalancheL1Middleware__NotEnoughFreeStake(newStake);
             }
+            // Lock the delta for the pending update
+            operatorLockedStake[operator] += delta;
         }
-        operatorLockedStake[operator] += delta;
-        nodePendingUpdate[validationID] = true;
-        nodeStakeCache[currentEpoch + 1][validationID] = newStake;
-        // if newStake < cachedStake, no lock should happen, it's locked in the cache
 
         uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, WEIGHT_SCALE_FACTOR);
 
         balancerValidatorManager.initializeValidatorWeightUpdate(validationID, scaledWeight);
+        
+        _pendingStake[validationID] = newStake;
     }
 
     function _requireMinSecondaryAssetClasses(uint256 extraNode, address operator) internal view returns (bool) {
         uint48 epoch = getCurrentEpoch();
-        uint256 nodeCount = operatorNodesArray[operator].length; // existing nodes
-
+        
+        // active nodes now excludes those already pending removal
+        uint256 nodeCount = _getActiveNodeCount(operator) + extraNode;
+        if (nodeCount == 0) return true;
+        
         uint256 secCount = secondaryAssetClasses.length();
-        if (secCount == 0) {
-            return true;
-        }
-        for (uint256 i = 0; i < secCount; i++) {
+        if (secCount == 0) return true;           // nothing to check
+        
+        for (uint256 i = 0; i < secCount; ++i) {
             uint256 classId = secondaryAssetClasses.at(i);
-            uint256 stake = getOperatorStake(operator, epoch, uint96(classId));
+            uint256 stake   = getOperatorStake(operator, epoch, uint96(classId));
             // Check ratio vs. class's min stake, could add an emit here to debug
-            if (stake / (nodeCount + extraNode) < assetClasses[classId].minValidatorStake) {
+            if (stake / nodeCount < assetClasses[classId].minValidatorStake) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * @dev Returns active (non-pending-removal) node count for an operator
+     * @param operator The operator address
+     * @return count The number of active nodes
+     */
+    function _getActiveNodeCount(address operator) internal view returns (uint256 count) {
+        bytes32[] storage arr = operatorNodesArray[operator];
+        for (uint256 i; i < arr.length; ++i) {
+            bytes32 valID = balancerValidatorManager.registeredValidators(
+                abi.encodePacked(uint160(uint256(arr[i])))
+            );
+            if (!nodePendingRemoval[valID]) {
+                unchecked { ++count; }
+            }
+        }
     }
 
     /**
@@ -926,6 +1079,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
                 L1_VALIDATOR_MANAGER, assetClassId, operator, epochStartTs, new bytes(0)
             );
 
+            address collateral = IVaultTokenized(vault).collateral();
+            uint8 dec = IERC20Metadata(collateral).decimals();
+
+            if (dec < 18) {
+                vaultStake *= 10 ** uint256(18 - dec);
+            } else if (dec > 18) {
+                vaultStake /= 10 ** uint256(dec - 18);
+            }
+
             stake += vaultStake;
         }
     }
@@ -992,6 +1154,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
             bytes32 validationID =
                 balancerValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             Validator memory validator = balancerValidatorManager.getValidator(validationID);
+
+            // Skip if no validator is registered for this nodeId
+            if (validationID == bytes32(0) || validationIdToOperator[validationID] != operator) {
+                continue;
+            }
 
             if (_wasActiveAt(uint48(validator.startedAt), uint48(validator.endedAt), epochStartTs)) {
                 temp[activeCount++] = nodeId;
@@ -1098,10 +1265,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
         }
 
         uint256 lockedStake = operatorLockedStake[operator];
-        if (totalStake <= lockedStake) {
+        uint256 usedStake = getOperatorUsedStakeCached(operator);
+        
+        if (totalStake <= lockedStake + usedStake) {
             return 0;
         }
-        return totalStake - lockedStake;
+        return totalStake - lockedStake - usedStake;
     }
 
     /**
@@ -1139,6 +1308,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
      * @return bool True if active
      */
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
-        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
+        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime > timestamp);
     }
 }

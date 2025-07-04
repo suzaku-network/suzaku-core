@@ -39,6 +39,7 @@ import {MockVaultTokenizedV2} from "../mocks/MockVaultTokenizedV2.sol";
 
 // import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {ExtendedCheckpoints} from "../../src/contracts/libraries/Checkpoints.sol";
 
 // import {VaultHints} from "../../src/contracts/hints/VaultHints.sol";
 // import {Subl1} from "../../src/contracts/libraries/Subl1.sol";
@@ -91,6 +92,7 @@ contract VaultTokenizedTest is Test {
         operatorRegistry = new OperatorRegistry();
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultImpl);
+        
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
             address(vaultFactory), // whereRegistry
@@ -126,6 +128,9 @@ contract VaultTokenizedTest is Test {
         bool isDepositLimit,
         uint256 depositLimit
     ) public {
+        // Ensure burner is not zero address for this test
+        vm.assume(burner != address(0));
+        
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
 
         uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
@@ -293,6 +298,38 @@ contract VaultTokenizedTest is Test {
                 IVaultTokenized.InitParams({
                     collateral: address(0),
                     burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: alice,
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+    }
+
+    function test_CreateRevertInvalidBurner(
+        uint48 epochDuration
+    ) public {
+        epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
+
+        uint64 lastVersion = vaultFactory.lastVersion();
+        vm.expectRevert(IVaultTokenized.Vault__InvalidBurner.selector);
+        vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0), // Invalid zero address burner
                     epochDuration: epochDuration,
                     depositWhitelist: false,
                     isDepositLimit: false,
@@ -1891,9 +1928,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1);
         // total shares = mintedShares1
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1);
-        // alice’s shares = mintedShares1
+        // alice's shares = mintedShares1
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1);
-        // alice’s active balance = amount1
+        // alice's active balance = amount1
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1);
 
         // 7.3) Check exactly at timeDeposit2 (just after deposit#2)
@@ -1902,9 +1939,9 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), amount1 + amount2);
         // total shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesAt(queryT, ""), mintedShares1 + mintedShares2);
-        // alice’s shares = mintedShares1 + mintedShares2
+        // alice's shares = mintedShares1 + mintedShares2
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), mintedShares1 + mintedShares2);
-        // alice’s active balance = amount1 + amount2
+        // alice's active balance = amount1 + amount2
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), amount1 + amount2);
 
         // 7.4) Check exactly at timeWithdraw (just after withdraw of amount3)
@@ -1917,7 +1954,7 @@ contract VaultTokenizedTest is Test {
         assertEq(vault.activeStakeAt(queryT, ""), expectedStake);
         assertEq(vault.activeSharesAt(queryT, ""), expectedShares);
         assertEq(vault.activeSharesOfAt(alice, queryT, ""), expectedShares);
-        // alice’s balance = (amount1 + amount2) - amount3
+        // alice's balance = (amount1 + amount2) - amount3
         assertEq(vault.activeBalanceOfAt(alice, queryT, ""), expectedStake);
     }
 
@@ -2774,6 +2811,7 @@ contract VaultTokenizedTest is Test {
 
         return VaultTokenized(vaultAddress);
     }
+    
 
     // function _getVaultAndDelegatorAndSlasher(
     //     uint48 epochDuration
@@ -2840,6 +2878,437 @@ contract VaultTokenizedTest is Test {
     //     l1MiddlewareService.setMiddleware(middleware);
     //     vm.stopPrank();
     // }
+
+
+  // This demonstrates that when the vault is created with depositWhitelist=true
+     // and depositWhitelistSetRoleHolder set but depositorWhitelistRoleHolder NOT set,
+     // no deposits can be made until whitelist is turned off, because no one can add
+     // addresses to the whitelist.
+    // function test_WhitelistInconsistency() public {
+    //     // Create a vault with whitelisting enabled but no way to add addresses to the whitelist
+    //     uint64 lastVersion = vaultFactory.lastVersion();
+        
+    //     // configuration:
+    //     // 1. depositWhitelist = true (whitelist is enabled)
+    //     // 2. depositWhitelistSetRoleHolder = alice (someone can toggle whitelist)
+    //     // 3. depositorWhitelistRoleHolder = address(0) (no one can add to whitelist)
+    //     address vaultAddress = vaultFactory.create(
+    //         lastVersion,
+    //         alice,
+    //         abi.encode(
+    //             IVaultTokenized.InitParams({
+    //                 collateral: address(collateral),
+    //                 burner: address(0xdEaD),
+    //                 epochDuration: 7 days, 
+    //                 depositWhitelist: true, // Whitelist ENABLED
+    //                 isDepositLimit: false,
+    //                 depositLimit: 0,
+    //                 defaultAdminRoleHolder: address(0), // No default admin
+    //                 depositWhitelistSetRoleHolder: alice, // Alice can toggle whitelist
+    //                 depositorWhitelistRoleHolder: address(0), // No one can add to whitelist
+    //                 isDepositLimitSetRoleHolder: alice,
+    //                 depositLimitSetRoleHolder: alice,
+    //                 name: "Test",
+    //                 symbol: "TEST"
+    //             })
+    //         ),
+    //         address(delegatorFactory),
+    //         address(slasherFactory)
+    //     );
+
+    //     vault = VaultTokenized(vaultAddress);
+        
+    //     assertEq(vault.depositWhitelist(), true);
+    //     assertEq(vault.hasRole(vault.DEPOSIT_WHITELIST_SET_ROLE(), alice), true);
+    //     assertEq(vault.hasRole(vault.DEPOSITOR_WHITELIST_ROLE(), address(0)), false);
+    //     assertEq(vault.isDepositorWhitelisted(alice), false);
+    //     assertEq(vault.isDepositorWhitelisted(bob), false);
+        
+    //     // Step 1: Try to make a deposit as bob - should fail because whitelist is on
+    //     // and bob is not whitelisted
+    //     collateral.transfer(bob, 100 ether);
+    //     vm.startPrank(bob);
+    //     collateral.approve(address(vault), 100 ether);
+    //     vm.expectRevert(IVaultTokenized.Vault__NotWhitelistedDepositor.selector);
+    //     vault.deposit(bob, 100 ether);
+    //     vm.stopPrank();
+        
+    //     // Step 2: Alice tries to add bob to the whitelist - should fail because
+    //     // she has the role to toggle whitelist but not to add addresses to it
+    //     vm.startPrank(alice);
+    //     vm.expectRevert(); // Access control error (alice doesn't have DEPOSITOR_WHITELIST_ROLE)
+    //     vault.setDepositorWhitelistStatus(bob, true);
+    //     vm.stopPrank();
+        
+    //     // Step 3: Alice tries to turn off whitelist (which she can do)
+    //     vm.startPrank(alice);
+    //     vault.setDepositWhitelist(false);
+    //     vm.stopPrank();
+        
+    //     // Step 4: Now bob should be able to deposit
+    //     vm.startPrank(bob);
+    //     vault.deposit(bob, 100 ether);
+    //     vm.stopPrank();
+        
+    //     // Verify final state
+    //     assertEq(vault.activeBalanceOf(bob), 100 ether);        
+    // }
+
+    function test_WhitelistConsistencyFix() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+        
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
+        vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 7 days, 
+                    depositWhitelist: true,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: address(0),
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: address(0),
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+    }
+
+
+//   // This demonstrates that when the vault is created with isDepositLimitSetRoleHolder
+//     // set but depositLimitSetRoleHolder NOT set,
+//     // deposit limit is enabled but no one can set the limit.
+//     function test_DepositLimitInconsistency() public {
+//         // Create a vault with deposit limit enabled but no way to change the limit
+//         uint64 lastVersion = vaultFactory.lastVersion();
+        
+//         // configuration:
+//         // 1. isDepositLimit = true (deposit limit is enabled)
+//         // 2. depositLimit = 0 (zero limit)
+//         // 3. isDepositLimitSetRoleHolder = alice (alice can toggle the feature)
+//         // 4. depositLimitSetRoleHolder = address(0) (no one can set the limit)
+//         address vaultAddress = vaultFactory.create(
+//             lastVersion,
+//             alice,
+//             abi.encode(
+//                 IVaultTokenized.InitParams({
+//                     collateral: address(collateral),
+//                     burner: address(0xdEaD),
+//                     epochDuration: 7 days, 
+//                     depositWhitelist: false,
+//                     isDepositLimit: true, // Deposit limit ENABLED
+//                     depositLimit: 0, // Zero limit
+//                     defaultAdminRoleHolder: address(0), // No default admin
+//                     depositWhitelistSetRoleHolder: alice,
+//                     depositorWhitelistRoleHolder: alice,
+//                     isDepositLimitSetRoleHolder: alice, // Alice can toggle limit feature
+//                     depositLimitSetRoleHolder: address(0), // No one can set the limit
+//                     name: "Test",
+//                     symbol: "TEST"
+//                 })
+//             ),
+//             address(delegatorFactory),
+//             address(slasherFactory)
+//         );
+
+//         vault = VaultTokenized(vaultAddress);
+        
+//         // Verify initial state
+//         assertEq(vault.isDepositLimit(), true);
+//         assertEq(vault.depositLimit(), 0);
+//         assertEq(vault.hasRole(vault.IS_DEPOSIT_LIMIT_SET_ROLE(), alice), true);
+//         assertEq(vault.hasRole(vault.DEPOSIT_LIMIT_SET_ROLE(), address(0)), false);
+        
+//         // Step 1: Try to make a deposit - should fail because limit is 0
+//         collateral.transfer(bob, 100 ether);
+//         vm.startPrank(bob);
+//         collateral.approve(address(vault), 100 ether);
+//         vm.expectRevert(IVaultTokenized.Vault__DepositLimitReached.selector);
+//         vault.deposit(bob, 100 ether);
+//         vm.stopPrank();
+        
+//         // Step 2: Alice tries to set a deposit limit - should fail because
+//         // she can toggle the feature but not set the limit
+//         vm.startPrank(alice);
+//         vm.expectRevert(); // Access control error
+//         vault.setDepositLimit(1000 ether);
+//         vm.stopPrank();
+        
+//         // Step 3: Alice turns off the deposit limit feature
+//         vm.startPrank(alice);
+//         vault.setIsDepositLimit(false);
+//         vm.stopPrank();
+        
+//         // Step 4: Now bob should be able to deposit
+//         vm.startPrank(bob);
+//         vault.deposit(bob, 100 ether);
+//         vm.stopPrank();
+        
+//         // Verify final state
+//         assertEq(vault.activeBalanceOf(bob), 100 ether);
+//     }
+
+    function test_DepositLimitInconsistencyFix() public {
+        uint64 lastVersion = vaultFactory.lastVersion();
+        
+        vm.expectRevert(IVaultTokenized.Vault__InconsistentRoles.selector);
+        vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 7 days, 
+                    depositWhitelist: false,
+                    isDepositLimit: true, // Deposit limit ENABLED
+                    depositLimit: 0, // Zero limit
+                    defaultAdminRoleHolder: address(0), // No default admin
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice, // Alice can toggle limit feature
+                    depositLimitSetRoleHolder: address(0), // No one can set the limit
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+    }
+
+    // function test_BlacklistDoesNotBlockMigration() public {
+    //     address mockVaultV2Impl = address(new MockVaultTokenizedV2(address(vaultFactory)));
+    //     vaultFactory.whitelist(mockVaultV2Impl);
+    //     // First, create a vault with version 1
+    //     address vaultAddress = vaultFactory.create(
+    //         1, // version
+    //         alice,
+    //         abi.encode(
+    //             IVaultTokenized.InitParams({
+    //                 collateral: address(collateral),
+    //                 burner: address(0xdEaD),
+    //                 epochDuration: 7 days,
+    //                 depositWhitelist: false,
+    //                 isDepositLimit: false,
+    //                 depositLimit: 0,
+    //                 defaultAdminRoleHolder: alice,
+    //                 depositWhitelistSetRoleHolder: alice,
+    //                 depositorWhitelistRoleHolder: alice,
+    //                 isDepositLimitSetRoleHolder: alice,
+    //                 depositLimitSetRoleHolder: alice,
+    //                 name: "Test",
+    //                 symbol: "TEST"
+    //             })
+    //         ),
+    //         address(delegatorFactory), 
+    //         address(slasherFactory)  
+    //     );
+        
+    //     vault = VaultTokenized(vaultAddress);
+        
+    //     // Verify initial version
+    //     assertEq(vault.version(), 1);
+        
+    //     // Blacklist version 2
+    //     vaultFactory.blacklist(2);
+        
+    //     // Despite version 2 being blacklisted, we can still migrate to it!
+    //     vm.prank(alice);
+    //     // This should revert if blacklist was properly enforced, but it won't
+    //     vaultFactory.migrate(address(vault), 2, abi.encode(20));
+        
+    //     // Verify the vault is now at version 2, despite it being blacklisted
+    //     assertEq(vault.version(), 2);
+
+    //     // set the value of b inside MockVaultTokenizedV2 as 20
+    //     assertEq(
+    //         MockVaultTokenizedV2(address(vault)).version2State(),
+    //         20);
+    // }
+
+    function test_BlacklistDoesNotBlockMigrationFix() public {
+        address mockVaultV2Impl = address(new MockVaultTokenizedV2(address(vaultFactory)));
+        vaultFactory.whitelist(mockVaultV2Impl);
+        address vaultAddress = vaultFactory.create(
+            1,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0xdEaD),
+                    epochDuration: 7 days,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: alice,
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory), 
+            address(slasherFactory)  
+        );
+        
+        vault = VaultTokenized(vaultAddress);
+        assertEq(vault.version(), 1);
+        
+        vaultFactory.blacklist(2);
+        
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSignature("MigratableFactory__VersionBlacklisted()"));
+        vaultFactory.migrate(address(vault), 2, abi.encode(20));
+        
+        // Verify the vault is still at version 1 since migration failed
+        assertEq(vault.version(), 1);
+        
+        // Since migration failed, the vault is still version 1 and doesn't have version2State()
+        // We can't call MockVaultTokenizedV2 functions on a version 1 vault
+    }
+
+    // function test_OnSlashUnderflowExactPOC() public {
+    //     // Setup vault
+    //     uint48 epochDuration = 1;
+    //     vault = _getVault(epochDuration);
+        
+    //     // Setup slasher
+    //     address mockSlasher = address(this);
+        
+    //     // First stop any active pranks before setting up mocks
+    //     vm.stopPrank();
+        
+    //     // Setup mocks
+    //     vm.mockCall(
+    //         address(slasherFactory),
+    //         abi.encodeWithSelector(SlasherFactory.isEntity.selector, mockSlasher),
+    //         abi.encode(true)
+    //     );
+    //     vm.mockCall(
+    //         mockSlasher,
+    //         abi.encodeWithSelector(IBaseSlasher.vault.selector),
+    //         abi.encode(address(vault))
+    //     );
+        
+    //     // Now prank to set the slasher
+    //     vm.prank(alice);
+    //     vault.setSlasher(mockSlasher);
+        
+    //     // Deposit initial amount
+    //     _deposit(alice, 102);
+        
+    //     // Move to next epoch and withdraw 3
+    //     vm.warp(block.timestamp + epochDuration);
+    //     _withdraw(alice, 3);
+        
+    //     // Move to next epoch
+    //     vm.warp(block.timestamp + epochDuration);
+        
+    //     // At this point:
+    //     // activeStake = 99
+    //     // withdrawals[currentEpoch] = 3
+    //     // withdrawals[currentEpoch + 1] = 0
+        
+    //     assertEq(vault.activeStake(), 99);
+    //     assertEq(vault.withdrawals(vault.currentEpoch()), 3);
+    //     assertEq(vault.withdrawals(vault.currentEpoch() + 1), 0);
+        
+    //     // Try to slash 102 (everything)
+    //     uint256 slashAmount = 102;
+    //     uint48 captureTimestamp = uint48(block.timestamp - epochDuration);
+        
+    //     // This will revert with underflow
+    //     vm.expectRevert();
+    //     vault.onSlash(slashAmount, captureTimestamp);
+    // }
+
+    function test_OnSlashUnderflowExactPOCFix() public {
+        // This test uses the exact POC values that would cause underflow without the fix
+        uint48 epochDuration = 1;
+        vault = _getVault(epochDuration);
+        
+        // Setup slasher
+        address mockSlasher = address(this);
+        
+        // First stop any active pranks before setting up mocks
+        vm.stopPrank();
+        
+        // Setup mocks
+        vm.mockCall(
+            address(slasherFactory),
+            abi.encodeWithSelector(SlasherFactory.isEntity.selector, mockSlasher),
+            abi.encode(true)
+        );
+        vm.mockCall(
+            mockSlasher,
+            abi.encodeWithSelector(IBaseSlasher.vault.selector),
+            abi.encode(address(vault))
+        );
+        
+        // Now prank to set the slasher
+        vm.prank(alice);
+        vault.setSlasher(mockSlasher);
+        
+        // Deposit initial amount
+        _deposit(alice, 102);
+        
+        // Move to next epoch and withdraw 3
+        vm.warp(block.timestamp + epochDuration);
+        _withdraw(alice, 3);
+        
+        // Move to next epoch
+        vm.warp(block.timestamp + epochDuration);
+        
+        // At this point:
+        // activeStake = 99
+        // withdrawals[currentEpoch] = 3
+        // withdrawals[currentEpoch + 1] = 0
+        
+        assertEq(vault.activeStake(), 99);
+        assertEq(vault.withdrawals(vault.currentEpoch()), 3);
+        assertEq(vault.withdrawals(vault.currentEpoch() + 1), 0);
+        
+        // Try to slash 102 (everything)
+        uint256 slashAmount = 102;
+        uint48 captureTimestamp = uint48(block.timestamp - epochDuration);
+        
+        // With the exact POC values:
+        // slashableStake = 99 + 3 + 0 = 102
+        // activeSlashed = floor(102 * 99 / 102) = floor(99) = 99
+        // nextWithdrawalsSlashed = floor(102 * 0 / 102) = 0
+        // withdrawalsSlashed = 102 - 99 - 0 = 3
+        // Since withdrawalsSlashed (3) == withdrawals_ (3), no redistribution happens!
+        
+        // The POC was wrong - this scenario doesn't cause redistribution
+        // Only expect the OnSlash event
+        vm.expectEmit(true, true, true, true);
+        emit IVaultTokenized.OnSlash(
+            102,                        // amount requested
+            captureTimestamp,           // capture timestamp
+            102                         // amount actually slashed
+        );
+        
+        // This should work without underflow
+        uint256 slashed = vault.onSlash(slashAmount, captureTimestamp);
+        
+        // Verify it slashed everything
+        assertEq(slashed, 102);
+        assertEq(vault.activeStake(), 0);
+        assertEq(vault.withdrawals(vault.currentEpoch()), 0);
+        assertEq(vault.withdrawals(vault.currentEpoch() + 1), 0);
+    }
 
     function _grantDepositorWhitelistRole(address user, address account) internal {
         vm.startPrank(user);
@@ -2979,4 +3448,40 @@ contract VaultTokenizedTest is Test {
     //     delegator.setMaxL1Limit(identifier, amount);
     //     vm.stopPrank();
     // }
+}
+
+
+contract CheckpointsBugTest is Test {
+    using ExtendedCheckpoints for ExtendedCheckpoints.Trace256;
+
+    ExtendedCheckpoints.Trace256 internal trace;
+
+    function setUp() public {
+        // Initialize the trace with some checkpoints
+        trace.push(100, 1000); // timestamp 100, value 1000
+        trace.push(200, 2000); // timestamp 200, value 2000
+        trace.push(300, 3000); // timestamp 300, value 3000
+    }
+
+    function test_upperLookupRecentCheckpoint_withoutHint_works() public view {
+        // Test without hint - this should work correctly
+        (bool exists, uint48 key, uint256 value, uint32 pos) = trace.upperLookupRecentCheckpoint(150);
+        
+        assertTrue(exists, "Checkpoint should exist");
+        assertEq(key, 100, "Key should be 100");
+        assertEq(value, 1000, "Value should be 1000");
+        assertEq(pos, 0, "Position should be 0");
+    }
+
+    // This test demonstrates the bug when using a valid hint
+    function test_upperLookupRecentCheckpoint_withValidHint_demonstratesBug() public view {
+        
+        // First, let's get the correct hint (position 0)
+        uint32 validHint = 0;
+        bytes memory hintBytes = abi.encode(validHint);
+        
+        // Call with hint - this will fail due to the bug
+        trace.upperLookupRecentCheckpoint(150, hintBytes);
+    }
+
 }

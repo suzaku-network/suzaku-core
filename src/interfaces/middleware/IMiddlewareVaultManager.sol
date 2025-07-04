@@ -13,15 +13,15 @@ interface IMiddlewareVaultManager {
     // -----------------------------------------------------------------------
     // Errors
     // -----------------------------------------------------------------------
-    error AvalancheL1Middleware__VaultAlreadyRegistered();
-    error AvalancheL1Middleware__VaultEpochTooShort();
-    error AvalancheL1Middleware__NotVault(address vault);
-    error AvalancheL1Middleware__WrongVaultAssetClass();
-    error AvalancheL1Middleware__ZeroVaultMaxL1Limit();
-    error AvalancheL1Middleware__VaultGracePeriodNotPassed();
-    error AvalancheL1Middleware__VaultNotDisabled();
-    error AvalancheL1Middleware__ZeroAddress(string name);
-    error AvalancheL1Middleware__SlasherNotImplemented();
+    error MiddlewareVaultManager__VaultAlreadyRegistered();
+    error MiddlewareVaultManager__VaultEpochTooShort();
+    error MiddlewareVaultManager__NotVault(address vault);
+    error MiddlewareVaultManager__WrongVaultAssetClass();
+    error MiddlewareVaultManager__ZeroVaultMaxL1Limit();
+    error MiddlewareVaultManager__VaultGracePeriodNotPassed();
+    error MiddlewareVaultManager__VaultNotDisabled();
+    error MiddlewareVaultManager__ZeroAddress(string name);
+    error MiddlewareVaultManager__SlasherNotImplemented();
 
     // -----------------------------------------------------------------------
     // Public state variable getters
