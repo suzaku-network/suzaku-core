@@ -97,11 +97,11 @@ contract UptimeTracker is IUptimeTracker {
         // Calculate the recorded uptime since the last checkpoint
         uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
 
+        // Determine how many full epochs have passed - optimized calculation
+        uint256 elapsedEpochs = currentEpoch - lastUptimeEpoch;
+
         // Calculate the elapsed time between the last recorded epoch and the current epoch
         uint256 elapsedTime = currentEpochStart - lastUptimeEpochStart;
-
-        // Determine how many full epochs have passed
-        uint256 elapsedEpochs = elapsedTime / epochDuration;
 
         uint256 remainingUptime = recordedUptime > elapsedTime ? recordedUptime - elapsedTime : 0;
 

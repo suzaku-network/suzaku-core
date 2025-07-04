@@ -612,7 +612,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, AssetClassRegistry {
     function completeStakeUpdate(
         bytes32 nodeId,
         uint32 messageIndex
-    ) external onlyRegisteredOperatorNode(msg.sender, nodeId) updateGlobalNodeStakeOncePerEpoch {
+    ) external updateGlobalNodeStakeOncePerEpoch {
         _completeStakeUpdate(msg.sender, nodeId, messageIndex);
     }
 
