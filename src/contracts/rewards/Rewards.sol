@@ -163,10 +163,13 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         address[] memory operators = l1Middleware.getAllOperators();
         uint48 operatorCount = 0;
 
-        for (uint256 i = batch.lastProcessedOperator; i < operators.length && operatorCount < batchSize; ++i) {
+        for (uint256 i = batch.lastProcessedOperator; i < operators.length && operatorCount < batchSize;) {
             _processOperator(epoch, operators[i]);
-            batch.lastProcessedOperator = uint48(i + 1);
-            unchecked { ++operatorCount; }
+            unchecked {
+                batch.lastProcessedOperator = uint48(i + 1);
+                ++operatorCount;
+                ++i;
+            }
         }
 
         if (batch.lastProcessedOperator >= operators.length) {
@@ -687,27 +690,24 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         address[] memory vaults = middlewareVaultManager.getVaults(epoch);
         uint48 epochStart = l1Middleware.getEpochStartTs(epoch);
 
+        // Use temporary array sized to maximum possible length
+        address[] memory tempVaults = new address[](vaults.length);
         uint256 count = 0;
 
-        // First pass: Count non-zero balance vaults
-        for (uint256 i = 0; i < vaults.length; i++) {
-            uint256 balance = IVaultTokenized(vaults[i]).activeBalanceOfAt(staker, epochStart, new bytes(0));
-            if (balance > 0) {
+        // Single pass: Check balance and collect valid vaults
+        for (uint256 i = 0; i < vaults.length;) {
+            if (IVaultTokenized(vaults[i]).activeBalanceOfAt(staker, epochStart, new bytes(0)) > 0) {
+                tempVaults[count] = vaults[i];
                 count++;
             }
+            unchecked { ++i; }
         }
 
-        // Create a new array with the exact number of valid vaults
+        // Create final array with exact count and copy valid vaults
         address[] memory validVaults = new address[](count);
-        uint256 index = 0;
-
-        // Second pass: Populate the new array
-        for (uint256 i = 0; i < vaults.length; i++) {
-            uint256 balance = IVaultTokenized(vaults[i]).activeBalanceOfAt(staker, epochStart, new bytes(0));
-            if (balance > 0) {
-                validVaults[index] = vaults[i];
-                index++;
-            }
+        for (uint256 i = 0; i < count;) {
+            validVaults[i] = tempVaults[i];
+            unchecked { ++i; }
         }
 
         return validVaults;

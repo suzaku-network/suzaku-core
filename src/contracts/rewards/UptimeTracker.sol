@@ -120,8 +120,12 @@ contract UptimeTracker is IUptimeTracker {
             uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
             uint256 remainder = uptimeToDistribute % elapsedEpochs;
 
-            for (uint48 i = 0; i < elapsedEpochs; i++) {
-                uint48 epoch = lastUptimeEpoch + i;
+            for (uint48 i = 0; i < elapsedEpochs;) {
+                uint48 epoch;
+                unchecked {
+                    epoch = lastUptimeEpoch + i;
+                    i++;
+                }
 
                 // Skip epochs already processed
                 if (isValidatorUptimeSet[epoch][validationID] == true) {
