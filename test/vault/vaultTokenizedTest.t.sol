@@ -128,6 +128,9 @@ contract VaultTokenizedTest is Test {
         bool isDepositLimit,
         uint256 depositLimit
     ) public {
+        // Ensure burner is not zero address for this test
+        vm.assume(burner != address(0));
+        
         epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
 
         uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
@@ -295,6 +298,38 @@ contract VaultTokenizedTest is Test {
                 IVaultTokenized.InitParams({
                     collateral: address(0),
                     burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: alice,
+                    depositWhitelistSetRoleHolder: alice,
+                    depositorWhitelistRoleHolder: alice,
+                    isDepositLimitSetRoleHolder: alice,
+                    depositLimitSetRoleHolder: alice,
+                    name: "Test",
+                    symbol: "TEST"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+    }
+
+    function test_CreateRevertInvalidBurner(
+        uint48 epochDuration
+    ) public {
+        epochDuration = uint48(bound(epochDuration, 1, 50 weeks));
+
+        uint64 lastVersion = vaultFactory.lastVersion();
+        vm.expectRevert(IVaultTokenized.Vault__InvalidBurner.selector);
+        vaultFactory.create(
+            lastVersion,
+            alice,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(collateral),
+                    burner: address(0), // Invalid zero address burner
                     epochDuration: epochDuration,
                     depositWhitelist: false,
                     isDepositLimit: false,
