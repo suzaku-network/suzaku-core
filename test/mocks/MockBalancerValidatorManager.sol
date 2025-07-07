@@ -227,6 +227,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         // Clean up
         delete pendingRegistrationMessages[messageIndex];
         delete pendingTermination[validationID];
+        delete _registeredValidators[validator.nodeID];
     }
 
     // --- Additional helper functions ---

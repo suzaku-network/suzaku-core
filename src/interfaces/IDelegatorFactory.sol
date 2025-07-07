@@ -15,6 +15,7 @@ interface IDelegatorFactory is IERC165 {
     error DelegatorFactory__AlreadyWhitelisted();
     error DelegatorFactory__InvalidImplementation();
     error DelegatorFactory__InvalidType();
+    error DelegatorFactory__VersionBlacklisted();
 
     /**
      * @notice Emitted when an entity is added.

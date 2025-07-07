@@ -17,7 +17,7 @@ import {
  */
 interface IAvalancheL1Middleware {
     // Errors
-    error AvalancheL1Middleware__ActiveSecondaryAssetCLass(uint256 assetClassId);
+    error AvalancheL1Middleware__ActiveSecondaryAssetClass(uint256 assetClassId);
     error AvalancheL1Middleware__AssetClassNotActive(uint256 assetClassId);
     error AvalancheL1Middleware__AssetStillInUse(uint256 assetClassId);
     error AvalancheL1Middleware__AlreadyRebalanced(address operator, uint48 epoch);
@@ -47,9 +47,16 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
     error AvalancheL1Middleware__ZeroAddress(string name);
     error AvalancheL1Middleware__InvalidScaleFactor();
+    error AvalancheL1Middleware__ScaleFactorOutOfBounds(uint256 supplied, uint256 minAllowed, uint256 maxAllowed);
     error AvalancheL1Middleware__ManualEpochUpdateRequired(uint48 epochsPending, uint48 maxAutoUpdates);
     error AvalancheL1Middleware__NoEpochsToProcess();
     error AvalancheL1Middleware__TooManyEpochsRequested(uint48 requested, uint48 pending);
+    error AvalancheL1Middleware__LimitStakeTooLow(uint256 limitStake, uint256 minMeaningfulStake);
+    error AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(address operator, uint256 leftoverStake);
+    error AvalancheL1Middleware__CannotCacheFutureEpoch(uint48 epoch);
+    error AvalancheL1Middleware__VaultManagerAlreadySet(address vaultManager);
+    error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
+    error AvalancheL1Middleware__InvalidUpdateWindow(uint48 stakeUpdateWindow, uint48 epochDuration);
 
     // Events
     /**

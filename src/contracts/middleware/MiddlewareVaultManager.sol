@@ -29,18 +29,26 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     address public immutable VAULT_REGISTRY;
     AvalancheL1Middleware public immutable middleware;
 
+    uint48 public immutable VAULT_REMOVAL_EPOCH_DELAY; // 1 epoch delay for removal, affects rewards 
+
     uint48 private constant INSTANT_SLASHER_TYPE = 0;
     uint48 private constant VETO_SLASHER_TYPE = 1;
 
-    constructor(address vaultRegistry, address owner, address middlewareAddress) Ownable(owner) {
+    constructor(
+        address vaultRegistry,
+        address owner,
+        address middlewareAddress,
+        uint48 vaultRemovalEpochDelay_
+    ) Ownable(owner) {
         if (vaultRegistry == address(0)) {
-            revert AvalancheL1Middleware__ZeroAddress("vaultRegistry");
+            revert MiddlewareVaultManager__ZeroAddress("vaultRegistry");
         }
         if (middlewareAddress == address(0)) {
-            revert AvalancheL1Middleware__ZeroAddress("middlewareAddress");
+            revert MiddlewareVaultManager__ZeroAddress("middlewareAddress");
         }
         VAULT_REGISTRY = vaultRegistry;
         middleware = AvalancheL1Middleware(payable(middlewareAddress));
+        VAULT_REMOVAL_EPOCH_DELAY = vaultRemovalEpochDelay_;
     }
 
     /**
@@ -51,10 +59,10 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (vaultMaxL1Limit == 0) {
-            revert AvalancheL1Middleware__ZeroVaultMaxL1Limit();
+            revert MiddlewareVaultManager__ZeroVaultMaxL1Limit();
         }
         if (vaults.contains(vault)) {
-            revert AvalancheL1Middleware__VaultAlreadyRegistered();
+            revert MiddlewareVaultManager__VaultAlreadyRegistered();
         }
 
         uint48 vaultEpoch = IVaultTokenized(vault).epochDuration();
@@ -63,7 +71,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
             vaultEpoch -= IVetoSlasher(slasher).vetoDuration();
         }
         if (vaultEpoch < middleware.SLASHING_WINDOW()) {
-            revert AvalancheL1Middleware__VaultEpochTooShort();
+            revert MiddlewareVaultManager__VaultEpochTooShort();
         }
 
         vaultToAssetClass[vault] = assetClassId;
@@ -81,19 +89,29 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
         if (vaultToAssetClass[vault] != assetClassId) {
-            revert AvalancheL1Middleware__WrongVaultAssetClass();
+            revert MiddlewareVaultManager__WrongVaultAssetClass();
         }
 
         _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
 
+        (uint48 enabledTime, uint48 disabledTime) = vaults.getTimes(vault);
+
+        // disable vault
         if (vaultMaxL1Limit == 0) {
-            vaults.disable(vault);
-        } else {
-            vaults.enable(vault);
+            if (disabledTime == 0 && enabledTime != 0) {
+                vaults.disable(vault);
+            }
+            return;
         }
+
+        // nothing to do
+        if (vaultMaxL1Limit > 0 && disabledTime == 0 && enabledTime != 0) return;
+
+        // enable vault
+        vaults.enable(vault);
     }
 
     /**
@@ -104,16 +122,19 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         address vault
     ) external onlyOwner {
         if (!vaults.contains(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
 
         (, uint48 disabledTime) = vaults.getTimes(vault);
         if (disabledTime == 0) {
-            revert AvalancheL1Middleware__VaultNotDisabled();
+            revert MiddlewareVaultManager__VaultNotDisabled();
         }
 
-        if (disabledTime + middleware.SLASHING_WINDOW() > Time.timestamp()) {
-            revert AvalancheL1Middleware__VaultGracePeriodNotPassed();
+        uint48 epochDuration = middleware.EPOCH_DURATION();
+        uint48 disabledEpoch = disabledTime / epochDuration;
+        uint48 currentEpoch = uint48(Time.timestamp() / epochDuration);
+        if (currentEpoch < disabledEpoch + VAULT_REMOVAL_EPOCH_DELAY) {
+            revert MiddlewareVaultManager__VaultGracePeriodNotPassed();
         }
 
         // Remove from vaults and clear mapping
@@ -129,7 +150,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
-            revert AvalancheL1Middleware__NotVault(vault);
+            revert MiddlewareVaultManager__NotVault(vault);
         }
         if (!middleware.isActiveAssetClass(assetClassId)) {
             revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive(assetClassId);
@@ -145,7 +166,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     }
 
     function slashVault() external pure {
-        revert AvalancheL1Middleware__SlasherNotImplemented();
+        revert MiddlewareVaultManager__SlasherNotImplemented();
     }
 
     function getVaultCount() external view returns (uint256) {
@@ -170,28 +191,31 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         uint256 vaultCount = vaults.length();
         uint48 epochStart = middleware.getEpochStartTs(epoch);
 
+        // Early return for empty vaults
+        if (vaultCount == 0) {
+            return new address[](0);
+        }
+
+        address[] memory tempVaults = new address[](vaultCount);
         uint256 activeCount = 0;
+
         for (uint256 i = 0; i < vaultCount; i++) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
             if (_wasActiveAt(enabledTime, disabledTime, epochStart)) {
+                tempVaults[activeCount] = vault;
                 activeCount++;
             }
         }
 
         address[] memory activeVaults = new address[](activeCount);
-        uint256 activeIndex = 0;
-        for (uint256 i = 0; i < vaultCount; i++) {
-            (address vault, uint48 enabledTime, uint48 disabledTime) = vaults.atWithTimes(i);
-            if (_wasActiveAt(enabledTime, disabledTime, epochStart)) {
-                activeVaults[activeIndex] = vault;
-                activeIndex++;
-            }
+        for (uint256 i = 0; i < activeCount; i++) {
+            activeVaults[i] = tempVaults[i];
         }
 
         return activeVaults;
     }
 
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
-        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime >= timestamp);
+        return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime > timestamp);
     }
 }

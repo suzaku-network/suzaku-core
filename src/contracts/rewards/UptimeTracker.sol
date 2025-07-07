@@ -97,11 +97,11 @@ contract UptimeTracker is IUptimeTracker {
         // Calculate the recorded uptime since the last checkpoint
         uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
 
+        // Determine how many full epochs have passed - optimized calculation
+        uint256 elapsedEpochs = currentEpoch - lastUptimeEpoch;
+
         // Calculate the elapsed time between the last recorded epoch and the current epoch
         uint256 elapsedTime = currentEpochStart - lastUptimeEpochStart;
-
-        // Determine how many full epochs have passed
-        uint256 elapsedEpochs = elapsedTime / epochDuration;
 
         uint256 remainingUptime = recordedUptime > elapsedTime ? recordedUptime - elapsedTime : 0;
 
@@ -118,13 +118,29 @@ contract UptimeTracker is IUptimeTracker {
         // Distribute the recorded uptime across multiple epochs
         if (elapsedEpochs >= 1) {
             uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
-            for (uint48 i = 0; i < elapsedEpochs; i++) {
-                uint48 epoch = lastUptimeEpoch + i;
-                if (isValidatorUptimeSet[epoch][validationID] == true) {
-                    break;
+            uint256 remainder = uptimeToDistribute % elapsedEpochs;
+
+            for (uint48 i = 0; i < elapsedEpochs;) {
+                uint48 epoch;
+                unchecked {
+                    epoch = lastUptimeEpoch + i;
+                    i++;
                 }
-                validatorUptimePerEpoch[epoch][validationID] = uptimePerEpoch; // Assign uptime to each epoch
-                isValidatorUptimeSet[epoch][validationID] = true; // Mark uptime as set for the epoch
+
+                // Skip epochs already processed
+                if (isValidatorUptimeSet[epoch][validationID] == true) {
+                    continue;
+                }
+
+                uint256 epochUptime = uptimePerEpoch;
+                // Distribute the leftover seconds one by one to the earliest available epochs
+                if (remainder > 0) {
+                    epochUptime += 1;
+                    remainder -= 1;
+                }
+
+                validatorUptimePerEpoch[epoch][validationID] = epochUptime;
+                isValidatorUptimeSet[epoch][validationID] = true;
             }
         }
 

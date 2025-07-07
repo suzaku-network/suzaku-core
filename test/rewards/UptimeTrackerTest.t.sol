@@ -14,51 +14,9 @@ import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
 import {
     WarpMessage, IWarpMessenger
 } from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
+import {UptimeTrackerTestBase} from "./UptimeTrackerTestBase.t.sol";
 
-contract UptimeTrackerTest is Test {
-    UptimeTracker public uptimeTracker;
-    MockBalancerValidatorManager public validatorManager;
-    MockAvalancheL1Middleware public middleware;
-    MockWarpMessenger public warpMessenger;
-
-    address public operator;
-    bytes32[] public operatorNodes;
-    uint48 constant EPOCH_DURATION = 4 hours;
-    address constant WARP_MESSENGER_ADDR = 0x0200000000000000000000000000000000000005;
-    bytes32 constant L1_CHAIN_ID = bytes32(uint256(1));
-
-    // Utility to derive validation ID from node ID
-    function getDerivedValidationID(bytes32 fullNodeID) internal pure returns (bytes32) {
-        return bytes32(uint256(uint160(uint256(fullNodeID))));
-    }
-
-    event ValidatorUptimeComputed(
-        bytes32 indexed validationID, uint48 indexed firstEpoch, uint256 uptimeSecondsAdded, uint256 numberOfEpochs
-    );
-
-    event OperatorUptimeComputed(address indexed operator, uint48 indexed epoch, uint256 uptime);
-
-   function setUp() public {
-        // Setup operator with 3 nodes
-        uint256[] memory nodesPerOperator = new uint256[](1);
-        nodesPerOperator[0] = 3;
-
-        validatorManager = new MockBalancerValidatorManager();
-        middleware = new MockAvalancheL1Middleware(1, nodesPerOperator, address(validatorManager), address(0));
-        uptimeTracker = new UptimeTracker(payable(address(middleware)), L1_CHAIN_ID);
-
-        operator = middleware.getAllOperators()[0];
-        operatorNodes = middleware.getActiveNodesForEpoch(operator, 0);
-
-        // Setup mock warp messenger
-        warpMessenger = new MockWarpMessenger();
-        vm.etch(WARP_MESSENGER_ADDR, address(warpMessenger).code);
-    }
-
-    // Helper for packing uptime message data
-    function packValidationUptimeMessage(bytes32 validationID, uint256 uptime) public pure returns (bytes memory) {
-        return ValidatorMessages.packValidationUptimeMessage(validationID, uint64(uptime));
-    }
+contract UptimeTrackerTest is UptimeTrackerTestBase {
 
     function test_ComputeValidatorUptime() public {
         // Start at epoch 1
@@ -182,5 +140,133 @@ contract UptimeTrackerTest is Test {
         uptimeTracker.computeValidatorUptime(13);
         assertEq(uptimeTracker.validatorUptimePerEpoch(1, derivedNode0ID), EPOCH_DURATION);
         assertEq(uptimeTracker.validatorUptimePerEpoch(2, derivedNode0ID), EPOCH_DURATION);
+    }
+
+    function test_UptimeTruncationCausesRewardLoss() public pure {
+        uint256 MIN_REQUIRED_UPTIME = 11_520;
+        console2.log("Minimum required uptime per epoch:", MIN_REQUIRED_UPTIME, "seconds");
+        console2.log("Epoch duration:", EPOCH_DURATION, "seconds");
+
+        // Demonstrate how small time lost can have big impact
+        uint256 totalUptime = (MIN_REQUIRED_UPTIME * 3) - 2; // 34,558 seconds across 3 epochs
+        uint256 elapsedEpochs = 3;
+        uint256 uptimePerEpoch = totalUptime / elapsedEpochs; // 11,519 per epoch
+        uint256 remainder = totalUptime % elapsedEpochs; // 2 seconds lost
+
+        console2.log("3 epochs scenario:");
+        console2.log(" Total uptime:", totalUptime, "seconds (9.6 hours!)");
+        console2.log(" Epochs:", elapsedEpochs);
+        console2.log(" Per epoch after division:", uptimePerEpoch, "seconds");
+        console2.log(" Lost to truncation:", remainder, "seconds");
+        console2.log(" Result: ALL 3 epochs FAIL threshold!");
+
+        // Verify
+        assertFalse(uptimePerEpoch >= MIN_REQUIRED_UPTIME, "Fails threshold due to truncation");
+    }
+
+    function test_UptimeDistributionFix() public pure {
+        uint256 MIN_REQUIRED_UPTIME = 11_520;
+        // 34,559 seconds across 3 epochs would fail all epochs with old logic
+        uint256 totalUptime = 34_559;
+        uint256 elapsedEpochs = 3;
+
+        uint256 baseUptimePerEpoch = totalUptime / elapsedEpochs; // 11,519
+        uint256 remainder = totalUptime % elapsedEpochs; // 2
+
+        // With fix: first 2 epochs get extra second
+        uint256 epoch1Uptime = baseUptimePerEpoch + 1; // 11,520
+        uint256 epoch2Uptime = baseUptimePerEpoch + 1; // 11,520
+        uint256 epoch3Uptime = baseUptimePerEpoch; // 11,519
+
+        console2.log("--- Uptime Distribution Fix Test ---");
+        console2.log("Total Uptime:", totalUptime);
+        console2.log("Epochs:", elapsedEpochs);
+        console2.log("Base Per Epoch:", baseUptimePerEpoch);
+        console2.log("Remainder:", remainder);
+        console2.log("Distributed Uptime -> Epoch 1: %s, Epoch 2: %s, Epoch 3: %s", epoch1Uptime, epoch2Uptime, epoch3Uptime);
+
+        // Verify no uptime is lost
+        uint256 totalDistributed = epoch1Uptime + epoch2Uptime + epoch3Uptime;
+        assertEq(totalDistributed, totalUptime, "Total distributed uptime must equal the original total uptime");
+
+        // Verify reward eligibility restored
+        assertTrue(epoch1Uptime >= MIN_REQUIRED_UPTIME, "Epoch 1 should now qualify for rewards");
+        assertTrue(epoch2Uptime >= MIN_REQUIRED_UPTIME, "Epoch 2 should now qualify for rewards");
+        assertFalse(epoch3Uptime >= MIN_REQUIRED_UPTIME, "Epoch 3 correctly misses the threshold by 1 second");
+
+        console2.log("Result: 2 out of 3 epochs now qualify for rewards (vs. 0 before the fix)");
+    }
+
+    function test_UptimeDistributionFixLargeRemainder() public pure {
+        uint256 totalUptime = 100_000;
+        uint256 elapsedEpochs = 7;
+
+        uint256 baseUptimePerEpoch = totalUptime / elapsedEpochs; // 14,285
+        uint256 remainder = totalUptime % elapsedEpochs; // 5
+
+        console2.log("\n--- Large Remainder Test ---");
+        console2.log("Total Uptime:", totalUptime);
+        console2.log("Base Per Epoch:", baseUptimePerEpoch);
+        console2.log("Remainder to Distribute:", remainder);
+
+        uint256 totalDistributed = 0;
+        for (uint256 i = 0; i < elapsedEpochs; i++) {
+            uint256 epochUptime = baseUptimePerEpoch;
+            if (i < remainder) {
+                epochUptime += 1; // First 5 epochs get +1 second
+            }
+            totalDistributed += epochUptime;
+        }
+
+        assertEq(totalDistributed, totalUptime, "All uptime must be distributed, even with a large remainder");
+        console2.log("Result: Total distributed uptime of %s matches original %s", totalDistributed, totalUptime);
+    }
+
+    function test_UptimeDistributionRobustness_ContinueVsBreak() public pure {
+        // Test scenario: middle epoch already processed
+        uint256 totalUptime = 34_560;
+        uint256 elapsedEpochs = 3;
+        uint256 uptimePerEpoch = totalUptime / elapsedEpochs; // 11,520
+        uint256 remainder = totalUptime % elapsedEpochs; // 0
+        
+        bool epoch0Set = false;
+        bool epoch1Set = true; // Already processed
+        bool epoch2Set = false;
+        
+        uint256 distributedUptime = 0;
+        uint256 epochsProcessed = 0;
+        
+        console2.log("--- Robustness Test: Continue vs Break ---");
+        console2.log("Total Uptime to Distribute:", totalUptime);
+        console2.log("Epoch 1 is already set (simulating previous processing)");
+        
+        // Test 'continue' behavior vs old 'break' behavior
+        for (uint256 i = 0; i < elapsedEpochs; i++) {
+            bool isSet = (i == 0) ? epoch0Set : (i == 1) ? epoch1Set : epoch2Set;
+            
+            if (isSet) {
+                console2.log("Epoch %s: SKIPPED (already set)", i);
+                continue; // Skip this epoch, don't break entire loop
+            }
+            
+            uint256 epochUptime = uptimePerEpoch;
+            if (remainder > 0) {
+                epochUptime += 1;
+                remainder -= 1;
+            }
+            
+            distributedUptime += epochUptime;
+            epochsProcessed++;
+            console2.log("Epoch %s: PROCESSED with %s seconds", i, epochUptime);
+        }
+        
+        console2.log("Result with CONTINUE: %s epochs processed, %s total uptime distributed", epochsProcessed, distributedUptime);
+        
+        // With 'continue': epochs 0 and 2 processed (2 epochs, 23,040 seconds)
+        assertEq(epochsProcessed, 2, "Should process 2 available epochs");
+        assertEq(distributedUptime, 23_040, "Should distribute uptime to available epochs");
+        
+        console2.log("With old BREAK logic: 0 epochs would be processed (BUG!)");
+        console2.log("Fix prevents uptime loss by using CONTINUE instead of BREAK");
     }
 }

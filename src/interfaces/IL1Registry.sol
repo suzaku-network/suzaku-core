@@ -19,6 +19,8 @@ interface IL1Registry {
     error L1Registry__ZeroAddress(string name);
     error L1Registry__NotFeeCollector(address caller);
     error L1Registry__NoFeesToWithdraw();
+    error L1Registry__RefundFailed(uint256 refundAmount);
+    error L1Registry__UnexpectedEther();
 
     /**
      * @notice Register an Avalanche L1

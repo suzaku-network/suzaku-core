@@ -84,7 +84,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         );
 
         MiddlewareVaultManager vaultManager =
-            new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress);
+            new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress, 24); // 24 epoch delay
 
         vm.stopBroadcast();
 

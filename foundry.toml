@@ -9,6 +9,10 @@ libs = ["lib"]
 fs_permissions = [{ access = "read-write", path = "./"}]
 gas_reports = ["*"]
 
+[profile.dev]
+optimizer = false
+sparse_mode = true
+
 [rpc_endpoints]
 avalanche = "${AVALANCHE_RPC_URL}"
 sepolia = "${SEPOLIA_RPC_URL}"

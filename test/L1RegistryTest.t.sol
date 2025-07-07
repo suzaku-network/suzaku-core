@@ -22,6 +22,17 @@ contract RevertingFeeCollector {
     }
 }
 
+// Contract that reverts on receiving ether (for testing refund failures)
+contract RevertingRefundReceiver {
+    receive() external payable {
+        revert("RevertingRefundReceiver: refusing refund");
+    }
+    
+    fallback() external payable {
+        revert("RevertingRefundReceiver: refusing refund");
+    }
+}
+
 contract L1RegistryTest is Test {
     address owner;
     address l1Middleware1;
@@ -322,9 +333,11 @@ contract L1RegistryTest is Test {
     function testRegisterL1ExcessFeeSucceeds() public {
         // Register with more than required fee
         uint256 overPaid = registerFee + 0.01 ether;
+        uint256 excess = overPaid - registerFee;
 
-        // Track fee collector's balance before
+        // Track balances before
         uint256 feeCollectorBalanceBefore = feeCollectorAddress.balance;
+        uint256 senderBalanceBefore = l1Middleware1.balance;
 
         // Perform registration
         vm.prank(l1Middleware1);
@@ -335,8 +348,17 @@ contract L1RegistryTest is Test {
         // Verify registration
         assertEq(registry.isRegistered(address(mockACP99Manager)), true);
 
-        // Fee collector should receive the full `overPaid`
-        assertEq(feeCollectorAddress.balance, feeCollectorBalanceBefore + overPaid);
+        // Fee collector should receive only the registerFee (not the full overPaid)
+        assertEq(feeCollectorAddress.balance, feeCollectorBalanceBefore + registerFee);
+        
+        // Sender should be refunded the excess (should have paid exactly the registerFee)
+        assertEq(l1Middleware1.balance, senderBalanceBefore - registerFee);
+        
+        // Verify the excess calculation is correct
+        assertEq(excess, 0.01 ether);
+        
+        // Verify sender got back exactly the excess amount (alternative way to check)
+        assertEq(l1Middleware1.balance, senderBalanceBefore - overPaid + excess);
     }
 
     function testRegisterL1NoFeeWhenRegisterFeeIsZero() public {
@@ -350,6 +372,87 @@ contract L1RegistryTest is Test {
 
         // Verify registration
         assertEq(registry.isRegistered(address(mockACP99Manager)), true);
+    }
+
+    function testRegisterL1UnexpectedEtherWhenNoFeeReverts() public {
+        // Set the register fee to 0
+        vm.prank(owner);
+        registry.setRegisterFee(0);
+
+        // Try to register with ether when no fee is required - should revert
+        vm.prank(l1Middleware1);
+        vm.expectRevert(IL1Registry.L1Registry__UnexpectedEther.selector);
+        registry.registerL1{value: 0.001 ether}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+    }
+
+    function testRegisterL1RefundFailureReverts() public {
+        // Create a contract that will revert on receive
+        RevertingRefundReceiver revertingReceiver = new RevertingRefundReceiver();
+        
+        // Set up a mock manager owned by the reverting receiver
+        MockACP99Manager revertingManager = new MockACP99Manager(address(revertingReceiver));
+
+        // Try to register with excess fee - should revert because refund fails
+        uint256 overPaid = registerFee + 0.01 ether;
+
+        vm.deal(address(revertingReceiver), overPaid);
+        
+        vm.prank(address(revertingReceiver));
+        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__RefundFailed.selector, 0.01 ether));
+        registry.registerL1{value: overPaid}(
+            address(revertingManager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+    }
+
+    function testRegisterL1ExactFeeNoRefund() public {
+        // Track balances before
+        uint256 feeCollectorBalanceBefore = feeCollectorAddress.balance;
+        uint256 senderBalanceBefore = l1Middleware1.balance;
+
+        // Register with exact fee (no excess)
+        vm.prank(l1Middleware1);
+        registry.registerL1{value: registerFee}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+
+        // Verify registration
+        assertEq(registry.isRegistered(address(mockACP99Manager)), true);
+
+        // Fee collector should receive the exact fee
+        assertEq(feeCollectorAddress.balance, feeCollectorBalanceBefore + registerFee);
+        
+        // Sender should have paid exactly the fee (no refund)
+        assertEq(l1Middleware1.balance, senderBalanceBefore - registerFee);
+    }
+
+    function testRegisterL1ExcessFeeWithFailedFeeTransfer() public {
+        // Set a reverting fee collector
+        RevertingFeeCollector revertingCollector = new RevertingFeeCollector();
+        vm.prank(owner);
+        registry.setFeeCollector(payable(address(revertingCollector)));
+
+        // Register with excess fee
+        uint256 overPaid = registerFee + 0.01 ether;
+        uint256 senderBalanceBefore = l1Middleware1.balance;
+
+        vm.prank(l1Middleware1);
+        registry.registerL1{value: overPaid}(
+            address(mockACP99Manager), l1Middleware1SecurityModule, l1Middleware1MetadataURL
+        );
+
+        // Verify registration succeeded
+        assertEq(registry.isRegistered(address(mockACP99Manager)), true);
+
+        // Unclaimed fees should track only the registerFee (not the full overPaid)
+        assertEq(registry.unclaimedFees(), registerFee);
+        
+        // Sender should still be refunded the excess despite fee transfer failure
+        assertEq(l1Middleware1.balance, senderBalanceBefore - registerFee);
+        
+        // Contract should hold only the registerFee (excess was refunded)
+        assertEq(address(registry).balance, registerFee);
     }
 
     function testFeeTransferFailsDoesNotRevert() public {

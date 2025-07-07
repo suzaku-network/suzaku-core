@@ -41,7 +41,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         // Deploy the MiddlewareVaultManager
         // Linking both to the same validator manager
         MiddlewareVaultManager middlewareVaultManager = new MiddlewareVaultManager(
-            middlewareConfig.vaultFactory, middlewareConfig.l1MiddlewareOwnerAddress, address(l1Middleware)
+            middlewareConfig.vaultFactory, middlewareConfig.l1MiddlewareOwnerAddress, address(l1Middleware), middlewareConfig.vaultRemovalEpochDelay
         );
 
         vm.stopBroadcast();

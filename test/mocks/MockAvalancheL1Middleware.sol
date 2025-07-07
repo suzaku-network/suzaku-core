@@ -5,6 +5,8 @@ pragma solidity 0.8.25;
 
 contract MockAvalancheL1Middleware {
     uint48 public constant EPOCH_DURATION = 4 hours;
+    uint48 public constant SLASHING_WINDOW = 5 hours;
+    uint48 public constant REMOVAL_DELAY_EPOCHS = 6;
     address public immutable L1_VALIDATOR_MANAGER;
     address public immutable VAULT_MANAGER;
 
@@ -20,8 +22,13 @@ contract MockAvalancheL1Middleware {
     // Add mapping from operator to their node IDs
     mapping(address => bytes32[]) private operatorToNodes;
 
+    // Track operator status
+    mapping(address => bool) public isEnabled;
+    mapping(address => uint256) public disabledTime;
+
     uint96 primaryAssetClass = 1;
     uint96[] secondaryAssetClasses = [2, 3];
+    uint96[] private assetClassIds = [1, 2, 3]; // Initialize with default asset classes
 
     constructor(
         uint256 operatorCount,
@@ -41,6 +48,7 @@ contract MockAvalancheL1Middleware {
             // Using a base address and incrementing it for each operator
             address operator = address(uint160(0x1000 + i));
             OPERATORS.push(operator);
+            isEnabled[operator] = true; // Initialize as enabled
 
             uint256 nodeCount = nodesPerOperator[i];
             require(nodeCount > 0, "Each operator must have at least one node");
@@ -56,6 +64,26 @@ contract MockAvalancheL1Middleware {
 
             // Store the operator's nodes in the mapping
             operatorToNodes[operator] = operatorNodes;
+        }
+    }
+
+    function disableOperator(address operator) external {
+        require(isEnabled[operator], "Operator not enabled");
+        disabledTime[operator] = block.timestamp;
+        isEnabled[operator] = false;
+    }
+
+    function removeOperator(address operator) external {
+        require(!isEnabled[operator], "Operator is still enabled");
+        require(this.getCurrentEpoch() >= getEpochAtTs(uint48(disabledTime[operator])) + REMOVAL_DELAY_EPOCHS, "Removal delay not passed");
+        require(block.timestamp >= disabledTime[operator] + SLASHING_WINDOW, "Slashing window not passed");
+        // Remove operator from OPERATORS array
+        for (uint256 i = 0; i < OPERATORS.length; i++) {
+            if (OPERATORS[i] == operator) {
+                OPERATORS[i] = OPERATORS[OPERATORS.length - 1];
+                OPERATORS.pop();
+                break;
+            }
         }
     }
 
@@ -124,6 +152,16 @@ contract MockAvalancheL1Middleware {
         return (primaryAssetClass, secondaryAssetClasses);
     }
 
+    function setAssetClassIds(uint96[] memory newAssetClassIds) external {
+        // Clear existing array
+        delete assetClassIds;
+        
+        // Copy new asset class IDs
+        for (uint256 i = 0; i < newAssetClassIds.length; i++) {
+            assetClassIds.push(newAssetClassIds[i]);
+        }
+    }
+
     function getAssetClassIds() external view returns (uint96[] memory) {
         uint96[] memory assetClasses = new uint96[](3);
         assetClasses[0] = primaryAssetClass;
@@ -163,5 +201,23 @@ contract MockAvalancheL1Middleware {
 
     function getVaultManager() external view returns (address) {
         return VAULT_MANAGER;
+    }
+
+    /**
+     * @notice Simulates the real contract's stake calculation and caching.
+     * @dev This now has the correct signature `public returns (uint256)` to match the interface.
+     */
+    function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
+        // This logic mimics the real contract by summing the individual operator stakes
+        // that were configured during the test's setup phase.
+        for (uint256 i = 0; i < OPERATORS.length; i++) {
+            totalStake += operatorStake[epoch][OPERATORS[i]][assetClassId];
+        }
+
+        // Cache the calculated total stake so the Rewards contract can read it.
+        totalStakeCache[epoch][assetClassId] = totalStake;
+
+        // Return the calculated value as per the real interface.
+        return totalStake;
     }
 }
