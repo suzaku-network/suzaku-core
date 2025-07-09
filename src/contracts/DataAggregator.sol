@@ -217,8 +217,8 @@ contract DataAggregator {
         return false;
     }
 
-    // Helper function to count delegated operators for an L1
-    function _countDelegatedOperators(
+    // Helper function to check if a vault is delegating to an operator
+    function _isDelegatedOperator(
         VaultContext memory context,
         address l1,
         address l1Middleware
@@ -303,7 +303,7 @@ contract DataAggregator {
             try IAvalancheL1Middleware(l1Middlewares[i]).getCurrentEpoch() returns (uint48 currentEpoch) {
                 if (_isVaultDelegatedToL1(vault, l1Middlewares[i], currentEpoch)) {
                     delegatedL1Count++;
-                    delegatedOperatorCount += _countDelegatedOperators(context, l1s[i], l1Middlewares[i]);
+                    delegatedOperatorCount += _isDelegatedOperator(context, l1s[i], l1Middlewares[i]);
                 }
             } catch {
                 // If getCurrentEpoch reverts, consider this L1 as not having the vault
@@ -475,10 +475,8 @@ contract DataAggregator {
             try IAvalancheL1Middleware(l1Middlewares[i]).getCurrentEpoch() returns (uint48 currentEpoch) {
                 try IAvalancheL1Middleware(l1Middlewares[i]).getVaultManager() returns (address vaultManager) {
                     try IAvalancheL1Middleware(l1Middlewares[i]).getActiveAssetClasses() returns (
-                        uint256 primaryAssetClass, uint256[] memory secondaryAssetClasses
+                        uint256 primaryAssetClass, uint256[] memory
                     ) {
-                        for (uint256 j = 0; j < secondaryAssetClasses.length; j++) {}
-
                         // Add secured L1s
                         if (_isOperatorSecuringL1(operator, l1Middlewares[i])) {
                             securedL1s[securedL1sIndex++] = l1s[i];
