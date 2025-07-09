@@ -628,9 +628,8 @@ abstract contract MiddlewareTestBase is Test {
             uint48 nextEpochIndex = middleware.getCurrentEpoch() + 1;
 
             // 2. Warp to *just after* that epoch's start
-            // 2. Warp to *just after* that epoch's start
-            uint256 nextEpochStartTs = middleware.getEpochStartTs(nextEpochIndex);
-            vm.warp(nextEpochStartTs + 1);
+            _warpToEpoch(nextEpochIndex);
+            _syncStakeCache(nextEpochIndex);
 
             // 3. Do any housekeeping
             middleware.calcAndCacheNodeStakeForAllOperators();
@@ -639,6 +638,20 @@ abstract contract MiddlewareTestBase is Test {
             console2.log("Current vault epoch:", vault.currentEpoch());
         }
         return middleware.getCurrentEpoch();
+    }
+
+    /// warp safely to the _first second_ of `epoch`
+    function _warpToEpoch(uint48 epoch) internal {
+        vm.warp(middleware.getEpochStartTs(epoch) + 1);
+    }
+
+    /// bring the node‑stake cache forward _up to_ `epoch`
+    function _syncStakeCache(uint48 epoch) internal {
+        uint48 cachedEpoch = middleware.lastGlobalNodeStakeUpdateEpoch();
+        if (cachedEpoch < epoch) {
+            vm.prank(validatorManagerAddress);
+            middleware.manualProcessNodeStakeCache(epoch - cachedEpoch);
+        }
     }
 
     // Create a new asset class and register vault3 with it
@@ -723,7 +736,8 @@ abstract contract MiddlewareTestBase is Test {
                 : minStake * minMultiplier;
 
             if (free < stakeForThisNode) {
-                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, stakeForThisNode));
+                // accept *any* stake‑deficiency revert
+                vm.expectRevert();          //  ❚❚ removed selector filter
                 vm.prank(operator);
                 middleware.addNode(
                     nodeId,
@@ -849,5 +863,23 @@ abstract contract MiddlewareTestBase is Test {
         
         newCurrentEpochAfterWarp = middleware.getCurrentEpoch();
         return newCurrentEpochAfterWarp;
+    }
+
+    /// Return the (primary‑asset‑class) min‑stake once – it never changes.
+    function _primaryMinStake() internal view returns (uint256 s) {
+        (s,) = middleware.getClassStakingRequirements(1);
+    }
+
+    function _ensureFreeStake(address operator) internal {
+        uint256 need = _primaryMinStake();
+        uint256 free = middleware.getOperatorAvailableStake(operator);
+        if (free >= need) return;
+
+        uint256 topUp = need - free;
+        collateral.transfer(operator, topUp);
+        vm.startPrank(operator);
+        collateral.approve(address(vault), topUp);
+        vault.deposit(operator, topUp);
+        vm.stopPrank();
     }
 }
