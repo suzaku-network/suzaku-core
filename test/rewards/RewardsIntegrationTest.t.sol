@@ -468,17 +468,17 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // Warp to 2 epochs ahead to allow claiming
         _moveToNextEpochAndCalc(3);
 
-        // Record balances and rewards amount before claim
-        uint256 recipientBalanceBefore = token.balanceOf(rewardsDistributor);
+        // Record recipient balance and rewards amount before claim
+        uint256 balBefore = token.balanceOf(rewardsDistributor);
         uint256 rewardsAmountBefore = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(token));
 
         vm.prank(rewardsDistributor);
         rewards.claimUndistributedRewards(epoch, address(token), rewardsDistributor);
 
-        // Verify rewards were transferred
-        uint256 recipientBalanceAfter = token.balanceOf(rewardsDistributor);
-        uint256 undistributedAmount = recipientBalanceAfter - recipientBalanceBefore;
-        assertGt(undistributedAmount, 0, "Should receive undistributed rewards");
+        // Verify undistributed rewards were credited to recipient
+        uint256 balAfter = token.balanceOf(rewardsDistributor);
+        uint256 undistributedAmount = balAfter - balBefore;
+        assertGt(undistributedAmount, 0, "Protocol pool should receive undistributed rewards");
 
         // Verify rewards amount was reduced by undistributed amount (maintaining accounting invariant)
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(token));
@@ -531,10 +531,10 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // but we're only moving 1 epoch forward
         _moveToNextEpochAndCalc(1);
 
-        uint256 before = token.balanceOf(rewardsDistributor);
+        uint256 balBefore = token.balanceOf(rewardsDistributor);
         vm.prank(rewardsDistributor);
         rewards.claimUndistributedRewards(epoch, address(token), rewardsDistributor);
-        assertGt(token.balanceOf(rewardsDistributor), before, "claim should succeed");
+        assertGt(token.balanceOf(rewardsDistributor), balBefore, "claim should succeed and credit recipient");
     }
 
     function test_claimUndistributedRewards_revert_NoUndistributedRewards() public {
@@ -1692,6 +1692,12 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint8 rmMask = uint8((1 << ids.length) - 1);          // remove every node
         _stakeOrRemoveNodes(op, ids, 0, rmMask);
 
+        // warp to update window and force update nodes to reflect stake changes
+        uint256 updateWindowStart = middleware.getEpochStartTs(epoch) + middleware.UPDATE_WINDOW() + 1;
+        vm.warp(updateWindowStart);
+        vm.prank(validatorManagerAddress);
+        middleware.forceUpdateNodes(op, 0);
+
         // Move to next epoch to process node removals
         _moveToNextEpochAndCalc(1);
         
@@ -1706,9 +1712,16 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(epoch, 10);
 
-        /* ── assert ─────────────────────────────────────────────────────────── */
+        // fund & distribute the epoch
+        uint48 epoch2 = epoch + 1;
+        vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch2, 1, address(token), 100_000 ether);
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch2, 10);  // succeeds – sequential check satisfied
+
+        /* ── assert: operator with zero stake gets zero share in epoch-2 ─────── */
         assertEq(
-            rewards.operatorShares(epoch, op),
+            rewards.operatorShares(epoch2, op),
             0,
             "operator with zero stake must not receive any share"
         );
@@ -1719,33 +1732,63 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
 
-        // reuse helper above
+        // normal stakes & uptime ≥ min
         _setupRealStakes(epoch, 4 hours);
-        address op = middleware.getAllOperators()[0];
-        bytes32[] memory ids = middleware.getActiveNodesForEpoch(op, epoch);
-        uint8 rmMask = uint8((1 << ids.length) - 1);
-        _stakeOrRemoveNodes(op, ids, 0, rmMask);
 
-        // Move to next epoch to process node removals
-        _moveToNextEpochAndCalc(1);
+        // wipe ALL node‑stakes so operator share ⇒ 0
+        address[] memory ops = middleware.getAllOperators();
+        for (uint256 i; i < ops.length; ++i) {
+            bytes32[] memory ids = middleware.getActiveNodesForEpoch(ops[i], epoch);
+            _stakeOrRemoveNodes(ops[i], ids, 0, uint8((1 << ids.length) - 1));
+        }
+
+        // warp to update window and force update nodes for all operators to reflect stake changes
+        uint256 updateWindowStart = middleware.getEpochStartTs(epoch) + middleware.UPDATE_WINDOW() + 1;
+        vm.warp(updateWindowStart);
+        vm.prank(validatorManagerAddress);
+        for (uint256 i; i < ops.length; ++i) {
+            middleware.forceUpdateNodes(ops[i], 0);
+        }
         
+        // after you zero-stake, move one epoch forward so the removal is effective
+        _moveToNextEpochAndCalc(1);
         vm.prank(validatorManagerAddress);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
+        /* ── 1. fund & finish epoch-1 ─────────────────────────────────────────── */
+        uint48 epoch1 = epoch;                  // original epoch
         vm.prank(rewardsDistributor);
-        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), 50_000 ether);
+        rewards.setRewardsAmountForEpochs(epoch1, 1, address(token), 30_000 ether);
+
+        /* wait ≥2 epochs so epoch-1 becomes distributable */
         _moveToNextEpochAndCalc(3);
         vm.prank(rewardsDistributor);
-        rewards.distributeRewards(epoch, 10);
+        rewards.distributeRewards(epoch1, 10);  // now epoch-1 is complete
+
+        // ----------------------------------------------------------------------
+        // Consume the epoch‑1 reward now – this isolates the zero‑reward test.
+        // ----------------------------------------------------------------------
+        address op = middleware.getAllOperators()[0];
+        vm.prank(op);
+        rewards.claimOperatorFee(address(token), op);
+
+        /* ── 2. fund & distribute epoch-2 (stake is zero, operator share = 0) ─── */
+        uint48 epoch2 = epoch1 + 1;
+        vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch2, 1, address(token), 30_000 ether);
+
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch2, 10);  // succeeds – sequential check satisfied
 
         /* ── act & assert ───────────────────────────────────────────────────── */
-        _moveToNextEpochAndCalc(1);                            // move so claiming is allowed
-
+        /* move one more epoch to enable claiming */
+        _moveToNextEpochAndCalc(1);
         uint48 lastBefore = rewards.lastEpochClaimedOperator(op, address(token));
         uint256 balBefore = token.balanceOf(op);
 
+        /* expect ZeroRewardsClaim for epoch-2 */
         vm.expectEmit(true, true, false, true, address(rewards));
-        emit IRewards.ZeroRewardsClaim(op, address(token), epoch, "operator");
+        emit IRewards.ZeroRewardsClaim(op, address(token), epoch2, "operator");
 
         vm.prank(op);
         rewards.claimOperatorFee(address(token), op);
@@ -1769,38 +1812,89 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
             bytes32[] memory ids = middleware.getActiveNodesForEpoch(ops[i], epoch);
             _stakeOrRemoveNodes(ops[i], ids, 0, uint8((1 << ids.length) - 1));
         }
+
+        // warp to update window and force update nodes for all operators to reflect stake changes
+        uint256 updateWindowStart = middleware.getEpochStartTs(epoch) + middleware.UPDATE_WINDOW() + 1;
+        vm.warp(updateWindowStart);
+        vm.prank(validatorManagerAddress);
+        for (uint256 i; i < ops.length; ++i) {
+            middleware.forceUpdateNodes(ops[i], 0);
+        }
         
-        // Move to next epoch to process all node removals
+        // after you zero-stake, move one epoch forward so the removal is effective
         _moveToNextEpochAndCalc(1);
-        
         vm.prank(validatorManagerAddress);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
+        /* ── 1. fund & finish epoch-1 ─────────────────────────────────────────── */
+        uint48 epoch1 = epoch;                  // original epoch
         vm.prank(rewardsDistributor);
-        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), 30_000 ether);
+        rewards.setRewardsAmountForEpochs(epoch1, 1, address(token), 30_000 ether);
 
+        /* wait ≥2 epochs so epoch-1 becomes distributable */
         _moveToNextEpochAndCalc(3);
         vm.prank(rewardsDistributor);
-        rewards.distributeRewards(epoch, 10);
+        rewards.distributeRewards(epoch1, 10);  // now epoch-1 is complete
 
-        _moveToNextEpochAndCalc(1);
-
+        // ----------------------------------------------------------------------
+        // Consume the epoch‑1 reward now – this isolates the zero‑reward test.
+        // ----------------------------------------------------------------------
         (address vaultAddr,,) = vaultManager.getVaultAtWithTimes(0);
         address curator = VaultTokenized(vaultAddr).owner();
+        vm.prank(curator);
+        rewards.claimCuratorFee(address(token), curator);
+
+        /* ── 2. fund & distribute epoch-2 (stake is zero, curator share = 0) ─── */
+        uint48 epoch2 = epoch1 + 1;
+        vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch2, 1, address(token), 30_000 ether);
+
+        //
+        // ADD VERIFICATION HERE:
+        //
+        address[] memory operators = middleware.getAllOperators();
+        for (uint256 i = 0; i < operators.length; ++i) {
+            // Assuming asset class 1 is relevant
+            uint256 operatorStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch2, operators[i], 1);
+            console2.log("Operator stake for epoch should be zero:", operatorStake);
+            assertEq(operatorStake, 0, "Operator stake should be zero after wiping!");
+        }
+
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch2, 10);  // succeeds – sequential check satisfied
+
+        // after rewards.distributeRewards(epoch2, 10);
+
+        // ── quick dump ──────────────────────────────────────────
+        console2.log("epoch2 curator share:", rewards.curatorShares(epoch2, curator));
+
+        address[] memory v = vaultManager.getVaults(epoch2);
+        for (uint i; i < v.length; ++i) {
+            console2.log("vault share:", rewards.vaultShares(epoch2, v[i]));
+        }
+
+        address[] memory ops2 = middleware.getAllOperators();
+        for (uint i; i < ops2.length; ++i) {
+            uint256 stakeCache = middleware.getOperatorUsedStakeCachedPerEpoch(epoch2, ops2[i], 1);
+            uint256 opShare = rewards.operatorShares(epoch2, ops2[i]);
+            console2.log("op stake cached:", stakeCache);
+            console2.log("op share:", opShare);
+        }
+
+        /* move one more epoch to enable claiming */
+        _moveToNextEpochAndCalc(1);
         uint48 lastBefore = rewards.lastEpochClaimedCurator(curator, address(token));
         uint256 balBefore = token.balanceOf(curator);
 
+        /* expect ZeroRewardsClaim for epoch-2 */
         vm.expectEmit(true, true, false, true, address(rewards));
-        emit IRewards.ZeroRewardsClaim(curator, address(token), epoch, "curator");
+        emit IRewards.ZeroRewardsClaim(curator, address(token), epoch2, "curator");
 
         vm.prank(curator);
         rewards.claimCuratorFee(address(token), curator);
 
-        assertGt(
-            rewards.lastEpochClaimedCurator(curator, address(token)),
-            lastBefore,
-            "pointer did not advance"
-        );
+        uint48 lastAfter = rewards.lastEpochClaimedCurator(curator, address(token));
+        assertGt(lastAfter, lastBefore, "pointer should have advanced");
         assertEq(token.balanceOf(curator), balBefore, "curator balance changed with 0 rewards");
     }
 
