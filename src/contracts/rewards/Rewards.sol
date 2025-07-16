@@ -393,22 +393,22 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             totalDistributedShares += curatorShares[epoch][curators[i]];
         }
 
-            // Calculate and transfer undistributed rewards
-    uint256 undistributedRewards =
-        totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
+        // Calculate and transfer undistributed rewards
+        uint256 undistributedRewards =
+            totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
 
-    if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
+        if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
 
-    // Keep pool consistent for later user claims
-    uint256 remaining = totalRewardsForEpoch - undistributedRewards;
-    rewardsAmountPerTokenFromEpoch[epoch].set(rewardsToken, remaining);
+        // Keep pool consistent for later user claims
+        uint256 remaining = totalRewardsForEpoch - undistributedRewards;
+        rewardsAmountPerTokenFromEpoch[epoch].set(rewardsToken, remaining);
 
-    // mark as swept *before* transfer - prevents second sweep
-    _undistributedClaimed[epoch][rewardsToken] = true;
+        // mark as swept *before* transfer - prevents second sweep
+        _undistributedClaimed[epoch][rewardsToken] = true;
 
-    IERC20(rewardsToken).safeTransfer(recipient, undistributedRewards);
+        IERC20(rewardsToken).safeTransfer(recipient, undistributedRewards);
 
-        emit UndistributedRewardsClaimed(epoch, rewardsToken, recipient, undistributedRewards);
+            emit UndistributedRewardsClaimed(epoch, rewardsToken, recipient, undistributedRewards);
     }
 
     // Admin configuration functions
