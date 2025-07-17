@@ -667,8 +667,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // while a weight update is pending is blocked by design
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(
-            IAvalancheL1Middleware.AvalancheL1Middleware__NodePendingUpdate.selector,
-            nodeId
+            IAvalancheL1Middleware.AvalancheL1Middleware__NodePending.selector
         ));
         middleware.removeNode(nodeId);
         
@@ -744,7 +743,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
             if (free < minStake) {
                 // next addNode is *supposed* to revert – record and stop
-                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, minStake));
+                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector));
                 vm.prank(alice);
                 middleware.addNode(
                     nodeId, blsKey, uint64(block.timestamp + 2 days),
@@ -934,7 +933,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
             if (free < _minStakes) {
                 // next addNode is *supposed* to revert – record and stop
-                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector, _minStakes));
+                vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector));
                 vm.prank(alice);
                 middleware.addNode(
                     nodeId, blsKey, uint64(block.timestamp + 2 days),
@@ -1622,7 +1621,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     //     // 7. Try legitimate rebalancing - should be blocked
     //     console2.log("\n--- Attempting legitimate rebalancing ---");
-    //     vm.expectRevert(); // Should revert with AvalancheL1Middleware__AlreadyRebalanced
+    //     vm.expectRevert(); // Should revert with AvalancheL1Middleware__RebalanceNotRequired
     //     middleware.forceUpdateNodes(alice, 0); // Proper rebalancing with no limit
     //     console2.log("Legitimate rebalancing blocked by AlreadyRebalanced");                                     
     // }
@@ -2057,20 +2056,36 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Get the L1 validationID for Operator A's node
         bytes memory pchainNodeId_P_X_bytes = abi.encodePacked(uint160(uint256(sharedNodeId_X)));
         bytes32 validationID_A1 = mockValidatorManager.registeredValidators(pchainNodeId_P_X_bytes);
-        
-        // Verify the fix: validationID is mapped to operator A
-        assertEq(middleware.validationIdToOperator(validationID_A1), operatorA, "ValidationID should be mapped to operator A");
 
         vm.prank(operatorA);
         middleware.completeValidatorRegistration(operatorA, sharedNodeId_X, msgIdx_A1_add);
         
-        _calcAndWarpOneEpoch(); // Move to E0 + 1 for N1 to be active
-        epochE0 = middleware.getCurrentEpoch();
-
-        uint256 stake_A_on_N1 = middleware.getNodeStake(epochE0, validationID_A1);
+        // Move to next epoch so validator becomes active
+        _calcAndWarpOneEpoch();
+        uint48 activeEpoch = middleware.getCurrentEpoch();
+        
+        // DIRECT TEST: Verify validationID_A1 belongs to operatorA by checking if getActiveNodesForEpoch 
+        // includes sharedNodeId_X when queried for operatorA but NOT when queried for operatorB
+        bytes32[] memory activeNodes_A = middleware.getActiveNodesForEpoch(operatorA, activeEpoch);
+        bytes32[] memory activeNodes_B = middleware.getActiveNodesForEpoch(operatorB, activeEpoch);
+        
+        bool nodeFoundForA = false;
+        bool nodeFoundForB = false;
+        
+        for (uint256 i = 0; i < activeNodes_A.length; i++) {
+            if (activeNodes_A[i] == sharedNodeId_X) nodeFoundForA = true;
+        }
+        for (uint256 i = 0; i < activeNodes_B.length; i++) {
+            if (activeNodes_B[i] == sharedNodeId_X) nodeFoundForB = true;
+        }
+        
+        assertTrue(nodeFoundForA, "validationID_A1 should be mapped to operatorA");
+        assertFalse(nodeFoundForB, "validationID_A1 should NOT be mapped to operatorB");
+        
+        uint256 stake_A_on_N1 = middleware.getNodeStake(activeEpoch, validationID_A1);
         assertGt(stake_A_on_N1, 0, "Operator A's node N1 should have stake");
 
-        bytes32[] memory activeNodes_A_E0 = middleware.getActiveNodesForEpoch(operatorA, epochE0);
+        bytes32[] memory activeNodes_A_E0 = middleware.getActiveNodesForEpoch(operatorA, activeEpoch);
         assertEq(activeNodes_A_E0.length, 1, "Operator A should have 1 active node");
         assertEq(activeNodes_A_E0[0], sharedNodeId_X);
 
@@ -2105,11 +2120,30 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         bytes32 validationID_B2 = mockValidatorManager.registeredValidators(pchainNodeId_P_X_bytes);
         assertNotEq(validationID_A1, validationID_B2, "ValidationIDs should be different");
         
-        // Verify the fix: new validationID is mapped to operator B
-        assertEq(middleware.validationIdToOperator(validationID_B2), operatorB, "New ValidationID should be mapped to operator B");
-
         vm.prank(operatorB);
         middleware.completeValidatorRegistration(operatorB, sharedNodeId_X, msgIdx_B2_add);
+        
+        // Move to next epoch so validator becomes active
+        _calcAndWarpOneEpoch();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        
+        // DIRECT TEST: Verify validationID_B2 belongs to operatorB by checking if getActiveNodesForEpoch 
+        // includes sharedNodeId_X when queried for operatorB but NOT when queried for operatorA
+        bytes32[] memory activeNodes_A_current = middleware.getActiveNodesForEpoch(operatorA, currentEpoch);
+        bytes32[] memory activeNodes_B_current = middleware.getActiveNodesForEpoch(operatorB, currentEpoch);
+        
+        bool nodeFoundForA_current = false;
+        bool nodeFoundForB_current = false;
+        
+        for (uint256 i = 0; i < activeNodes_A_current.length; i++) {
+            if (activeNodes_A_current[i] == sharedNodeId_X) nodeFoundForA_current = true;
+        }
+        for (uint256 i = 0; i < activeNodes_B_current.length; i++) {
+            if (activeNodes_B_current[i] == sharedNodeId_X) nodeFoundForB_current = true;
+        }
+        
+        assertFalse(nodeFoundForA_current, "validationID_B2 should NOT be mapped to operatorA");
+        assertTrue(nodeFoundForB_current, "validationID_B2 should be mapped to operatorB");
 
         _calcAndWarpOneEpoch();
         epochE2 = middleware.getCurrentEpoch();
@@ -3264,8 +3298,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // 5. The patched contract must reject the attempt
         vm.expectRevert(
             abi.encodeWithSelector(
-                IAvalancheL1Middleware.AvalancheL1Middleware__NotEnoughFreeStake.selector,
-                newStake
+                IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector
             )
         );
         vm.prank(alice);
