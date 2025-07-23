@@ -19,7 +19,7 @@ contract DeployRewards is Script {
         // Deploy UptimeTracker first
         UptimeTracker uptimeTrackerContract = new UptimeTracker(
             payable(config.l1Middleware),
-            config.l1ChainID
+            config.l1ID
         );
 
         // Deploy Rewards contract
@@ -46,6 +46,6 @@ contract DeployRewards is Script {
         console2.log("Rewards deployed at:", rewards);
         console2.log("UptimeTracker deployed at:", uptimeTracker);
         console2.log("Using L1Middleware:", config.l1Middleware);
-        console2.log("Using L1ChainID:", uint256(config.l1ChainID));
+        console2.log("Using l1ID:", uint256(config.l1ID));
     }
 } 

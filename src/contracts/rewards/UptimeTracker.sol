@@ -22,7 +22,7 @@ contract UptimeTracker is IUptimeTracker {
     uint48 private immutable epochDuration;
     AvalancheL1Middleware private immutable l1Middleware;
     BalancerValidatorManager private immutable validatorManager;
-    bytes32 private immutable l1ChainID;
+    bytes32 private immutable l1ID;
 
     IWarpMessenger public constant WARP_MESSENGER = IWarpMessenger(0x0200000000000000000000000000000000000005);
 
@@ -43,12 +43,12 @@ contract UptimeTracker is IUptimeTracker {
 
     constructor(
         address payable l1Middleware_,
-        bytes32 l1ChainID_
+        bytes32 l1ID_
     ) {
         l1Middleware = AvalancheL1Middleware(l1Middleware_);
         epochDuration = l1Middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(l1Middleware.L1_VALIDATOR_MANAGER());
-        l1ChainID = l1ChainID_;
+        l1ID = l1ID_;
     }
 
     /**
@@ -63,7 +63,7 @@ contract UptimeTracker is IUptimeTracker {
             revert InvalidWarpMessage();
         }
         // Must match to P-Chain blockchain id
-        if (warpMessage.sourceChainID != l1ChainID) {
+        if (warpMessage.sourceChainID != l1ID) {
             revert InvalidWarpSourceChainID(warpMessage.sourceChainID);
         }
         if (warpMessage.originSenderAddress != address(0)) {
