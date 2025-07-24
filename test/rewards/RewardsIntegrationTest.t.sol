@@ -32,15 +32,15 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         super.setUp();                                // ← real middleware & vaults ready
 
         // ── fast‑path: add two secondary asset‑classes & their vaults ───────────
-        if (middleware.getAssetClassIds().length == 1) {          // only class‑1 present
-            _setupAssetClassAndRegisterVault(
+        if (middleware.getCollateralClassIds().length == 1) {          // only class‑1 present
+            _setupCollateralClassAndRegisterVault(
                 2, 0,                   // id‑2, minStake = 0
                 collateral2, vault3,    // use existing vault3 + token2
                 type(uint256).max,      // maxVaultLimit
                 type(uint256).max,      // l1Limit
                 delegator3
             );
-            _setupAssetClassAndRegisterVault(
+            _setupCollateralClassAndRegisterVault(
                 3, 0,                   // id‑3
                 collateral,  vault2,    // reuse vault2 + primary token
                 type(uint256).max,
@@ -81,9 +81,9 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
 
         // 50‑30‑20 asset‑class split (matches MiddlewareTestBase)
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForAssetClass(1, 5000);
-        rewards.setRewardsShareForAssetClass(2, 3000);
-        rewards.setRewardsShareForAssetClass(3, 2000);
+        rewards.setRewardsShareForCollateralClass(1, 5000);
+        rewards.setRewardsShareForCollateralClass(2, 3000);
+        rewards.setRewardsShareForCollateralClass(3, 2000);
         vm.stopPrank();
     }
 
@@ -115,7 +115,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         // cache every secondary asset‑class stake to avoid div‑0
-        uint96[] memory ids = middleware.getAssetClassIds();
+        uint96[] memory ids = middleware.getCollateralClassIds();
         for (uint256 i = 0; i < ids.length; ++i) {
             if (ids[i] != 1) {                         // 1 = primary, already done above
                 vm.startPrank(validatorManagerAddress);
@@ -784,21 +784,21 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.stopPrank();
     }
 
-    function test_SetRewardsShareForAssetClass() public {
+    function test_SetRewardsShareForCollateralClass() public {
         // Define the asset class ID and the new rewards percentage
-        uint96 assetClassId = 1;
+        uint96 collateralClassId = 1;
         uint16 rewardsPercentage = 5000; // 50%
 
         // Expect the RewardsShareUpdated event to be emitted with the new rewards percentage
         vm.expectEmit(true, true, false, false);
-        emit IRewards.RewardsShareUpdated(assetClassId, rewardsPercentage);
+        emit IRewards.RewardsShareUpdated(collateralClassId, rewardsPercentage);
 
         vm.prank(rewardsManager);
         // Set the rewards share for the asset class
-        rewards.setRewardsShareForAssetClass(assetClassId, rewardsPercentage);
+        rewards.setRewardsShareForCollateralClass(collateralClassId, rewardsPercentage);
 
         // Verify the new rewards share has been set
-        assertEq(rewards.rewardsSharePerAssetClass(assetClassId), rewardsPercentage);
+        assertEq(rewards.rewardsSharePerCollateralClass(collateralClassId), rewardsPercentage);
     }
 
     /* ─── SPECIAL TESTS ----------------------------------------------- */
@@ -808,18 +808,18 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
 
         // First reduce class 3 to make room, set class 1 to 70% (total = 100%)
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForAssetClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
-        rewards.setRewardsShareForAssetClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
+        rewards.setRewardsShareForCollateralClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
+        rewards.setRewardsShareForCollateralClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
         
         // Now try to set class 1 to 80% - this should fail because 80% + 30% = 110%
         // Should succeed – sum goes to 110 %
         vm.expectRevert(
             abi.encodeWithSelector(
-                IRewards.AssetClassSharesExceed100.selector,
+                IRewards.CollateralClassSharesExceed100.selector,
                 11_000                // the attempted total
             )
         );
-        rewards.setRewardsShareForAssetClass(1, 8000);
+        rewards.setRewardsShareForCollateralClass(1, 8000);
         vm.stopPrank();
     }
 
@@ -1015,7 +1015,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         rewards.claimProtocolFee(address(evil), protocolOwner);
     }
 
-    function test_RewardsDistribution_DivisionByZero_NewAssetClass_Fix() public {
+    function test_RewardsDistribution_DivisionByZero_NewCollateralClass_Fix() public {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
         
@@ -1028,7 +1028,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         _moveToNextEpochAndCalc(1);
         
         // Add a new asset class (4) after epoch 1 has passed    
-        uint96 newAssetClass = 4;
+        uint96 newCollateralClass = 4;
         
         // Note: In real integration test, we need to add the asset class properly through middleware
         vm.startPrank(validatorManagerAddress);
@@ -1038,8 +1038,8 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         
         // Re‑balance so that the overall sum stays 100 %
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
-        rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
+        rewards.setRewardsShareForCollateralClass(3, 1000);         // drop class 3 from 20 % → 10 %
+        rewards.setRewardsShareForCollateralClass(newCollateralClass, 1000); // give 10 % to class 4
         vm.stopPrank();
 
         // distribute rewards   
@@ -1462,7 +1462,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.stopPrank();
     }
 
-    function test_RewardsDistributionDOS_With_UncachedSecondaryAssetClasses() public {
+    function test_RewardsDistributionDOS_With_UncachedSecondaryCollateralClasses() public {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
         uint256 uptimeValue = 4 hours;
@@ -1515,13 +1515,13 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         
         // ── pick a vault to remove ────────────────────────────────────────────
         address vaultToRemove;
-        uint96 assetClass;
+        uint96 collateralClass;
         for (uint i; i < vaultManager.getVaultCount(); ++i) {
             (address v,,) = vaultManager.getVaultAtWithTimes(i);
-            uint96 cls = vaultManager.getVaultAssetClass(v);
+            uint96 cls = vaultManager.getVaultCollateralClass(v);
             if (cls != 1) {               // skip the primary‑class vault
                 vaultToRemove = v;
-                assetClass    = cls;
+                collateralClass    = cls;
                 break;
             }
         }
@@ -1529,13 +1529,13 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // … but if none exists, fall back to the sole primary vault
         if (vaultToRemove == address(0)) {
             (vaultToRemove,,) = vaultManager.getVaultAtWithTimes(0);
-            assetClass        = vaultManager.getVaultAssetClass(vaultToRemove);
+            collateralClass        = vaultManager.getVaultCollateralClass(vaultToRemove);
         }
 
         // ── disable it ──────────────────────────────────────────────────
         address vmOwner = vaultManager.owner();
         vm.prank(vmOwner);
-        vaultManager.updateVaultMaxL1Limit(vaultToRemove, assetClass, 0);   // disable
+        vaultManager.updateVaultMaxL1Limit(vaultToRemove, collateralClass, 0);   // disable
 
         // first attempt – still inside grace period
         vm.expectRevert(
@@ -1556,7 +1556,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         _syncStakeCache(middleware.getCurrentEpoch());
 
         // ── NOW remove asset from class (after vault is fully removed and state processed) ──
-        if (assetClass != 1) {
+        if (collateralClass != 1) {
             address assetToCheck = IVaultTokenized(vaultToRemove).collateral();
             bool isLastVaultUsingAsset = true;
             
@@ -1569,7 +1569,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
                 if (disabledTime != 0) continue;
                 
                 // Check if this active vault is in the same asset class and uses the same asset
-                if (vaultManager.getVaultAssetClass(otherVault) == assetClass) {
+                if (vaultManager.getVaultCollateralClass(otherVault) == collateralClass) {
                     if (IVaultTokenized(otherVault).collateral() == assetToCheck) {
                         isLastVaultUsingAsset = false;
                         break;
@@ -1580,7 +1580,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
             // Only remove asset if this was the last active vault using it in this class
             if (isLastVaultUsingAsset) {
                 vm.prank(validatorManagerAddress);
-                middleware.removeAssetFromClass(assetClass, assetToCheck);
+                middleware.removeAssetFromClass(collateralClass, assetToCheck);
             }
         }
         

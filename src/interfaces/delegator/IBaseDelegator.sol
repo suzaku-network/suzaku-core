@@ -38,21 +38,21 @@ interface IBaseDelegator {
     /**
      * @notice Emitted when a asset class maximum limit is set.
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param amount new maximum asset class limit (how much stake the asset class is ready to get)
      */
-    event SetMaxL1Limit(address indexed l1, uint96 indexed assetClass, uint256 amount);
+    event SetMaxL1Limit(address indexed l1, uint96 indexed collateralClass, uint256 amount);
 
     /**
      * @notice Emitted when a slash happens.
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param operator address of the operator
      * @param amount amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
      */
     event OnSlash(
-        address indexed l1, uint96 indexed assetClass, address indexed operator, uint256 amount, uint48 captureTimestamp
+        address indexed l1, uint96 indexed collateralClass, address indexed operator, uint256 amount, uint48 captureTimestamp
     );
 
     /**
@@ -127,7 +127,7 @@ interface IBaseDelegator {
 
     /**
      * @notice Get a hook setter's role.
-     * @return assetClass of the hook setter role
+     * @return collateralClass of the hook setter role
      */
     function HOOK_SET_ROLE() external view returns (bytes32);
 
@@ -148,16 +148,16 @@ interface IBaseDelegator {
      * @notice Get a particular asset class maximum limit
      *         (meaning the asset class is not ready to get more as a stake).
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @return maximum limit of the asset class
      */
-    function maxL1Limit(address l1, uint96 assetClass) external view returns (uint256);
+    function maxL1Limit(address l1, uint96 collateralClass) external view returns (uint256);
 
     /**
      * @notice Get a stake that a given asset class could be able to slash for a certain operator at a given timestamp
      *         until the end of the consequent epoch using hints (if no cross-slashing and no slashings by the asset class).
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param operator address of the operator
      * @param timestamp time point to capture the stake at
      * @param hints hints for the checkpoints' indexes
@@ -166,7 +166,7 @@ interface IBaseDelegator {
      */
     function stakeAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         bytes memory hints
@@ -176,21 +176,21 @@ interface IBaseDelegator {
      * @notice Get a stake that a given asset class will be able to slash
      *         for a certain operator until the end of the next epoch (if no cross-slashing and no slashings by the asset class).
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param operator address of the operator
      * @return slashable stake until the end of the next epoch
      * @dev Warning: this function is not safe to use for stake capturing, as it can change by the end of the block.
      */
-    function stake(address l1, uint96 assetClass, address operator) external view returns (uint256);
+    function stake(address l1, uint96 collateralClass, address operator) external view returns (uint256);
 
     /**
      * @notice Set a maximum limit for a asset class (how much stake the asset class is ready to get).
-     * assetClass assetClass of the asset class
+     * collateralClass collateralClass of the asset class
      * @param l1 address of the l1
      * @param amount new maximum asset class limit
      * @dev Only a l1 can call this function.
      */
-    function setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) external;
+    function setMaxL1Limit(address l1, uint96 collateralClass, uint256 amount) external;
 
     /**
      * @notice Set a new hook.
@@ -205,7 +205,7 @@ interface IBaseDelegator {
     /**
      * @notice Called when a slash happens.
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param operator address of the operator
      * @param amount amount of the collateral slashed
      * @param captureTimestamp time point when the stake was captured
@@ -214,7 +214,7 @@ interface IBaseDelegator {
      */
     function onSlash(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,

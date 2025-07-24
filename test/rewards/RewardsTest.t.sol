@@ -32,7 +32,7 @@ contract RewardsTest is Test {
     event ProtocolFeeUpdated(uint16 newFee);
     event OperatorFeeUpdated(uint16 newFee);
     event CuratorFeeUpdated(uint16 newFee);
-    event RewardsShareUpdated(uint96 indexed assetClassId, uint16 rewardsPercentage);
+    event RewardsShareUpdated(uint96 indexed collateralClassId, uint16 rewardsPercentage);
     event RewardsAmountSet(
         uint48 indexed startEpoch, uint256 numberOfEpochs, address indexed rewardsToken, uint256 rewardsAmount
     );
@@ -114,31 +114,31 @@ contract RewardsTest is Test {
 
         // Setup mock vaults
         console2.log("Setting up mock vaults...");
-        // Vault 1 (Primary Asset Class)
+        // Vault 1 (Primary Collateral Class)
         console2.log("Deploying and adding vault 1...");
         address mockCollateral1 = makeAddr("Collateral1");
         address mockOwner1 = makeAddr("Owner1");
         (address vaultAddress1, address delegatorAddress1) = vaultManager.deployAndAddVault(mockCollateral1, mockOwner1);
-        middleware.setAssetInAssetClass(1, vaultAddress1);
-        vaultManager.setVaultAssetClass(vaultAddress1, 1);
+        middleware.setAssetInCollateralClass(1, vaultAddress1);
+        vaultManager.setVaultCollateralClass(vaultAddress1, 1);
         console2.log("Vault 1 deployed and added");
 
-        // Vault 2 (Secondary Asset Class 1)
+        // Vault 2 (Secondary Collateral Class 1)
         console2.log("Deploying and adding vault 2...");
         address mockCollateral2 = makeAddr("Collateral2");
         address mockOwner2 = makeAddr("Owner2");
         (address vaultAddress2, address delegatorAddress2) = vaultManager.deployAndAddVault(mockCollateral2, mockOwner2);
-        middleware.setAssetInAssetClass(2, vaultAddress2);
-        vaultManager.setVaultAssetClass(vaultAddress2, 2);
+        middleware.setAssetInCollateralClass(2, vaultAddress2);
+        vaultManager.setVaultCollateralClass(vaultAddress2, 2);
         console2.log("Vault 2 deployed and added");
 
-        // Vault 3 (Secondary Asset Class 2)
+        // Vault 3 (Secondary Collateral Class 2)
         console2.log("Deploying and adding vault 3...");
         address mockCollateral3 = makeAddr("Collateral3");
         address mockOwner3 = makeAddr("Owner3");
         (address vaultAddress3, address delegatorAddress3) = vaultManager.deployAndAddVault(mockCollateral3, mockOwner3);
-        middleware.setAssetInAssetClass(3, vaultAddress3);
-        vaultManager.setVaultAssetClass(vaultAddress3, 3);
+        middleware.setAssetInCollateralClass(3, vaultAddress3);
+        vaultManager.setVaultCollateralClass(vaultAddress3, 3);
         console2.log("Vault 3 deployed and added");
 
         delegators.push(MockDelegator(delegatorAddress1));
@@ -157,9 +157,9 @@ contract RewardsTest is Test {
 
         console2.log("Setting rewards share for asset classes...");
         vm.startPrank(REWARDS_MANAGER_ROLE);
-        rewards.setRewardsShareForAssetClass(1, 5000); // 50% for primary
-        rewards.setRewardsShareForAssetClass(2, 3000); // 30% for secondary 1
-        rewards.setRewardsShareForAssetClass(3, 2000); // 20% for secondary 2
+        rewards.setRewardsShareForCollateralClass(1, 5000); // 50% for primary
+        rewards.setRewardsShareForCollateralClass(2, 3000); // 30% for secondary 1
+        rewards.setRewardsShareForCollateralClass(3, 2000); // 20% for secondary 2
         console2.log("Rewards share for asset classes set");
         vm.stopPrank();
     }
@@ -1053,22 +1053,22 @@ contract RewardsTest is Test {
         vm.stopPrank();
     }
 
-    function test_SetRewardsShareForAssetClass() public {
+    function test_SetRewardsShareForCollateralClass() public {
 
         // Define the asset class ID and the new rewards percentage
-        uint96 assetClassId = 1;
+        uint96 collateralClassId = 1;
         uint16 rewardsPercentage = 5000; // 50%
 
         // Expect the RewardsShareUpdated event to be emitted with the new rewards percentage
         vm.expectEmit(true, true, false, false);
-        emit RewardsShareUpdated(assetClassId, rewardsPercentage);
+        emit RewardsShareUpdated(collateralClassId, rewardsPercentage);
 
         vm.prank(REWARDS_MANAGER_ROLE);
         // Set the rewards share for the asset class
-        rewards.setRewardsShareForAssetClass(assetClassId, rewardsPercentage);
+        rewards.setRewardsShareForCollateralClass(collateralClassId, rewardsPercentage);
 
         // Verify the new rewards share has been set
-        assertEq(rewards.rewardsSharePerAssetClass(assetClassId), rewardsPercentage);
+        assertEq(rewards.rewardsSharePerCollateralClass(collateralClassId), rewardsPercentage);
     }
 
 //   function test_DOS_RewardShareSumGreaterThan100Pct() public {
@@ -1085,9 +1085,9 @@ contract RewardsTest is Test {
 
 //         // 2: Set asset class shares > 100%
 //         vm.startPrank(REWARDS_MANAGER_ROLE);
-//         rewards.setRewardsShareForAssetClass(1, 8000); // 80%
-//         rewards.setRewardsShareForAssetClass(2, 7000); // 70% 
-//         rewards.setRewardsShareForAssetClass(3, 5000); // 50%
+//         rewards.setRewardsShareForCollateralClass(1, 8000); // 80%
+//         rewards.setRewardsShareForCollateralClass(2, 7000); // 70% 
+//         rewards.setRewardsShareForCollateralClass(3, 5000); // 50%
 //         // Total: 200% 
 //         vm.stopPrank();
 
@@ -1135,17 +1135,17 @@ contract RewardsTest is Test {
 
     // 2: First reduce class 3 to make room, set class 1 to 70% (total = 100%)
     vm.startPrank(REWARDS_MANAGER_ROLE);
-    rewards.setRewardsShareForAssetClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
-    rewards.setRewardsShareForAssetClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
+    rewards.setRewardsShareForCollateralClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
+    rewards.setRewardsShareForCollateralClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
     
     // 3: Now try to set class 1 to 80% - this should fail because 80% + 30% = 110%
     vm.expectRevert(
         abi.encodeWithSelector(
-            IRewards.AssetClassSharesExceed100.selector,
+            IRewards.CollateralClassSharesExceed100.selector,
             11000 // 80% + 30% + 0% = 110%
         )
     );
-    rewards.setRewardsShareForAssetClass(1, 8000); // This should fail 
+    rewards.setRewardsShareForCollateralClass(1, 8000); // This should fail 
     vm.stopPrank();
     }
 
@@ -1532,66 +1532,66 @@ contract RewardsTest is Test {
         rewards.claimProtocolFee(address(evil), PROTOCOL_OWNER);
     }
 
-    // function test_RewardsDistribution_DivisionByZero_NewAssetClass() public {
+    // function test_RewardsDistribution_DivisionByZero_NewCollateralClass() public {
     //     uint48 epoch = 1;
     //     _setupStakes(epoch, 4 hours);
         
     //     vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
         
     //     // Add a new asset class (4) after epoch 1 has passed    
-    //     uint96 newAssetClass = 4;
-    //     uint96[] memory currentAssetClasses = middleware.getAssetClassIds();
-    //     uint96[] memory newAssetClasses = new uint96[](currentAssetClasses.length + 1);
-    //     for (uint256 i = 0; i < currentAssetClasses.length; i++) {
-    //         newAssetClasses[i] = currentAssetClasses[i];
+    //     uint96 newCollateralClass = 4;
+    //     uint96[] memory currentCollateralClasses = middleware.getCollateralClassIds();
+    //     uint96[] memory newCollateralClasses = new uint96[](currentCollateralClasses.length + 1);
+    //     for (uint256 i = 0; i < currentCollateralClasses.length; i++) {
+    //         newCollateralClasses[i] = currentCollateralClasses[i];
     //     }
-    //     newAssetClasses[currentAssetClasses.length] = newAssetClass;
+    //     newCollateralClasses[currentCollateralClasses.length] = newCollateralClass;
         
     //     // Update the middleware to return the new asset class list
-    //     middleware.setAssetClassIds(newAssetClasses);
+    //     middleware.setCollateralClassIds(newCollateralClasses);
         
     //     // Re‑balance so that the overall sum stays 100 %
     //     vm.startPrank(REWARDS_MANAGER_ROLE);
-    //     rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
-    //     rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
+    //     rewards.setRewardsShareForCollateralClass(3, 1000);         // drop class 3 from 20 % → 10 %
+    //     rewards.setRewardsShareForCollateralClass(newCollateralClass, 1000); // give 10 % to class 4
     //     vm.stopPrank();
 
     //     // distribute rewards   
     //     vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
-    //     assertEq(middleware.totalStakeCache(epoch, newAssetClass), 0, "New asset class should have zero stake for historical epoch 1");
+    //     assertEq(middleware.totalStakeCache(epoch, newCollateralClass), 0, "New asset class should have zero stake for historical epoch 1");
 
     //     vm.prank(REWARDS_DISTRIBUTOR_ROLE);    
     //     vm.expectRevert(); // Division by zero in Math.mulDiv when totalStake = 0
     //     rewards.distributeRewards(epoch, 1);
     // }
 
-    function test_RewardsDistribution_DivisionByZero_NewAssetClass_Fix() public {
+    function test_RewardsDistribution_DivisionByZero_NewCollateralClass_Fix() public {
         uint48 epoch = 1;
         _setupStakes(epoch, 4 hours);
         
         vm.warp((epoch + 1) * middleware.EPOCH_DURATION());
         
         // Add a new asset class (4) after epoch 1 has passed    
-        uint96 newAssetClass = 4;
-        uint96[] memory currentAssetClasses = middleware.getAssetClassIds();
-        uint96[] memory newAssetClasses = new uint96[](currentAssetClasses.length + 1);
-        for (uint256 i = 0; i < currentAssetClasses.length; i++) {
-            newAssetClasses[i] = currentAssetClasses[i];
+        uint96 newCollateralClass = 4;
+        uint96[] memory currentCollateralClasses = middleware.getCollateralClassIds();
+        uint96[] memory newCollateralClasses = new uint96[](currentCollateralClasses.length + 1);
+        for (uint256 i = 0; i < currentCollateralClasses.length; i++) {
+            newCollateralClasses[i] = currentCollateralClasses[i];
         }
-        newAssetClasses[currentAssetClasses.length] = newAssetClass;
+        newCollateralClasses[currentCollateralClasses.length] = newCollateralClass;
         
         // Update the middleware to return the new asset class list
-        middleware.setAssetClassIds(newAssetClasses);
+        middleware.setCollateralClassIds(newCollateralClasses);
         
         // Re‑balance so that the overall sum stays 100 %
         vm.startPrank(REWARDS_MANAGER_ROLE);
-        rewards.setRewardsShareForAssetClass(3, 1000);         // drop class 3 from 20 % → 10 %
-        rewards.setRewardsShareForAssetClass(newAssetClass, 1000); // give 10 % to class 4
+        rewards.setRewardsShareForCollateralClass(3, 1000);         // drop class 3 from 20 % → 10 %
+        rewards.setRewardsShareForCollateralClass(newCollateralClass, 1000); // give 10 % to class 4
         vm.stopPrank();
 
         // distribute rewards   
         vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
-        assertEq(middleware.totalStakeCache(epoch, newAssetClass), 0, "New asset class should have zero stake for historical epoch 1");
+        assertEq(middleware.totalStakeCache(epoch, newCollateralClass), 0, "New asset class should have zero stake for historical epoch 1");
 
         // after the contract fix this must succeed (guard skips the div‑0 path)
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
@@ -1972,7 +1972,7 @@ contract RewardsTest is Test {
         vm.stopPrank();
     }
 
-    function test_RewardsDistributionDOS_With_UncachedSecondaryAssetClasses() public {
+    function test_RewardsDistributionDOS_With_UncachedSecondaryCollateralClasses() public {
         uint48 epoch = 1;
         uint256 uptime = 4 hours;
 
@@ -2030,8 +2030,8 @@ contract RewardsTest is Test {
         
         // Properly disable the vault first, wait for grace period, then remove it
         address vaultToRemove = vaultManager.vaults(0);
-        uint96 assetClass = vaultManager.getVaultAssetClass(vaultToRemove);
-        vaultManager.updateVaultMaxL1Limit(vaultToRemove, assetClass, 0); // Disable vault
+        uint96 collateralClass = vaultManager.getVaultCollateralClass(vaultToRemove);
+        vaultManager.updateVaultMaxL1Limit(vaultToRemove, collateralClass, 0); // Disable vault
         
         vm.expectRevert(abi.encodeWithSelector(IMiddlewareVaultManager.MiddlewareVaultManager__VaultGracePeriodNotPassed.selector));
         vaultManager.removeVault(vaultToRemove);
@@ -2112,9 +2112,9 @@ contract RewardsTest is Test {
         // crank asset‑class weights to total 200 %
         vm.startPrank(REWARDS_MANAGER_ROLE);
         rewards.updateAllFees(0, 0, 0); // keep math simple
-        rewards.setRewardsShareForAssetClass(1, 8000);
-        rewards.setRewardsShareForAssetClass(2, 7000);
-        rewards.setRewardsShareForAssetClass(3, 5000); // 20 000 bp total
+        rewards.setRewardsShareForCollateralClass(1, 8000);
+        rewards.setRewardsShareForCollateralClass(2, 7000);
+        rewards.setRewardsShareForCollateralClass(3, 5000); // 20 000 bp total
         vm.stopPrank();
 
         // fund & stake normally

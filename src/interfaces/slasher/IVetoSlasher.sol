@@ -35,7 +35,7 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Structure for a slash request.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param operator operator that could be slashed (if the request is not vetoed)
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -44,7 +44,7 @@ interface IVetoSlasher is IBaseSlasher {
      */
     struct SlashRequest {
         address l1;
-        uint96 assetClass;
+        uint96 collateralClass;
         address operator;
         uint256 amount;
         uint48 captureTimestamp;
@@ -106,7 +106,7 @@ interface IVetoSlasher is IBaseSlasher {
      * @notice Emitted when a slash request is created.
      * @param slashIndex index of the slash request
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param operator operator that could be slashed (if the request is not vetoed)
      * @param slashAmount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -115,7 +115,7 @@ interface IVetoSlasher is IBaseSlasher {
     event RequestSlash(
         uint256 indexed slashIndex,
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address indexed operator,
         uint256 slashAmount,
         uint48 captureTimestamp,
@@ -139,10 +139,10 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Emitted when a resolver is set.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param resolver address of the resolver
      */
-    event SetResolver(address indexed l1, uint96 indexed assetClass, address resolver);
+    event SetResolver(address indexed l1, uint96 indexed collateralClass, address resolver);
 
     /**
      * @notice Get the network registry's address.
@@ -166,7 +166,7 @@ interface IVetoSlasher is IBaseSlasher {
      * @notice Get a particular slash request.
      * @param slashIndex index of the slash request
      * @return l1 address of the l1
-     * @return assetClass the uint96 assetClass
+     * @return collateralClass the uint96 collateralClass
      * @return operator operator that could be slashed (if the request is not vetoed)
      * @return amount maximum amount of the collateral to be slashed
      * @return captureTimestamp time point when the stake was captured
@@ -180,7 +180,7 @@ interface IVetoSlasher is IBaseSlasher {
         view
         returns (
             address l1,
-            uint96 assetClass,
+            uint96 collateralClass,
             address operator,
             uint256 amount,
             uint48 captureTimestamp,
@@ -197,14 +197,14 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Get a resolver for a given assset class at a particular timestamp using a hint.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param timestamp timestamp to get the resolver at
      * @param hint hint for the checkpoint index
      * @return address of the resolver
      */
     function resolverAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         uint48 timestamp,
         bytes memory hint
     ) external view returns (address);
@@ -212,16 +212,16 @@ interface IVetoSlasher is IBaseSlasher {
     /**
      * @notice Get a resolver for a given assset class using a hint.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param hint hint for the checkpoint index
      * @return address of the resolver
      */
-    function resolver(address l1, uint96 assetClass, bytes memory hint) external view returns (address);
+    function resolver(address l1, uint96 collateralClass, bytes memory hint) external view returns (address);
 
     /**
      * @notice Request a slash using a assset class for a particular operator by a given amount using hints.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param operator address of the operator
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -231,7 +231,7 @@ interface IVetoSlasher is IBaseSlasher {
      */
     function requestSlash(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,

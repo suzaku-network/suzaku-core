@@ -16,7 +16,7 @@ interface IMiddlewareVaultManager {
     error MiddlewareVaultManager__VaultAlreadyRegistered();
     error MiddlewareVaultManager__VaultEpochTooShort();
     error MiddlewareVaultManager__NotVault(address vault);
-    error MiddlewareVaultManager__WrongVaultAssetClass();
+    error MiddlewareVaultManager__WrongVaultCollateralClass();
     error MiddlewareVaultManager__ZeroVaultMaxL1Limit();
     error MiddlewareVaultManager__VaultGracePeriodNotPassed();
     error MiddlewareVaultManager__VaultNotDisabled();
@@ -37,18 +37,18 @@ interface IMiddlewareVaultManager {
     /**
      * @notice Registers a vault to a specific asset class with a given maximum L1 stake limit.
      * @param vault The vault address
-     * @param assetClassId The asset class ID for the vault
+     * @param collateralClassId The asset class ID for the vault
      * @param vaultMaxL1Limit The maximum stake allowed for this vault
      */
-    function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external;
+    function registerVault(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external;
 
     /**
      * @notice Updates a vault's max L1 stake limit.
      * @param vault The vault address
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @param vaultMaxL1Limit The new maximum stake
      */
-    function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external;
+    function updateVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external;
 
     /**
      * @notice Removes a vault if the grace period has passed.
@@ -85,7 +85,7 @@ interface IMiddlewareVaultManager {
      * @param vault The vault address
      * @return The asset class ID
      */
-    function getVaultAssetClass(
+    function getVaultCollateralClass(
         address vault
     ) external view returns (uint96);
 

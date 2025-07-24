@@ -5,7 +5,7 @@ pragma solidity 0.8.25;
 interface BaseDelegator {
     function stakeAt(
         address validatorManager,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         bytes memory data
@@ -18,23 +18,23 @@ contract MockDelegator is BaseDelegator {
     // Function to set stake values for testing
     function setStake(
         address validatorManager,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         uint256 stakeAmount
     ) external {
-        bytes32 key = keccak256(abi.encodePacked(validatorManager, assetClass, operator, timestamp));
+        bytes32 key = keccak256(abi.encodePacked(validatorManager, collateralClass, operator, timestamp));
         stakes[key] = stakeAmount;
     }
 
     function stakeAt(
         address validatorManager,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         bytes memory
     ) external view override returns (uint256) {
-        bytes32 key = keccak256(abi.encodePacked(validatorManager, assetClass, operator, timestamp));
+        bytes32 key = keccak256(abi.encodePacked(validatorManager, collateralClass, operator, timestamp));
         return stakes[key];
     }
 }

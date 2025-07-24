@@ -67,8 +67,8 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     mapping(uint48 epoch => mapping(address operator => uint256 share)) public operatorShares;
     mapping(uint48 epoch => mapping(address vault => uint256 share)) public vaultShares; // vault stakes owners shares
     mapping(uint48 epoch => mapping(address curator => uint256 share)) public curatorShares; // vault owner shares
-    mapping(uint48 epoch => mapping(address operator => mapping(uint96 assetClass => uint256 share)))
-        public operatorBeneficiariesSharesPerAssetClass;
+    mapping(uint48 epoch => mapping(address operator => mapping(uint96 collateralClass => uint256 share)))
+        public operatorBeneficiariesSharesPerCollateralClass;
 
     // Protocol rewards
     mapping(address rewardsToken => uint256 rewardsAmount) public protocolRewards;
@@ -83,7 +83,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     mapping(address protocolOwner => mapping(address rewardToken => uint48 epoch)) public lastEpochClaimedProtocol;
 
     // Asset class configuration
-    mapping(uint96 assetClass => uint16 rewardsShare) public rewardsSharePerAssetClass;
+    mapping(uint96 collateralClass => uint16 rewardsShare) public rewardsSharePerCollateralClass;
 
     // Epoch curators tracking
     mapping(uint48 epoch => EnumerableSet.AddressSet curators) private _epochCurators;
@@ -451,15 +451,15 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     }
 
     /// @inheritdoc IRewards
-    function setRewardsShareForAssetClass(uint96 assetClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
+    function setRewardsShareForCollateralClass(uint96 collateralClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
 
-        uint16 prev = rewardsSharePerAssetClass[assetClass];
-        uint256 newTotal = _totalAssetClassShares() - prev + share;
-        if (newTotal > BASIS_POINTS_DENOMINATOR) revert AssetClassSharesExceed100(newTotal);
+        uint16 prev = rewardsSharePerCollateralClass[collateralClass];
+        uint256 newTotal = _totalCollateralClassShares() - prev + share;
+        if (newTotal > BASIS_POINTS_DENOMINATOR) revert CollateralClassSharesExceed100(newTotal);
 
-        rewardsSharePerAssetClass[assetClass] = share;
-        emit RewardsShareUpdated(assetClass, share);
+        rewardsSharePerCollateralClass[collateralClass] = share;
+        emit RewardsShareUpdated(collateralClass, share);
     }
 
     /// @inheritdoc IRewards
@@ -569,9 +569,9 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
     // INTERNAL FUNCTIONS
     // Helper functions
-    function _totalAssetClassShares() internal view returns (uint256 total) {
-        uint96[] memory ids = l1Middleware.getAssetClassIds();
-        for (uint256 i; i < ids.length; ++i) total += rewardsSharePerAssetClass[ids[i]];
+    function _totalCollateralClassShares() internal view returns (uint256 total) {
+        uint96[] memory ids = l1Middleware.getCollateralClassIds();
+        for (uint256 i; i < ids.length; ++i) total += rewardsSharePerCollateralClass[ids[i]];
     }
 
     /// @dev Reverts if fees exceed 100 % (10 000 bp)
@@ -582,11 +582,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
     // Calculation functions
     /// @dev Ensures the total stake cache is populated for the given epoch and asset class
-    function _ensureStakeCache(uint48 epoch, uint96 assetClass) internal returns (uint256 totalStake) {
-        totalStake = l1Middleware.totalStakeCache(epoch, assetClass);
+    function _ensureStakeCache(uint48 epoch, uint96 collateralClass) internal returns (uint256 totalStake) {
+        totalStake = l1Middleware.totalStakeCache(epoch, collateralClass);
         if (totalStake == 0) {
-            try l1Middleware.calcAndCacheStakes(epoch, assetClass) {} catch {}
-            totalStake = l1Middleware.totalStakeCache(epoch, assetClass);
+            try l1Middleware.calcAndCacheStakes(epoch, collateralClass) {} catch {}
+            totalStake = l1Middleware.totalStakeCache(epoch, collateralClass);
         }
     }
 
@@ -607,27 +607,27 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalBeneficiaryShare = 0;
         uint256 totalOperatorFeeShare = 0;
 
-        uint96[] memory assetClasses = l1Middleware.getAssetClassIds();
+        uint96[] memory collateralClasses = l1Middleware.getCollateralClassIds();
         uint256 rawShare;
         uint256 operatorFeeShare;
-        for (uint256 i = 0; i < assetClasses.length; i++) {
-            uint96 assetClass = assetClasses[i];
-            uint16 assetClassShare = rewardsSharePerAssetClass[assetClass];
-            uint256 totalStake = _ensureStakeCache(epoch, assetClass);
-            if (totalStake == 0 || assetClassShare == 0) continue;
+        for (uint256 i = 0; i < collateralClasses.length; i++) {
+            uint96 collateralClass = collateralClasses[i];
+            uint16 collateralClassShare = rewardsSharePerCollateralClass[collateralClass];
+            uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
+            if (totalStake == 0 || collateralClassShare == 0) continue;
 
-            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, assetClass);
+            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass);
 
             rawShare = Math.mulDiv(
                 Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
-                assetClassShare,
+                collateralClassShare,
                 BASIS_POINTS_DENOMINATOR
             );
             rawShare = Math.mulDiv(rawShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
 
             operatorFeeShare = Math.mulDiv(rawShare, operatorFee, BASIS_POINTS_DENOMINATOR);
 
-            operatorBeneficiariesSharesPerAssetClass[epoch][operator][assetClass] = rawShare - operatorFeeShare;
+            operatorBeneficiariesSharesPerCollateralClass[epoch][operator][collateralClass] = rawShare - operatorFeeShare;
 
             totalOperatorFeeShare += operatorFeeShare;
             totalBeneficiaryShare += rawShare - operatorFeeShare;
@@ -647,22 +647,22 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         for (uint256 i = 0; i < vaults.length; i++) {
             address vault = vaults[i];
-            uint96 vaultAssetClass = middlewareVaultManager.getVaultAssetClass(vault);
+            uint96 vaultCollateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
 
-            uint256 operatorAssetClassShare = operatorBeneficiariesSharesPerAssetClass[epoch][operator][vaultAssetClass];
-            if (operatorAssetClassShare == 0) continue;
+            uint256 operatorCollateralClassShare = operatorBeneficiariesSharesPerCollateralClass[epoch][operator][vaultCollateralClass];
+            if (operatorCollateralClassShare == 0) continue;
 
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                l1Middleware.L1_VALIDATOR_MANAGER(), vaultAssetClass, operator, epochTs, new bytes(0)
+                l1Middleware.L1_VALIDATOR_MANAGER(), vaultCollateralClass, operator, epochTs, new bytes(0)
             );
 
             if (vaultStake > 0) {
                 uint256 operatorActiveStake =
-                    l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultAssetClass);
+                    l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultCollateralClass);
                 if (operatorActiveStake == 0) continue;
                 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
-                vaultShare = Math.mulDiv(vaultShare, operatorAssetClassShare, BASIS_POINTS_DENOMINATOR);
+                vaultShare = Math.mulDiv(vaultShare, operatorCollateralClassShare, BASIS_POINTS_DENOMINATOR);
 
                 uint256 curatorShare = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
                 address curator = VaultTokenized(vault).owner();

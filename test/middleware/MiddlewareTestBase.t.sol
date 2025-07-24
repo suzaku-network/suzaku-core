@@ -16,7 +16,7 @@ import {
     AvalancheL1MiddlewareSettings
 } from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
 import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
-import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
+import {CollateralClassRegistry} from "../../src/contracts/middleware/CollateralClassRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
@@ -71,7 +71,7 @@ abstract contract MiddlewareTestBase is Test {
     address internal tokenB;
     address internal l1;
     uint256 internal l1PrivateKey;
-    uint96 internal assetClassId;
+    uint96 internal collateralClassId;
     uint256 internal maxVaultL1Limit;
     uint256 internal depositedAmount;
     uint256 internal mintedShares;
@@ -357,8 +357,8 @@ abstract contract MiddlewareTestBase is Test {
         );
 
         vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware), 24); // 24 epoch delay
-        // middleware.addAssetClass(2, primaryAssetMinStake, primaryAssetMaxStake);
-        // middleware.activateSecondaryAssetClass(0);
+        // middleware.addCollateralClass(2, primaryAssetMinStake, primaryAssetMaxStake);
+        // middleware.activateSecondaryCollateralClass(0);
 
         // Set the vault manager in the middleware
         middleware.setVaultManager(address(vaultManager));
@@ -377,11 +377,11 @@ abstract contract MiddlewareTestBase is Test {
         vm.deal(validatorManagerAddress, 1 ether);
 
         _registerL1(validatorManagerAddress, address(middleware));
-        assetClassId = 1;
+        collateralClassId = 1;
         maxVaultL1Limit = 3000 ether;
 
         vm.startPrank(validatorManagerAddress);
-        vaultManager.registerVault(address(vault), assetClassId, maxVaultL1Limit);
+        vaultManager.registerVault(address(vault), collateralClassId, maxVaultL1Limit);
         vm.stopPrank();
 
         // Register all operators
@@ -423,8 +423,8 @@ abstract contract MiddlewareTestBase is Test {
         (depositedAmount, mintedShares) = vault.deposit(staker, 550_000_000_000_000);
         vm.stopPrank();
 
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, l1Limit, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares, delegator);
+        _setL1Limit(bob, validatorManagerAddress, collateralClassId, l1Limit, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, mintedShares, delegator);
 
         // Setup Charlie as operator for both vault1 and vault2
         // First deposit to vault1
@@ -436,7 +436,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Add Charlie's shares from vault1 (existing limit is already set)
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, charlieVault1Shares, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, charlieVault1Shares, delegator);
 
         // Then deposit to vault2
         uint256 charlieVault2DepositAmount = 220_000_000_000_000;
@@ -447,7 +447,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for Charlie from vault2
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, charlieVault2Shares, delegator2);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, charlieVault2Shares, delegator2);
 
         // Setup Dave as operator for vault2
         uint256 daveVault2DepositAmount = 200_000_000_000_000;
@@ -458,7 +458,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for Dave from vault2
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, dave, daveVault2Shares, delegator2);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, dave, daveVault2Shares, delegator2);
 
         // Setup vault3 with new collateral for Alice, Charlie and Dave
         uint256 vault3DepositAmount = 100_000_000_000_000;
@@ -582,25 +582,25 @@ abstract contract MiddlewareTestBase is Test {
     function _setL1Limit(
         address user,
         address _l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         uint256 amount,
         L1RestakeDelegator delegator_
     ) internal {
         vm.startPrank(user);
-        delegator_.setL1Limit(_l1, assetClass, amount);
+        delegator_.setL1Limit(_l1, collateralClass, amount);
         vm.stopPrank();
     }
 
     function _setOperatorL1Shares(
         address user,
         address _l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint256 shares,
         L1RestakeDelegator delegator_
     ) internal {
         vm.startPrank(user);
-        delegator_.setOperatorL1Shares(_l1, assetClass, operator, shares);
+        delegator_.setOperatorL1Shares(_l1, collateralClass, operator, shares);
         vm.stopPrank();
     }
 
@@ -655,8 +655,8 @@ abstract contract MiddlewareTestBase is Test {
     }
 
     // Create a new asset class and register vault3 with it
-    function _setupAssetClassAndRegisterVault(
-        uint96 assetClassId_,
+    function _setupCollateralClassAndRegisterVault(
+        uint96 collateralClassId_,
         uint256 minValidatorStake_,
         Token collateral_,
         VaultTokenized vault_,
@@ -665,11 +665,11 @@ abstract contract MiddlewareTestBase is Test {
         L1RestakeDelegator delegator_
     ) internal {
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(assetClassId_, minValidatorStake_, 0, address(collateral_));
-        middleware.activateSecondaryAssetClass(assetClassId_);
-        vaultManager.registerVault(address(vault_), assetClassId_, maxVaultLimit_);
+        middleware.addCollateralClass(collateralClassId_, minValidatorStake_, 0, address(collateral_));
+        middleware.activateSecondaryCollateralClass(collateralClassId_);
+        vaultManager.registerVault(address(vault_), collateralClassId_, maxVaultLimit_);
         vm.stopPrank();
-        _setL1Limit(bob, validatorManagerAddress, assetClassId_, l1Limit_, delegator_);
+        _setL1Limit(bob, validatorManagerAddress, collateralClassId_, l1Limit_, delegator_);
     }
 
     function _warpToLastHourOfCurrentEpoch() internal {
@@ -796,7 +796,7 @@ abstract contract MiddlewareTestBase is Test {
         uint8 stakeDeltaMask,
         uint8 removeMask
     ) internal {
-        (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
+        (uint256 minStake,) = middleware.getClassStakingRequirements(collateralClassId);
         uint48 epoch = middleware.getCurrentEpoch();
 
         for (uint256 i = 0; i < nodeIds.length; i++) {

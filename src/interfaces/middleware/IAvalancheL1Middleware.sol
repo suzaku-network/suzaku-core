@@ -17,11 +17,11 @@ import {
  */
 interface IAvalancheL1Middleware {
     // Errors
-    error AvalancheL1Middleware__ActiveSecondaryAssetClass(uint256 assetClassId);
-    error AvalancheL1Middleware__AssetClassNotActive(uint256 assetClassId);
-    error AvalancheL1Middleware__AssetStillInUse(uint256 assetClassId);
+    error AvalancheL1Middleware__ActiveSecondaryCollateralClass(uint256 collateralClassId);
+    error AvalancheL1Middleware__CollateralClassNotActive(uint256 collateralClassId);
+    error AvalancheL1Middleware__AssetStillInUse(uint256 collateralClassId);
     error AvalancheL1Middleware__WeightUpdateNotPending(bytes32 validationId);
-    error AvalancheL1Middleware__CollateralNotInAssetClass(address collateral, uint96 assetClassId);
+    error AvalancheL1Middleware__CollateralNotInCollateralClass(address collateral, uint96 collateralClassId);
     error AvalancheL1Middleware__EpochError(uint48 epochStartTs);
     error AvalancheL1Middleware__InsufficientStake();
     error AvalancheL1Middleware__InvalidStakeAmount();
@@ -114,19 +114,19 @@ interface IAvalancheL1Middleware {
     // External functions
     /**
      * @notice Activates a secondary asset class
-     * @param assetClassId The asset class ID to activate
+     * @param collateralClassId The asset class ID to activate
      */
 
-    function activateSecondaryAssetClass(
-        uint256 assetClassId
+    function activateSecondaryCollateralClass(
+        uint256 collateralClassId
     ) external;
 
     /**
      * @notice Deactivates a secondary asset class
-     * @param assetClassId The asset class ID to deactivate
+     * @param collateralClassId The asset class ID to deactivate
      */
-    function deactivateSecondaryAssetClass(
-        uint256 assetClassId
+    function deactivateSecondaryCollateralClass(
+        uint256 collateralClassId
     ) external;
 
     /**
@@ -230,17 +230,17 @@ interface IAvalancheL1Middleware {
      * @param epoch The epoch of the slash
      * @param operator The operator being slashed
      * @param amount The slash amount
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      */
-    function slash(uint48 epoch, address operator, uint256 amount, uint96 assetClassId) external;
+    function slash(uint48 epoch, address operator, uint256 amount, uint96 collateralClassId) external;
 
     /**
      * @notice Calculates and caches total stake for an epoch
      * @param epoch The epoch number
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return totalStake The total stake calculated and cached
      */
-    function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) external returns (uint256);
+    function calcAndCacheStakes(uint48 epoch, uint96 collateralClassId) external returns (uint256);
 
     /**
      * @notice Calculates and caches node stakes for all operators retroactively for all epochs
@@ -252,15 +252,15 @@ interface IAvalancheL1Middleware {
      * @return primary The primary asset class
      * @return secondaries An array of secondary asset classes
      */
-    function getActiveAssetClasses() external view returns (uint256 primary, uint256[] memory secondaries);
+    function getActiveCollateralClasses() external view returns (uint256 primary, uint256[] memory secondaries);
 
     /**
      * @notice Checks if the classId is active
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return bool True if active
      */
-    function isActiveAssetClass(
-        uint96 assetClassId
+    function isActiveCollateralClass(
+        uint96 collateralClassId
     ) external view returns (bool);
 
     /**
@@ -291,18 +291,18 @@ interface IAvalancheL1Middleware {
      * @notice Returns an operator's stake at a given epoch for a specific asset class
      * @param operator The operator address
      * @param epoch The epoch number
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return stake The operator's stake
      */
-    function getOperatorStake(address operator, uint48 epoch, uint96 assetClassId) external view returns (uint256);
+    function getOperatorStake(address operator, uint48 epoch, uint96 collateralClassId) external view returns (uint256);
 
     /**
      * @notice Returns total stake across all operators in a specific epoch
      * @param epoch The epoch number
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return The total stake in that epoch
      */
-    function getTotalStake(uint48 epoch, uint96 assetClassId) external view returns (uint256);
+    function getTotalStake(uint48 epoch, uint96 collateralClassId) external view returns (uint256);
 
     /**
      * @notice Returns all operators
@@ -353,12 +353,12 @@ interface IAvalancheL1Middleware {
      * @notice Returns the true active stake for an operator in a given epoch and asset class
      * @param epoch The epoch number
      * @param operator The operator address
-     * @param assetClass The asset class ID
+     * @param collateralClass The asset class ID
      * @return The true active stake
      */
     function getOperatorUsedStakeCachedPerEpoch(
         uint48 epoch,
         address operator,
-        uint96 assetClass
+        uint96 collateralClass
     ) external view returns (uint256);
 }

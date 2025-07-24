@@ -66,7 +66,7 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
         console2.log("Advancing and caching stakes");
         _calcAndWarpOneEpoch();
         // epoch rollover, stakes cached
-        middleware.calcAndCacheStakes(epoch, assetClassId);
+        middleware.calcAndCacheStakes(epoch, collateralClassId);
         // ensure operator stakes cached
         // --- STEP 5: mark everyone as fully up for the epoch ----------------
         console2.log("Marking everyone as fully up for the epoch");
@@ -175,7 +175,7 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
         
         // 100 % of rewards go to the primary asset-class (id 1) ---------------
         vm.startPrank(REWARDS_MANAGER_ROLE);
-        rewards.setRewardsShareForAssetClass(1, 10000); // 10 000 bp == 100 %
+        rewards.setRewardsShareForCollateralClass(1, 10000); // 10 000 bp == 100 %
         vm.stopPrank();
     }
 }

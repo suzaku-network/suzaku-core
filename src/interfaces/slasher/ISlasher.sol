@@ -38,14 +38,14 @@ interface ISlasher is IBaseSlasher {
     /**
      * @notice Emitted when a slash is performed.
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param operator operator that is slashed
      * @param slashedAmount virtual amount of the collateral slashed
      * @param captureTimestamp time point when the stake was captured
      */
     event Slash(
         address indexed l1,
-        uint96 indexed assetClass,
+        uint96 indexed collateralClass,
         address indexed operator,
         uint256 slashedAmount,
         uint48 captureTimestamp
@@ -54,7 +54,7 @@ interface ISlasher is IBaseSlasher {
     /**
      * @notice Perform a slash using a subnetwork for a particular operator by a given amount using hints.
      * @param l1 address of the l1
-     * @param assetClass the uint96 assetClass
+     * @param collateralClass the uint96 collateralClass
      * @param operator address of the operator
      * @param amount maximum amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -64,7 +64,7 @@ interface ISlasher is IBaseSlasher {
      */
     function slash(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,

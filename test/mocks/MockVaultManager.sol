@@ -15,7 +15,7 @@ contract MockVaultManager is Ownable {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
 
-    mapping(address => uint96) public vaultToAssetClass;
+    mapping(address => uint96) public vaultToCollateralClass;
     EnumerableMap.AddressToUintMap private _vaults;
 
     address[] public vaults; // Keep for backward compatibility with existing tests
@@ -34,12 +34,12 @@ contract MockVaultManager is Ownable {
     error MiddlewareVaultManager__VaultAlreadyRegistered();
     error MiddlewareVaultManager__VaultEpochTooShort();
     error MiddlewareVaultManager__NotVault(address vault);
-    error MiddlewareVaultManager__WrongVaultAssetClass();
+    error MiddlewareVaultManager__WrongVaultCollateralClass();
     error MiddlewareVaultManager__VaultNotDisabled();
     error MiddlewareVaultManager__VaultGracePeriodNotPassed();
     error MiddlewareVaultManager__SlasherNotImplemented();
-    error AvalancheL1Middleware__AssetClassNotActive(uint96 assetClass);
-    error AvalancheL1Middleware__CollateralNotInAssetClass(address collateral, uint96 assetClass);
+    error AvalancheL1Middleware__CollateralClassNotActive(uint96 collateralClass);
+    error AvalancheL1Middleware__CollateralNotInCollateralClass(address collateral, uint96 collateralClass);
 
     constructor() Ownable(msg.sender) {
         VAULT_REGISTRY = address(0); // Mock doesn't need real registry
@@ -50,10 +50,10 @@ contract MockVaultManager is Ownable {
     /**
      * @notice Registers a vault to a specific asset class, sets the max stake.
      * @param vault The vault address
-     * @param assetClassId The asset class ID for that vault
+     * @param collateralClassId The asset class ID for that vault
      * @param vaultMaxL1Limit The maximum stake allowed for this vault
      */
-    function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+    function registerVault(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (vaultMaxL1Limit == 0) {
             revert MiddlewareVaultManager__ZeroVaultMaxL1Limit();
         }
@@ -71,8 +71,8 @@ contract MockVaultManager is Ownable {
         //     revert MiddlewareVaultManager__VaultEpochTooShort();
         // }
 
-        vaultToAssetClass[vault] = assetClassId;
-        _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
+        vaultToCollateralClass[vault] = collateralClassId;
+        _setVaultMaxL1Limit(vault, collateralClassId, vaultMaxL1Limit);
 
         _vaults.add(vault);
         _vaults.enable(vault);
@@ -82,18 +82,18 @@ contract MockVaultManager is Ownable {
     /**
      * @notice Updates a vault's max L1 stake limit. Disables or enables the vault based on the new limit
      * @param vault The vault address
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @param vaultMaxL1Limit The new maximum stake
      */
-    function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+    function updateVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!_vaults.contains(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
-        if (vaultToAssetClass[vault] != assetClassId) {
-            revert MiddlewareVaultManager__WrongVaultAssetClass();
+        if (vaultToCollateralClass[vault] != collateralClassId) {
+            revert MiddlewareVaultManager__WrongVaultCollateralClass();
         }
 
-        _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
+        _setVaultMaxL1Limit(vault, collateralClassId, vaultMaxL1Limit);
 
         if (vaultMaxL1Limit == 0) {
             _vaults.disable(vault);
@@ -125,7 +125,7 @@ contract MockVaultManager is Ownable {
 
         // Remove from vaults and clear mapping
         _vaults.remove(vault);
-        delete vaultToAssetClass[vault];
+        delete vaultToCollateralClass[vault];
 
         // Remove from array for backward compatibility
         for (uint256 i = 0; i < vaults.length; i++) {
@@ -140,10 +140,8 @@ contract MockVaultManager is Ownable {
     /**
      * @notice Sets a vault's max L1 stake limit
      * @param vault The vault address
-     * @param assetClassId The asset class ID
-     * @param amount The new maximum stake
      */
-    function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal {
+    function _setVaultMaxL1Limit(address vault, uint96 /* collateralClassId */, uint256 /* amount */) internal pure {
         // Mock implementation - basic validation
         if (vault == address(0)) {
             revert MiddlewareVaultManager__NotVault(vault);
@@ -153,17 +151,17 @@ contract MockVaultManager is Ownable {
         // if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
         //     revert MiddlewareVaultManager__NotVault(vault);
         // }
-        // if (!middleware.isActiveAssetClass(assetClassId)) {
-        //     revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive(assetClassId);
+        // if (!middleware.isActiveCollateralClass(collateralClassId)) {
+        //     revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralClassNotActive(collateralClassId);
         // }
         // address vaultCollateral = IVaultTokenized(vault).collateral();
-        // if (!middleware.isAssetInClass(assetClassId, vaultCollateral)) {
-        //     revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInAssetClass(
-        //         vaultCollateral, assetClassId
+        // if (!middleware.isAssetInClass(collateralClassId, vaultCollateral)) {
+        //     revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInCollateralClass(
+        //         vaultCollateral, collateralClassId
         //     );
         // }
         // address delegator = IVaultTokenized(vault).delegator();
-        // BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), assetClassId, amount);
+        // BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), collateralClassId, amount);
     }
 
     function slashVault() external pure {
@@ -208,12 +206,12 @@ contract MockVaultManager is Ownable {
         return _vaults.atWithTimes(index);
     }
 
-    function getVaultAssetClass(address vault) external view returns (uint96) {
-        return vaultToAssetClass[vault];
+    function getVaultCollateralClass(address vault) external view returns (uint96) {
+        return vaultToCollateralClass[vault];
     }
 
-    function setVaultAssetClass(address vault, uint96 assetClass) external {
-        vaultToAssetClass[vault] = assetClass;
+    function setVaultCollateralClass(address vault, uint96 collateralClass) external {
+        vaultToCollateralClass[vault] = collateralClass;
     }
 
     // Allow setting the middleware after construction for testing

@@ -13,7 +13,7 @@ contract MockAvalancheL1Middleware {
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStake;
     mapping(uint48 => mapping(uint96 => uint256)) public totalStakeCache;
     mapping(uint48 => mapping(address => mapping(uint96 => uint256))) public operatorStake;
-    mapping(address asset => uint96 assetClass) public assetClassAsset;
+    mapping(address asset => uint96 collateralClass) public collateralClassAsset;
 
     // Replace constant arrays with state variables
     address[] private OPERATORS;
@@ -26,9 +26,9 @@ contract MockAvalancheL1Middleware {
     mapping(address => bool) public isEnabled;
     mapping(address => uint256) public disabledTime;
 
-    uint96 primaryAssetClass = 1;
-    uint96[] secondaryAssetClasses = [2, 3];
-    uint96[] private assetClassIds = [1, 2, 3]; // Initialize with default asset classes
+    uint96 primaryCollateralClass = 1;
+    uint96[] secondaryCollateralClasses = [2, 3];
+    uint96[] private collateralClassIds = [1, 2, 3]; // Initialize with default asset classes
 
     constructor(
         uint256 operatorCount,
@@ -87,12 +87,12 @@ contract MockAvalancheL1Middleware {
         }
     }
 
-    function setTotalStakeCache(uint48 epoch, uint96 assetClass, uint256 stake) external {
-        totalStakeCache[epoch][assetClass] = stake;
+    function setTotalStakeCache(uint48 epoch, uint96 collateralClass, uint256 stake) external {
+        totalStakeCache[epoch][collateralClass] = stake;
     }
 
-    function setOperatorStake(uint48 epoch, address operator, uint96 assetClass, uint256 stake) external {
-        operatorStake[epoch][operator][assetClass] = stake;
+    function setOperatorStake(uint48 epoch, address operator, uint96 collateralClass, uint256 stake) external {
+        operatorStake[epoch][operator][collateralClass] = stake;
     }
 
     function setNodeStake(uint48 epoch, bytes32 nodeId, uint256 stake) external {
@@ -114,9 +114,9 @@ contract MockAvalancheL1Middleware {
     function getOperatorUsedStakeCachedPerEpoch(
         uint48 epoch,
         address operator,
-        uint96 assetClass
+        uint96 collateralClass
     ) external view returns (uint256) {
-        if (assetClass == 1) {
+        if (collateralClass == 1) {
             bytes32[] storage nodesArr = operatorToNodes[operator];
             uint256 stake = 0;
 
@@ -126,12 +126,12 @@ contract MockAvalancheL1Middleware {
             }
             return stake;
         } else {
-            return this.getOperatorStake(operator, epoch, assetClass);
+            return this.getOperatorStake(operator, epoch, collateralClass);
         }
     }
 
-    function getOperatorStake(address operator, uint48 epoch, uint96 assetClass) external view returns (uint256) {
-        return operatorStake[epoch][operator][assetClass];
+    function getOperatorStake(address operator, uint48 epoch, uint96 collateralClass) external view returns (uint256) {
+        return operatorStake[epoch][operator][collateralClass];
     }
 
     /// @notice Returns the mock epoch at a given timestamp.
@@ -148,26 +148,26 @@ contract MockAvalancheL1Middleware {
         return epoch * EPOCH_DURATION + 1;
     }
 
-    function getActiveAssetClasses() external view returns (uint96, uint96[] memory) {
-        return (primaryAssetClass, secondaryAssetClasses);
+    function getActiveCollateralClasses() external view returns (uint96, uint96[] memory) {
+        return (primaryCollateralClass, secondaryCollateralClasses);
     }
 
-    function setAssetClassIds(uint96[] memory newAssetClassIds) external {
+    function setCollateralClassIds(uint96[] memory newCollateralClassIds) external {
         // Clear existing array
-        delete assetClassIds;
+        delete collateralClassIds;
         
         // Copy new asset class IDs
-        for (uint256 i = 0; i < newAssetClassIds.length; i++) {
-            assetClassIds.push(newAssetClassIds[i]);
+        for (uint256 i = 0; i < newCollateralClassIds.length; i++) {
+            collateralClassIds.push(newCollateralClassIds[i]);
         }
     }
 
-    function getAssetClassIds() external view returns (uint96[] memory) {
-        uint96[] memory assetClasses = new uint96[](3);
-        assetClasses[0] = primaryAssetClass;
-        assetClasses[1] = secondaryAssetClasses[0];
-        assetClasses[2] = secondaryAssetClasses[1];
-        return assetClasses;
+    function getCollateralClassIds() external view returns (uint96[] memory) {
+        uint96[] memory collateralClasses = new uint96[](3);
+        collateralClasses[0] = primaryCollateralClass;
+        collateralClasses[1] = secondaryCollateralClasses[0];
+        collateralClasses[2] = secondaryCollateralClasses[1];
+        return collateralClasses;
     }
 
     /// @notice Returns the active nodes for an operator in a given epoch.
@@ -187,16 +187,16 @@ contract MockAvalancheL1Middleware {
         return VALIDATION_ID_ARRAY;
     }
 
-    function isAssetInClass(uint256 assetClass, address asset) external view returns (bool) {
-        uint96 assetClassRegistered = assetClassAsset[asset];
-        if (assetClassRegistered == assetClass) {
+    function isAssetInClass(uint256 collateralClass, address asset) external view returns (bool) {
+        uint96 collateralClassRegistered = collateralClassAsset[asset];
+        if (collateralClassRegistered == collateralClass) {
             return true;
         }
         return false;
     }
 
-    function setAssetInAssetClass(uint96 assetClass, address asset) external {
-        assetClassAsset[asset] = assetClass;
+    function setAssetInCollateralClass(uint96 collateralClass, address asset) external {
+        collateralClassAsset[asset] = collateralClass;
     }
 
     function getVaultManager() external view returns (address) {
@@ -207,15 +207,15 @@ contract MockAvalancheL1Middleware {
      * @notice Simulates the real contract's stake calculation and caching.
      * @dev This now has the correct signature `public returns (uint256)` to match the interface.
      */
-    function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) public returns (uint256 totalStake) {
+    function calcAndCacheStakes(uint48 epoch, uint96 collateralClassId) public returns (uint256 totalStake) {
         // This logic mimics the real contract by summing the individual operator stakes
         // that were configured during the test's setup phase.
         for (uint256 i = 0; i < OPERATORS.length; i++) {
-            totalStake += operatorStake[epoch][OPERATORS[i]][assetClassId];
+            totalStake += operatorStake[epoch][OPERATORS[i]][collateralClassId];
         }
 
         // Cache the calculated total stake so the Rewards contract can read it.
-        totalStakeCache[epoch][assetClassId] = totalStake;
+        totalStakeCache[epoch][collateralClassId] = totalStake;
 
         // Return the calculated value as per the real interface.
         return totalStake;

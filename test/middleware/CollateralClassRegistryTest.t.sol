@@ -6,12 +6,12 @@ pragma solidity 0.8.25;
 import {Test, console2} from "forge-std/Test.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
-import {IAssetClassRegistry} from "../../src/interfaces/middleware/IAssetClassRegistry.sol";
-import {MockAssetClassRegistry} from "../mocks/MockAssetClassRegistry.sol";
+import {CollateralClassRegistry} from "../../src/contracts/middleware/CollateralClassRegistry.sol";
+import {ICollateralClassRegistry} from "../../src/interfaces/middleware/ICollateralClassRegistry.sol";
+import {MockCollateralClassRegistry} from "../mocks/MockCollateralClassRegistry.sol";
 
-contract AssetClassRegistryTest is Test {
-    MockAssetClassRegistry assetClassRegistry;
+contract CollateralClassRegistryTest is Test {
+    MockCollateralClassRegistry collateralClassRegistry;
 
     address owner;
     address alice;
@@ -28,32 +28,32 @@ contract AssetClassRegistryTest is Test {
         tokenB = makeAddr("tokenB");
         tokenC = makeAddr("tokenC");
 
-        // Deploy the new child AssetClassRegistry
-        assetClassRegistry = new MockAssetClassRegistry(owner);
-        // Deploy the new AssetClassRegistry
+        // Deploy the new child CollateralClassRegistry
+        collateralClassRegistry = new MockCollateralClassRegistry(owner);
+        // Deploy the new CollateralClassRegistry
         // The constructor automatically creates class "1" with:
         // - minValidatorStake = 50
         // - maxValidatorStake = 1000
-        // assetClassRegistry = new AssetClassRegistry(1000, 50, tokenA);
+        // collateralClassRegistry = new CollateralClassRegistry(1000, 50, tokenA);
 
         // Manually add a primary asset to class and primary asset with tokenA
-        assetClassRegistry.addAssetClass(1, 50, 1000, tokenA);
-        // declare primaryAsset from assetClassRegistry as tokenA
-        assetClassRegistry.setPrimaryAsset(address(tokenA));
+        collateralClassRegistry.addCollateralClass(1, 50, 1000, tokenA);
+        // declare primaryAsset from collateralClassRegistry as tokenA
+        collateralClassRegistry.setPrimaryAsset(address(tokenA));
 
         // Add a "secondary" class #2
-        assetClassRegistry.addAssetClass(2, 10, 0, tokenB);
+        collateralClassRegistry.addCollateralClass(2, 10, 0, tokenB);
     }
 
     function test_DefaultClass1Values() public view {
         // Class 1 is auto-created in the constructor
-        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = assetClassRegistry.getClassStakingRequirements(1);
+        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = collateralClassRegistry.getClassStakingRequirements(1);
         assertEq(primaryAssetMinStake, 50, "Expected primaryAssetMinStake = 50 for class 1");
         assertEq(primaryAssetMaxStake, 1000, "Expected primaryAssetMaxStake = 1000 for class 1");
     }
 
     function test_PrimaryAssetIsInClass1() public view {
-        address[] memory assets = assetClassRegistry.getClassAssets(1);
+        address[] memory assets = collateralClassRegistry.getClassAssets(1);
         assertEq(assets.length, 1, "Expected exactly 1 default asset in class 1");
         assertEq(assets[0], tokenA, "Expected tokenA to be in class 1 as default asset");
     }
@@ -63,24 +63,24 @@ contract AssetClassRegistryTest is Test {
     function test_RevertOnRemovePrimaryAssetFromClass1() public {
         // Trying to remove the default asset (tokenA) from class #1 must revert
         vm.expectRevert(
-            abi.encodeWithSelector(IAssetClassRegistry.AssetClassRegistry__AssetIsPrimaryAssetClass.selector, 1)
+            abi.encodeWithSelector(ICollateralClassRegistry.CollateralClassRegistry__AssetIsPrimaryCollateralClass.selector, 1)
         );
-        assetClassRegistry.removeAssetFromClass(1, tokenA);
+        collateralClassRegistry.removeAssetFromClass(1, tokenA);
     }
 
     function test__addAssetToClass1() public {
         // Add something other than the default asset
-        assetClassRegistry.addAssetToClass(1, tokenB);
-        address[] memory assets = assetClassRegistry.getClassAssets(1);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
+        address[] memory assets = collateralClassRegistry.getClassAssets(1);
         // Now we should have tokenA (default) + tokenB
         assertEq(assets.length, 2, "Expected 2 assets in class 1");
     }
 
     function test_MultipleAssetsInClass1() public {
-        assetClassRegistry.addAssetToClass(1, tokenB);
-        assetClassRegistry.addAssetToClass(1, tokenC);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
+        collateralClassRegistry.addAssetToClass(1, tokenC);
 
-        address[] memory assets = assetClassRegistry.getClassAssets(1);
+        address[] memory assets = collateralClassRegistry.getClassAssets(1);
         // We now have: tokenA (default), tokenB, tokenC
         assertEq(assets.length, 3, "Expected 3 assets in class 1");
 
@@ -98,41 +98,41 @@ contract AssetClassRegistryTest is Test {
     }
 
     function test__addAssetToClass2() public {
-        assetClassRegistry.addAssetToClass(2, tokenC);
-        address[] memory assets = assetClassRegistry.getClassAssets(2);
+        collateralClassRegistry.addAssetToClass(2, tokenC);
+        address[] memory assets = collateralClassRegistry.getClassAssets(2);
         assertEq(assets.length, 2, "Expected 1 asset in class 2");
         assertEq(assets[0], tokenB, "Expected asset to match tokenB");
     }
 
     function test__removeAssetFromClass1() public {
         // Add an asset (alice) to class #1
-        assetClassRegistry.addAssetToClass(1, tokenB);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
 
         // Remove alice (allowed because she's not the default asset)
-        assetClassRegistry.removeAssetFromClass(1, tokenB);
+        collateralClassRegistry.removeAssetFromClass(1, tokenB);
 
         // Check that tokenA (default) is still there
-        address[] memory assets = assetClassRegistry.getClassAssets(1);
+        address[] memory assets = collateralClassRegistry.getClassAssets(1);
         assertEq(assets.length, 1, "Expected 1 asset (the default) left in class 1");
         assertEq(assets[0], tokenA, "Expected the default asset to remain in class 1");
     }
 
     function test_RevertOn_addAssetToInvalidClass() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
-        assetClassRegistry.addAssetToClass(999, alice);
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__CollateralClassNotFound.selector);
+        collateralClassRegistry.addAssetToClass(999, alice);
     }
 
     function test_RevertOnAddZeroAddress() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__InvalidAsset.selector);
-        assetClassRegistry.addAssetToClass(1, address(0));
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__InvalidAsset.selector);
+        collateralClassRegistry.addAssetToClass(1, address(0));
     }
 
     function test_MultipleAssetsInClass2() public {
-        assetClassRegistry.addAssetToClass(2, tokenA);
-        assetClassRegistry.addAssetToClass(2, tokenC);
+        collateralClassRegistry.addAssetToClass(2, tokenA);
+        collateralClassRegistry.addAssetToClass(2, tokenC);
         // tokenB already in class 2
 
-        address[] memory assets = assetClassRegistry.getClassAssets(2);
+        address[] memory assets = collateralClassRegistry.getClassAssets(2);
         assertEq(assets.length, 3, "Expected 3 assets in class 2");
 
         bool foundTokenA;
@@ -149,74 +149,74 @@ contract AssetClassRegistryTest is Test {
     }
 
     function test__removeAssetFromClass2() public {
-        assetClassRegistry.addAssetToClass(2, tokenC);
-        assetClassRegistry.removeAssetFromClass(2, tokenC);
-        address[] memory assets = assetClassRegistry.getClassAssets(2);
+        collateralClassRegistry.addAssetToClass(2, tokenC);
+        collateralClassRegistry.removeAssetFromClass(2, tokenC);
+        address[] memory assets = collateralClassRegistry.getClassAssets(2);
         assertEq(assets.length, 1, "Expected no assets in class 2 after removal");
     }
 
-    function test__addAssetClassAndCheckStakes() public {
+    function test__addCollateralClassAndCheckStakes() public {
         // Add new class #3
-        assetClassRegistry.addAssetClass(3, 123, 456, address(tokenC));
+        collateralClassRegistry.addCollateralClass(3, 123, 456, address(tokenC));
 
-        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = assetClassRegistry.getClassStakingRequirements(3);
+        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = collateralClassRegistry.getClassStakingRequirements(3);
         assertEq(primaryAssetMinStake, 123, "Expected primaryAssetMinStake = 123 for class 3");
         assertEq(primaryAssetMaxStake, 456, "Expected primaryAssetMaxStake = 456 for class 3");
     }
 
-    function test_RevertOnDuplicateAssetClass() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassAlreadyExists.selector);
+    function test_RevertOnDuplicateCollateralClass() public {
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__CollateralClassAlreadyExists.selector);
         // Class 1 and 2 already exist, so adding class 1 again reverts
-        assetClassRegistry.addAssetClass(1, 123, 456, tokenA);
+        collateralClassRegistry.addCollateralClass(1, 123, 456, tokenA);
     }
 
     function test_RevertOnGetAssetsForNonexistentClass() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
-        assetClassRegistry.getClassAssets(999);
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__CollateralClassNotFound.selector);
+        collateralClassRegistry.getClassAssets(999);
     }
 
     function test_RevertOn_removeAssetFromInvalidClass() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
-        assetClassRegistry.removeAssetFromClass(999, alice);
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__CollateralClassNotFound.selector);
+        collateralClassRegistry.removeAssetFromClass(999, alice);
     }
 
     function test_RevertOnRemoveNonexistentAsset() public {
-        assetClassRegistry.addAssetToClass(1, alice);
+        collateralClassRegistry.addAssetToClass(1, alice);
         // Try remove bob from class 1
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetNotFound.selector);
-        assetClassRegistry.removeAssetFromClass(1, bob);
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__AssetNotFound.selector);
+        collateralClassRegistry.removeAssetFromClass(1, bob);
     }
 
     function test_RevertOnAddDuplicateAsset() public {
-        assetClassRegistry.addAssetToClass(1, alice);
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetAlreadyRegistered.selector);
-        assetClassRegistry.addAssetToClass(1, alice);
+        collateralClassRegistry.addAssetToClass(1, alice);
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__AssetAlreadyRegistered.selector);
+        collateralClassRegistry.addAssetToClass(1, alice);
     }
 
     function test_RevertOnGetMinStakeForNonExistentClass() public {
-        vm.expectRevert(IAssetClassRegistry.AssetClassRegistry__AssetClassNotFound.selector);
-        assetClassRegistry.getClassStakingRequirements(999);
+        vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__CollateralClassNotFound.selector);
+        collateralClassRegistry.getClassStakingRequirements(999);
     }
 
-    function test_GetAssetClassIds() public {
+    function test_GetCollateralClassIds() public {
         // Add a new asset class #3
-        assetClassRegistry.addAssetClass(3, 100, 1000, tokenC);
+        collateralClassRegistry.addCollateralClass(3, 100, 1000, tokenC);
 
         // Get all asset class IDs
-        uint96[] memory assetClassIds = assetClassRegistry.getAssetClassIds();
+        uint96[] memory collateralClassIds = collateralClassRegistry.getCollateralClassIds();
 
         // We should have 3 classes (1, 2, and 3)
-        assertEq(assetClassIds.length, 3, "Expected 3 asset classes");
+        assertEq(collateralClassIds.length, 3, "Expected 3 asset classes");
 
         // Check that all expected class IDs are present
         bool found1;
         bool found2;
         bool found3;
 
-        for (uint256 i = 0; i < assetClassIds.length; i++) {
-            if (assetClassIds[i] == 1) found1 = true;
-            if (assetClassIds[i] == 2) found2 = true;
-            if (assetClassIds[i] == 3) found3 = true;
+        for (uint256 i = 0; i < collateralClassIds.length; i++) {
+            if (collateralClassIds[i] == 1) found1 = true;
+            if (collateralClassIds[i] == 2) found2 = true;
+            if (collateralClassIds[i] == 3) found3 = true;
         }
 
         assertTrue(found1, "Asset class 1 not found");

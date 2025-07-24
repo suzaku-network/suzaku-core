@@ -23,7 +23,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
 
-    mapping(address => uint96) public vaultToAssetClass;
+    mapping(address => uint96) public vaultToCollateralClass;
     EnumerableMap.AddressToUintMap private vaults;
 
     address public immutable VAULT_REGISTRY;
@@ -54,10 +54,10 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     /**
      * @notice Registers a vault to a specific asset class, sets the max stake.
      * @param vault The vault address
-     * @param assetClassId The asset class ID for that vault
+     * @param collateralClassId The asset class ID for that vault
      * @param vaultMaxL1Limit The maximum stake allowed for this vault
      */
-    function registerVault(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+    function registerVault(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (vaultMaxL1Limit == 0) {
             revert MiddlewareVaultManager__ZeroVaultMaxL1Limit();
         }
@@ -74,8 +74,8 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
             revert MiddlewareVaultManager__VaultEpochTooShort();
         }
 
-        vaultToAssetClass[vault] = assetClassId;
-        _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
+        vaultToCollateralClass[vault] = collateralClassId;
+        _setVaultMaxL1Limit(vault, collateralClassId, vaultMaxL1Limit);
 
         vaults.add(vault);
         vaults.enable(vault);
@@ -84,18 +84,18 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
     /**
      * @notice Updates a vault's max L1 stake limit. Disables or enables the vault based on the new limit
      * @param vault The vault address
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @param vaultMaxL1Limit The new maximum stake
      */
-    function updateVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+    function updateVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyOwner {
         if (!vaults.contains(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
-        if (vaultToAssetClass[vault] != assetClassId) {
-            revert MiddlewareVaultManager__WrongVaultAssetClass();
+        if (vaultToCollateralClass[vault] != collateralClassId) {
+            revert MiddlewareVaultManager__WrongVaultCollateralClass();
         }
 
-        _setVaultMaxL1Limit(vault, assetClassId, vaultMaxL1Limit);
+        _setVaultMaxL1Limit(vault, collateralClassId, vaultMaxL1Limit);
 
         (uint48 enabledTime, uint48 disabledTime) = vaults.getTimes(vault);
 
@@ -139,30 +139,30 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
 
         // Remove from vaults and clear mapping
         vaults.remove(vault);
-        delete vaultToAssetClass[vault];
+        delete vaultToCollateralClass[vault];
     }
 
     /**
      * @notice Sets a vault's max L1 stake limit
      * @param vault The vault address
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @param amount The new maximum stake
      */
-    function _setVaultMaxL1Limit(address vault, uint96 assetClassId, uint256 amount) internal onlyOwner {
+    function _setVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 amount) internal onlyOwner {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
-        if (!middleware.isActiveAssetClass(assetClassId)) {
-            revert IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive(assetClassId);
+        if (!middleware.isActiveCollateralClass(collateralClassId)) {
+            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralClassNotActive(collateralClassId);
         }
         address vaultCollateral = IVaultTokenized(vault).collateral();
-        if (!middleware.isAssetInClass(assetClassId, vaultCollateral)) {
-            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInAssetClass(
-                vaultCollateral, assetClassId
+        if (!middleware.isAssetInClass(collateralClassId, vaultCollateral)) {
+            revert IAvalancheL1Middleware.AvalancheL1Middleware__CollateralNotInCollateralClass(
+                vaultCollateral, collateralClassId
             );
         }
         address delegator = IVaultTokenized(vault).delegator();
-        BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), assetClassId, amount);
+        BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), collateralClassId, amount);
     }
 
     function slashVault() external pure {
@@ -179,10 +179,10 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         return vaults.atWithTimes(index);
     }
 
-    function getVaultAssetClass(
+    function getVaultCollateralClass(
         address vault
     ) external view returns (uint96) {
-        return vaultToAssetClass[vault];
+        return vaultToCollateralClass[vault];
     }
 
     function getVaults(

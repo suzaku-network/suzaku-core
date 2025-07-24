@@ -17,7 +17,7 @@ import {
 } from "../../src/contracts/middleware/AvalancheL1Middleware.sol";
 import {MiddlewareTestBase} from "./MiddlewareTestBase.t.sol";
 import {MiddlewareVaultManager} from "../../src/contracts/middleware/MiddlewareVaultManager.sol";
-import {AssetClassRegistry} from "../../src/contracts/middleware/AssetClassRegistry.sol";
+import {CollateralClassRegistry} from "../../src/contracts/middleware/CollateralClassRegistry.sol";
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
 import {SlasherFactory} from "../../src/contracts/SlasherFactory.sol";
@@ -60,7 +60,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     function test_DepositAndGetOperatorStake() public view {
         // middleware.addAssetToClass(1, address(collateral));
         uint48 epoch = middleware.getCurrentEpoch();
-        uint256 stakeAlice = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 stakeAlice = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("Alice stake:", stakeAlice);
         // Just a simple check
         assertGt(stakeAlice, 0, "Bob's stake should be > 0 now");
@@ -70,7 +70,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Move forward to let the vault roll epochs
         uint48 epoch = _calcAndWarpOneEpoch();
 
-        uint256 operatorStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 operatorStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("Operator stake (epoch", epoch, "):", operatorStake);
         assertGt(operatorStake, 0);
 
@@ -78,8 +78,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         epoch = _calcAndWarpOneEpoch();
 
         // Recalc stakes for new epoch
-        middleware.calcAndCacheStakes(epoch, assetClassId);
-        uint256 newStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        middleware.calcAndCacheStakes(epoch, collateralClassId);
+        uint256 newStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("New epoch operator stake:", newStake);
         assertGe(newStake, operatorStake);
 
@@ -89,7 +89,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     function test_AddNodeSimpleAndComplete() public {
         uint48 epoch = _calcAndWarpOneEpoch();
-        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         assertGt(totalStake, 0);
 
         // Add node
@@ -125,10 +125,10 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Set L1 limit
         vm.startPrank(bob);
-        delegator.setL1Limit(validatorManagerAddress, assetClassId, depositAmount);
+        delegator.setL1Limit(validatorManagerAddress, collateralClassId, depositAmount);
         vm.stopPrank();
 
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, stakeWanted, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, stakeWanted, delegator);
 
         // travel to next epoch
         _calcAndWarpOneEpoch();
@@ -176,7 +176,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     // function test_AddNodeSecondaryAsset() public {
     //     _calcAndWarpOneEpoch();
     //     uint48 epoch = middleware.getCurrentEpoch();
-    //     uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     uint256 totalStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
     //     assertGt(totalStake, 0);
 
     //     // Add node
@@ -192,7 +192,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     function test_AddNodeLateCompletition() public {
         uint48 epoch = _calcAndWarpOneEpoch();
-        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("Operator stake in epoch", epoch, ":", totalStake);
         assertGt(totalStake, 0);
 
@@ -291,7 +291,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     function test_RemoveNodeSimple() public {
         uint48 epoch = _calcAndWarpOneEpoch();
 
-        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         assertGt(totalStake, 0);
 
         (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) =
@@ -319,7 +319,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     function test_RemoveNodeLate() public {
         uint48 epoch = _calcAndWarpOneEpoch();
-        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         assertGt(totalStake, 0);
 
         // Add node
@@ -362,7 +362,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     function test_MultipleNodes() public {
         uint48 epoch = _calcAndWarpOneEpoch();
-        uint256 totalStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         assertGt(totalStake, 0);
 
         // Add node1 and node2
@@ -484,7 +484,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         }
 
         epoch = _calcAndWarpOneEpoch(1);
-        uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 updatedStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("Updated stake after partial withdraw & forceUpdateNodes:", updatedStake);
 
         // Claim
@@ -494,7 +494,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         console2.log("Claimed:", claimed);
 
         epoch = _calcAndWarpOneEpoch(1);
-        updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        updatedStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         nodeWeight1 = middleware.nodeStakeCache(epoch, validationID1);
         nodeWeight2 = middleware.nodeStakeCache(epoch, validationID2);
 
@@ -518,14 +518,14 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         console2.log("Making additional deposit:", extraDeposit);
         (uint256 newDeposit, uint256 newShares) = _deposit(staker, extraDeposit);
         uint256 totalShares = mintedShares + newShares;
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalShares, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, totalShares, delegator);
         console2.log("Additional deposit made. Amount:", newDeposit, "Shares:", newShares);
 
         epoch = _moveToNextEpochAndCalc(3);
 
         _warpToLastHourOfCurrentEpoch();
         epoch = middleware.getCurrentEpoch();
-        uint256 updatedStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 updatedStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("Operator stake after extra deposit (before forceUpdate):", updatedStake);
 
         uint256 oldUsedStake = middleware.getOperatorUsedStakeCached(alice);
@@ -684,7 +684,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Move to next epoch
         epoch = _calcAndWarpOneEpoch();
 
-        uint256 stakeNow = middleware.getNodeStake(epoch, validationID);
+        /* uint256 stakeNow = */ middleware.getNodeStake(epoch, validationID);
 
         // Confirm removal
         vm.prank(alice);
@@ -913,8 +913,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Operator deposit (50-100 ETH)
         uint256 depositAmount = bound(uint256(seedNodeCount) * 10, 50 ether, 100 ether);
         (uint256 depositUsed, uint256 mintedShares_) = _deposit(staker, depositAmount);
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsed, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedShares_, delegator);
+        _setL1Limit(bob, validatorManagerAddress, collateralClassId, depositUsed, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, mintedShares_, delegator);
 
         // BLS key and owners
         bytes memory blsKey = hex"abcd1234";
@@ -984,7 +984,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         }
 
         // Fuzz stake up/down or remove nodes
-        (uint256 _minStake,) = middleware.getClassStakingRequirements(assetClassId);
+        (uint256 _minStake,) = middleware.getClassStakingRequirements(collateralClassId);
 
         for (uint256 i = 0; i < nodeCount; i++) {
             if (!isActive[i]) continue;
@@ -1109,7 +1109,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         (uint256 depositUsedA, uint256 mintedSharesA) = vault.deposit(staker, depositAmountA);
         vm.stopPrank();
 
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, mintedSharesA, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, mintedSharesA, delegator);
 
         uint256 depositAmountB = bound(uint256(seedNodeCountB) * 10, 50 ether, 100 ether);
         // Use staker to deposit for Charlie
@@ -1119,8 +1119,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         (uint256 depositUsedB, uint256 mintedSharesB) = vault.deposit(staker, depositAmountB);
         vm.stopPrank();
 
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositUsedA + depositUsedB, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, charlie, mintedSharesB, delegator);
+        _setL1Limit(bob, validatorManagerAddress, collateralClassId, depositUsedA + depositUsedB, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, mintedSharesB, delegator);
         _calcAndWarpOneEpoch();
 
         // Create nodes for operator A (Alice)
@@ -1182,7 +1182,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         epoch = _calcAndWarpOneEpoch();
 
         // Fuzz stake changes for both operators
-        (uint256 minStake,) = middleware.getClassStakingRequirements(assetClassId);
+        (uint256 minStake,) = middleware.getClassStakingRequirements(collateralClassId);
 
         // Operator A (Alice) stake changes
         for (uint256 i = 0; i < nodeCountA; i++) {
@@ -1341,8 +1341,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.stopPrank();
         _setL1Limit(bob, validatorManagerAddress, 1, 2500 ether, delegator2);
 
-        // Add collateral2 to assetClassId = 2
-        _setupAssetClassAndRegisterVault(2, 1, collateral2, vault3, 3000 ether, 2500 ether, delegator3);
+        // Add collateral2 to collateralClassId = 2
+        _setupCollateralClassAndRegisterVault(2, 1, collateral2, vault3, 3000 ether, 2500 ether, delegator3);
 
         // Advance epoch so that new stakes are recognized
         _calcAndWarpOneEpoch();
@@ -1496,11 +1496,11 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     function test_CalculateStakeForNowOldEpoch_AfterSlashingCheckRemoval() public {
         // Get initial epoch and asset class
         uint48 epochToTest = middleware.getCurrentEpoch();
-        uint96 primaryAssetClass = middleware.PRIMARY_ASSET_CLASS();
+        uint96 primaryCollateralClass = middleware.PRIMARY_ASSET_CLASS();
 
         // Cache initial stake
-        uint256 initialTotalStake = middleware.calcAndCacheStakes(epochToTest, primaryAssetClass);
-        assertTrue(middleware.totalStakeCached(epochToTest, primaryAssetClass), "Stake should be cached");
+        uint256 initialTotalStake = middleware.calcAndCacheStakes(epochToTest, primaryCollateralClass);
+        assertTrue(middleware.totalStakeCached(epochToTest, primaryCollateralClass), "Stake should be cached");
         assertGt(initialTotalStake, 0, "Initial stake should be > 0");
 
         // Get time parameters
@@ -1520,14 +1520,14 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertTrue(epochToTestStartTs < block.timestamp - slashingWindow, "Epoch is old enough");
 
         // Get stake for old epoch
-        uint256 totalStakeForOldEpoch = middleware.getTotalStake(epochToTest, primaryAssetClass);
+        uint256 totalStakeForOldEpoch = middleware.getTotalStake(epochToTest, primaryCollateralClass);
         assertEq(totalStakeForOldEpoch, initialTotalStake, "Stake matches initial value");
         assertGt(totalStakeForOldEpoch, 0, "Stake is positive");
 
         // Verify recalculation
-        uint256 recalcTotalStakeForOldEpoch = middleware.calcAndCacheStakes(epochToTest, primaryAssetClass);
+        uint256 recalcTotalStakeForOldEpoch = middleware.calcAndCacheStakes(epochToTest, primaryCollateralClass);
         assertEq(recalcTotalStakeForOldEpoch, initialTotalStake, "Recalculated stake matches");
-        assertTrue(middleware.totalStakeCached(epochToTest, primaryAssetClass), "Stake remains cached");
+        assertTrue(middleware.totalStakeCached(epochToTest, primaryCollateralClass), "Stake remains cached");
     }
 
     // function test_DustLimitStakeCausesFakeRebalancing() public {
@@ -1543,8 +1543,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     console2.log("Initial shares:", initialShares);
 
     //     // Set large L1 limit and give Alice all the shares initially
-    //     _setL1Limit(bob, validatorManagerAddress, assetClassId, depositAmount, delegator);
-    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, initialShares, delegator);
+    //     _setL1Limit(bob, validatorManagerAddress, collateralClassId, depositAmount, delegator);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, initialShares, delegator);
 
     //     // Step 2. Create nodes that will use this stake
     //     // move to next epoch
@@ -1563,7 +1563,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     }
     //     console2.log("Total stake in nodes:", totalNodeStake); 
 
-    //     uint256 operatorTotalStake = middleware.getOperatorStake(alice, epoch2, assetClassId);
+    //     uint256 operatorTotalStake = middleware.getOperatorStake(alice, epoch2, collateralClassId);
     //     uint256 operatorUsedStake = middleware.getOperatorUsedStakeCached(alice);
     //     console2.log("Operator total stake (from delegation):", operatorTotalStake);
     //     console2.log("Operator used stake (in nodes):", operatorUsedStake);
@@ -1581,14 +1581,14 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     //     // Step 4. Reduce Alice's operator shares to reflect the withdrawal
     //     uint256 newOperatorShares = initialShares - burnedShares;
-    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, newOperatorShares, delegator);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, newOperatorShares, delegator);
 
     //     console2.log("Updated Alice's operator shares to:", newOperatorShares);
         
     //     // Step 5. Move to next epoch - this creates the imbalance
     //     uint48 epoch3  = _calcAndWarpOneEpoch();
 
-    //     uint256 newOperatorTotalStake = middleware.getOperatorStake(alice, epoch3, assetClassId);
+    //     uint256 newOperatorTotalStake = middleware.getOperatorStake(alice, epoch3, collateralClassId);
     //     uint256 currentUsedStake = middleware.getOperatorUsedStakeCached(alice);
 
     //     console2.log("\n--- After withdrawal (imbalance created) ---");
@@ -1636,8 +1636,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint256 initialDeposit = 1000 ether;
         (uint256 depositAmount, uint256 initialShares) = _deposit(delegatedStaker, initialDeposit);
 
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, depositAmount, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, initialShares, delegator);
+        _setL1Limit(bob, validatorManagerAddress, collateralClassId, depositAmount, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, initialShares, delegator);
 
         _calcAndWarpOneEpoch();
         (, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 2, 0, true, 2);
@@ -1651,7 +1651,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             totalNodeStake += nodeStake;
         }
 
-        middleware.getOperatorStake(alice, epoch2, assetClassId);
+        middleware.getOperatorStake(alice, epoch2, collateralClassId);
         middleware.getOperatorUsedStakeCached(alice);
 
         // Withdraw and update operator shares
@@ -1661,12 +1661,12 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.stopPrank();        
 
         uint256 newOperatorShares = initialShares - burnedShares;
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, newOperatorShares, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, newOperatorShares, delegator);
         
         uint48 epoch3 = _calcAndWarpOneEpoch();
         middleware.calcAndCacheNodeStakeForAllOperators();
 
-        uint256 newOperatorTotalStake = middleware.getOperatorStake(alice, epoch3, assetClassId);
+        uint256 newOperatorTotalStake = middleware.getOperatorStake(alice, epoch3, collateralClassId);
         uint256 currentUsedStake = middleware.getOperatorUsedStakeCached(alice);
 
         // Verify excess stake scenario
@@ -1688,7 +1688,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     uint48 currentEpoch = _calcAndWarpOneEpoch();
         
     //     // Alice starts with high stake 
-    //     uint256 aliceInitialStake = middleware.getOperatorStake(alice, currentEpoch, assetClassId);
+    //     uint256 aliceInitialStake = middleware.getOperatorStake(alice, currentEpoch, collateralClassId);
     //     console2.log("Alice initial stake:", aliceInitialStake);
     //     assertGt(aliceInitialStake, 0, "Alice should have initial stake");
         
@@ -1698,14 +1698,14 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     console2.log("Current epoch:", currentEpoch);
         
     //     // This should NOT be allowed but currently works
-    //     uint256 cachedTotalStake = middleware.calcAndCacheStakes(futureEpoch, assetClassId);
+    //     uint256 cachedTotalStake = middleware.calcAndCacheStakes(futureEpoch, collateralClassId);
     //     console2.log("Successfully cached future epoch total stake:", cachedTotalStake);
         
     //     // Verify that future epoch is now marked as cached
-    //     assertTrue(middleware.totalStakeCached(futureEpoch, assetClassId), "Future epoch should be marked as cached");
+    //     assertTrue(middleware.totalStakeCached(futureEpoch, collateralClassId), "Future epoch should be marked as cached");
         
     //     // Get Alice's cached stake for the future epoch (should be her current high stake)
-    //     uint256 aliceCachedFutureStake = middleware.getOperatorStake(alice, futureEpoch, assetClassId);
+    //     uint256 aliceCachedFutureStake = middleware.getOperatorStake(alice, futureEpoch, collateralClassId);
     //     console2.log("Alice cached future stake:", aliceCachedFutureStake);
     //     assertEq(aliceCachedFutureStake, aliceInitialStake, "Cached future stake should equal current stake");
         
@@ -1735,11 +1735,11 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
     //     // Calculate what Alice's stake SHOULD be by checking a non-cached epoch
     //     uint48 recentEpoch = nowCurrentEpoch - 1;
-    //     uint256 aliceActualRecentStake = middleware.getOperatorStake(alice, recentEpoch, assetClassId);
+    //     uint256 aliceActualRecentStake = middleware.getOperatorStake(alice, recentEpoch, collateralClassId);
     //     console2.log("Alice's actual recent stake (epoch - 1):", aliceActualRecentStake);
         
     //     // Get the cached (manipulated) stake for the current epoch
-    //     uint256 aliceManipulatedStake = middleware.getOperatorStake(alice, futureEpoch, assetClassId);
+    //     uint256 aliceManipulatedStake = middleware.getOperatorStake(alice, futureEpoch, collateralClassId);
     //     console2.log("Alice's cached (manipulated) stake:", aliceManipulatedStake);
         
     //     // 4. PROVE THE MANIPULATION
@@ -1759,7 +1759,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 
     //     // 5. SHOW THAT CACHE CANNOT BE UPDATED
 
-    //     uint256 attemptRecalc = middleware.calcAndCacheStakes(futureEpoch, assetClassId);
+    //     uint256 attemptRecalc = middleware.calcAndCacheStakes(futureEpoch, collateralClassId);
     //     assertEq(attemptRecalc, cachedTotalStake, "Cache cannot be updated once set");
         
     //     // The vulnerability is complete: Alice has locked in high stakes for reward calculation
@@ -1770,7 +1770,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint48 currentEpoch = _calcAndWarpOneEpoch();
         
         // Alice starts with high stake 
-        uint256 aliceInitialStake = middleware.getOperatorStake(alice, currentEpoch, assetClassId);
+        uint256 aliceInitialStake = middleware.getOperatorStake(alice, currentEpoch, collateralClassId);
         console2.log("Alice initial stake:", aliceInitialStake);
         assertGt(aliceInitialStake, 0, "Alice should have initial stake");
         
@@ -1784,27 +1784,27 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 futureEpoch
             )
         );
-        middleware.calcAndCacheStakes(futureEpoch, assetClassId);
+        middleware.calcAndCacheStakes(futureEpoch, collateralClassId);
         
         // 2. Verify that future epoch is NOT cached
         assertFalse(
-            middleware.totalStakeCached(futureEpoch, assetClassId), 
+            middleware.totalStakeCached(futureEpoch, collateralClassId), 
             "Future epoch should NOT be cached"
         );
         
         // 3. Verify we CAN cache the current epoch
-        middleware.calcAndCacheStakes(currentEpoch, assetClassId);
+        middleware.calcAndCacheStakes(currentEpoch, collateralClassId);
         assertTrue(
-            middleware.totalStakeCached(currentEpoch, assetClassId), 
+            middleware.totalStakeCached(currentEpoch, collateralClassId), 
             "Current epoch should be cached"
         );
         
         // 4. Verify we CAN cache past epochs (if needed for your use case)
         if (currentEpoch > 0) {
             uint48 pastEpoch = currentEpoch - 1;
-            middleware.calcAndCacheStakes(pastEpoch, assetClassId);
+            middleware.calcAndCacheStakes(pastEpoch, collateralClassId);
             assertTrue(
-                middleware.totalStakeCached(pastEpoch, assetClassId), 
+                middleware.totalStakeCached(pastEpoch, collateralClassId), 
                 "Past epoch should be cached"
             );
         }
@@ -1826,10 +1826,10 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertEq(nowCurrentEpoch, futureEpoch, "Should have reached the future epoch");
         
         // 6. NOW we can cache this epoch (since it's no longer in the future)
-        middleware.calcAndCacheStakes(nowCurrentEpoch, assetClassId);
+        middleware.calcAndCacheStakes(nowCurrentEpoch, collateralClassId);
         
         // 7. Verify the stake reflects the ACTUAL current state (post-withdrawal)
-        uint256 aliceCurrentStake = middleware.getOperatorStake(alice, nowCurrentEpoch, assetClassId);
+        uint256 aliceCurrentStake = middleware.getOperatorStake(alice, nowCurrentEpoch, collateralClassId);
         
         // The stake should be lower than the initial stake due to withdrawal
         assertLt(
@@ -1843,13 +1843,13 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint48 currentEpoch = _calcAndWarpOneEpoch();
         
         // Test 1: Can cache current epoch
-        middleware.calcAndCacheStakes(currentEpoch, assetClassId);
-        assertTrue(middleware.totalStakeCached(currentEpoch, assetClassId), "Should cache current epoch");
+        middleware.calcAndCacheStakes(currentEpoch, collateralClassId);
+        assertTrue(middleware.totalStakeCached(currentEpoch, collateralClassId), "Should cache current epoch");
         
         // Test 2: Can cache past epoch
         if (currentEpoch > 0) {
-            middleware.calcAndCacheStakes(currentEpoch - 1, assetClassId);
-            assertTrue(middleware.totalStakeCached(currentEpoch - 1, assetClassId), "Should cache past epoch");
+            middleware.calcAndCacheStakes(currentEpoch - 1, collateralClassId);
+            assertTrue(middleware.totalStakeCached(currentEpoch - 1, collateralClassId), "Should cache past epoch");
         }
         
         // Test 3: Cannot cache future epoch (even by 1)
@@ -1859,7 +1859,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 currentEpoch + 1
             )
         );
-        middleware.calcAndCacheStakes(currentEpoch + 1, assetClassId);
+        middleware.calcAndCacheStakes(currentEpoch + 1, collateralClassId);
         
         // Test 4: Cannot cache far future epoch
         vm.expectRevert(
@@ -1868,7 +1868,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 currentEpoch + 100
             )
         );
-        middleware.calcAndCacheStakes(currentEpoch + 100, assetClassId);
+        middleware.calcAndCacheStakes(currentEpoch + 100, collateralClassId);
     }
 
 //    function test_POC_MisattributedStake_NodeIdReused() public {
@@ -1899,7 +1899,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 //         collateral.approve(address(vault), stakeAmountOpA);
 //         (,uint256 sharesA) = vault.deposit(operatorA, stakeAmountOpA);
 //         vm.stopPrank();
-//         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, operatorA, sharesA, delegator);
+//         _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, operatorA, sharesA, delegator);
 
 //         // Operator B deposits and sets shares (can use the same vault or a different one)
 //         collateral.transfer(staker, stakeAmountOpB);
@@ -1907,7 +1907,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 //         collateral.approve(address(vault), stakeAmountOpB);
 //         (,uint256 sharesB) = vault.deposit(operatorB, stakeAmountOpB);
 //         vm.stopPrank();
-//         _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, operatorB, sharesB, delegator);
+//         _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, operatorB, sharesB, delegator);
         
 //         _calcAndWarpOneEpoch(); // Ensure stakes are recognized
 
@@ -2035,7 +2035,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         collateral.approve(address(vault), stakeAmountOpA);
         (,uint256 sharesA) = vault.deposit(operatorA, stakeAmountOpA);
         vm.stopPrank();
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, operatorA, sharesA, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, operatorA, sharesA, delegator);
 
         // Operator B deposits and sets shares
         collateral.transfer(staker, stakeAmountOpB);
@@ -2043,12 +2043,12 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         collateral.approve(address(vault), stakeAmountOpB);
         (,uint256 sharesB) = vault.deposit(operatorB, stakeAmountOpB);
         vm.stopPrank();
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, operatorB, sharesB, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, operatorB, sharesB, delegator);
         
         _calcAndWarpOneEpoch(); // Ensure stakes are recognized
 
         // --- Epoch E0: Operator A registers node N1 using sharedNodeId_X ---
-        uint48 epochE0 = middleware.getCurrentEpoch();
+        /* uint48 epochE0 = */ middleware.getCurrentEpoch();
         vm.prank(operatorA);
         middleware.addNode(sharedNodeId_X, blsKey_A, registrationExpiry, pchainOwner_A, pchainOwner_A, 0);
         uint32 msgIdx_A1_add = mockValidatorManager.nextMessageIndex() - 1;
@@ -2181,7 +2181,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     // Move forward to let the vault roll epochs
     //     uint48 epoch = _calcAndWarpOneEpoch();
 
-    //     uint256 operatorStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     uint256 operatorStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
     //     console2.log("Operator stake (epoch", epoch, "):", operatorStake);
     //     assertGt(operatorStake, 0);
 
@@ -2191,7 +2191,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     middleware.setVaultManager(address(vaultManager2));
     //     vm.stopPrank();
 
-    //     uint256 operatorStake2 = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     uint256 operatorStake2 = middleware.getOperatorStake(alice, epoch, collateralClassId);
     //     console2.log("Operator stake (epoch", epoch, "):", operatorStake2);
     //     assertEq(operatorStake2, 0);
     // }
@@ -2200,7 +2200,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Move forward to let the vault roll epochs
         uint48 epoch = _calcAndWarpOneEpoch();
 
-        uint256 operatorStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 operatorStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         console2.log("Operator stake (epoch", epoch, "):", operatorStake);
         assertGt(operatorStake, 0);
 
@@ -2223,7 +2223,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
     //     // Verify alice has active nodes and stake
     //     uint256 nodeCount = middleware.getOperatorNodesLength(alice);
-    //     uint256 aliceStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     uint256 aliceStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
     //     assertGt(nodeCount, 0, "Alice should have active nodes");
     //     assertGt(aliceStake, 0, "Alice should have stake");
         
@@ -2265,7 +2265,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     //     }
         
     //     // Verify stake calculations still work
-    //     uint256 stakeAfterRemoval = middleware.getOperatorStake(alice, epoch, assetClassId);
+    //     uint256 stakeAfterRemoval = middleware.getOperatorStake(alice, epoch, collateralClassId);
     //     assertEq(stakeAfterRemoval, aliceStake, "Stake calculation should still work");
         
     // }
@@ -2274,7 +2274,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint48 epoch = _calcAndWarpOneEpoch();
         
         // Add nodes for alice
-        (uint256 minStake, ) = middleware.getClassStakingRequirements(assetClassId);
+        (uint256 minStake, ) = middleware.getClassStakingRequirements(collateralClassId);
         (bytes32[] memory nodeIds, ,) = _createAndConfirmNodes(alice, 3, minStake, true, 2);
         
         // Move to next epoch to ensure nodes are active
@@ -2282,7 +2282,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
         // Verify alice has active nodes and stake
         uint256 nodeCount = middleware.getOperatorNodesLength(alice);
-        uint256 aliceStake = middleware.getOperatorStake(alice, epoch, assetClassId);
+        uint256 aliceStake = middleware.getOperatorStake(alice, epoch, collateralClassId);
         assertEq(nodeCount, 3, "Alice should have exactly 3 active nodes");
         assertGt(aliceStake, 0, "Alice should have stake");
         
@@ -2390,7 +2390,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
 //        _calcAndWarpOneEpoch();
 
-//        _setupAssetClassAndRegisterVault(2, 5, collateral2, vault3, 3000 ether, 2500 ether, delegator3);
+//        _setupCollateralClassAndRegisterVault(2, 5, collateral2, vault3, 3000 ether, 2500 ether, delegator3);
 //        collateral2.transfer(staker, 10);
 //        vm.startPrank(staker);
 //        collateral2.approve(address(vault3), 10);
@@ -2418,19 +2418,19 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         ownerArr[0] = alice;
         PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
 
-        // --- Setup Secondary Asset Class (ID 2) ---
-        uint96 secondaryAssetClassId = 2;
+        // --- Setup Secondary Collateral Class (ID 2) ---
+        uint96 secondaryCollateralClassId = 2;
         uint256 minSecondaryStakePerNodeForClass2 = 5 ether;
 
         // Setup the secondary asset class
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(secondaryAssetClassId, minSecondaryStakePerNodeForClass2, 0, address(collateral2));
-        middleware.activateSecondaryAssetClass(secondaryAssetClassId);
-        vaultManager.registerVault(address(vault3), secondaryAssetClassId, 3000 ether);
+        middleware.addCollateralClass(secondaryCollateralClassId, minSecondaryStakePerNodeForClass2, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(secondaryCollateralClassId);
+        vaultManager.registerVault(address(vault3), secondaryCollateralClassId, 3000 ether);
         vm.stopPrank();
         
         // Set L1 limit for the secondary asset class
-        _setL1Limit(bob, validatorManagerAddress, secondaryAssetClassId, 2500 ether, delegator3);
+        _setL1Limit(bob, validatorManagerAddress, secondaryCollateralClassId, 2500 ether, delegator3);
 
         // --- Alice gets and deposits secondary stake into vault3 ---
         // IMPORTANT: Deposit enough for ALL 3 nodes (15 ETH) since primary will be insufficient
@@ -2448,15 +2448,15 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.stopPrank();
 
         // 4. Assign these minted shares to Alice for the L1 system
-        _setOperatorL1Shares(bob, validatorManagerAddress, secondaryAssetClassId, alice, mintedSecondarySharesAlice, delegator3);
+        _setOperatorL1Shares(bob, validatorManagerAddress, secondaryCollateralClassId, alice, mintedSecondarySharesAlice, delegator3);
 
         // Make sure changes are reflected
         currentEpoch = _calcAndWarpOneEpoch();
         middleware.calcAndCacheStakes(currentEpoch, middleware.PRIMARY_ASSET_CLASS());
-        middleware.calcAndCacheStakes(currentEpoch, secondaryAssetClassId);
+        middleware.calcAndCacheStakes(currentEpoch, secondaryCollateralClassId);
 
         // Verify Alice has sufficient secondary stake
-        uint256 aliceSecondaryStake = middleware.getOperatorStake(alice, currentEpoch, secondaryAssetClassId);
+        uint256 aliceSecondaryStake = middleware.getOperatorStake(alice, currentEpoch, secondaryCollateralClassId);
         console2.log("Alice secondary stake:", aliceSecondaryStake);
         assertGe(aliceSecondaryStake, minSecondaryStakePerNodeForClass2 * 3, "Alice should have enough secondary stake for 3 nodes");
 
@@ -2495,13 +2495,13 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Update Alice's operator shares to reflect the withdrawal
         uint256 remainingSecondaryShares = mintedSecondarySharesAlice - (mintedSecondarySharesAlice * secondaryToWithdraw / aliceTargetSecondaryStake);
-        _setOperatorL1Shares(bob, validatorManagerAddress, secondaryAssetClassId, alice, remainingSecondaryShares, delegator3);
+        _setOperatorL1Shares(bob, validatorManagerAddress, secondaryCollateralClassId, alice, remainingSecondaryShares, delegator3);
 
         currentEpoch = _calcAndWarpOneEpoch();
-        middleware.calcAndCacheStakes(currentEpoch, secondaryAssetClassId);
+        middleware.calcAndCacheStakes(currentEpoch, secondaryCollateralClassId);
         
         // Verify Alice now has insufficient secondary stake for all nodes
-        uint256 aliceNewSecondaryStake = middleware.getOperatorStake(alice, currentEpoch, secondaryAssetClassId);
+        uint256 aliceNewSecondaryStake = middleware.getOperatorStake(alice, currentEpoch, secondaryCollateralClassId);
         console2.log("Alice new secondary stake:", aliceNewSecondaryStake);
         assertLt(aliceNewSecondaryStake, minSecondaryStakePerNodeForClass2 * 3, "Alice should have insufficient secondary stake for 3 nodes");
         assertGe(aliceNewSecondaryStake, minSecondaryStakePerNodeForClass2, "Alice should have enough for at least 1 node");
@@ -2537,8 +2537,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
     //     // Now allocate more of this deposited stake to Alice (the operator)
     //     uint256 totalAliceShares = mintedShares + additionalMinted;
-    //     _setL1Limit(bob, validatorManagerAddress, assetClassId, 3000 ether, delegator);
-    //     _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalAliceShares, delegator);
+    //     _setL1Limit(bob, validatorManagerAddress, collateralClassId, 3000 ether, delegator);
+    //     _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, totalAliceShares, delegator);
 
     //     // Move to next epoch to make the new stake available
     //     epoch = _calcAndWarpOneEpoch();
@@ -2598,8 +2598,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
         // Now allocate more of this deposited stake to Alice (the operator)
         uint256 totalAliceShares = mintedShares + additionalMinted;
-        _setL1Limit(bob, validatorManagerAddress, assetClassId, 3000 ether, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, assetClassId, alice, totalAliceShares, delegator);
+        _setL1Limit(bob, validatorManagerAddress, collateralClassId, 3000 ether, delegator);
+        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, totalAliceShares, delegator);
 
         // Move to next epoch to make the new stake available
         epoch = _calcAndWarpOneEpoch();
@@ -2715,8 +2715,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         VaultTokenized vaultTokenA = VaultTokenized(vaultAddress1);
         VaultTokenized vaultTokenB = VaultTokenized(vaultAddress2);
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(2, 0, 100, address(tokenA1));
-        middleware.activateSecondaryAssetClass(2);
+        middleware.addCollateralClass(2, 0, 100, address(tokenA1));
+        middleware.activateSecondaryCollateralClass(2);
         middleware.addAssetToClass(2, address(tokenB1));
         vm.stopPrank();
 
@@ -2811,26 +2811,26 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         function test_vaultManager_UpdateVaultMaxL1Limit_NoRevert() public {
             vm.startPrank(validatorManagerAddress);
-            vaultManager.updateVaultMaxL1Limit(address(vault), assetClassId, 500 ether);
+            vaultManager.updateVaultMaxL1Limit(address(vault), collateralClassId, 500 ether);
             vm.stopPrank();
         }
 
         function test_vaultManager_UpdateVaultMaxL1Limit_DisableEnable() public {
             vm.startPrank(validatorManagerAddress);
             // disable
-            vaultManager.updateVaultMaxL1Limit(address(vault), assetClassId, 0);
+            vaultManager.updateVaultMaxL1Limit(address(vault), collateralClassId, 0);
             // re-enable with new limit
-            vaultManager.updateVaultMaxL1Limit(address(vault), assetClassId, 700 ether);
+            vaultManager.updateVaultMaxL1Limit(address(vault), collateralClassId, 700 ether);
             vm.stopPrank();
         }
 
 
     function test_vaultManager_RegisterMultipleVaults() public {
         // Setup additional asset class
-        uint96 assetClass2 = 2;
+        uint96 collateralClass2 = 2;
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(assetClass2, 1 ether, 0, address(collateral2));
-        middleware.activateSecondaryAssetClass(assetClass2);
+        middleware.addCollateralClass(collateralClass2, 1 ether, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(collateralClass2);
         vm.stopPrank();
 
         // Register vault2 with asset class 1
@@ -2840,13 +2840,13 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Register vault3 with asset class 2
         vm.startPrank(validatorManagerAddress);
-        vaultManager.registerVault(address(vault3), assetClass2, 1500 ether);
+        vaultManager.registerVault(address(vault3), collateralClass2, 1500 ether);
         vm.stopPrank();
 
         // Verify registrations
-        assertEq(vaultManager.getVaultAssetClass(address(vault)), 1);
-        assertEq(vaultManager.getVaultAssetClass(address(vault2)), 1);
-        assertEq(vaultManager.getVaultAssetClass(address(vault3)), assetClass2);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault)), 1);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault2)), 1);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault3)), collateralClass2);
         assertEq(vaultManager.getVaultCount(), 3);
 
         // Check vaults are active for current epoch
@@ -2875,7 +2875,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Test registering with inactive asset class
         vm.startPrank(validatorManagerAddress);
         vm.expectRevert(abi.encodeWithSelector(
-            IAvalancheL1Middleware.AvalancheL1Middleware__AssetClassNotActive.selector,
+            IAvalancheL1Middleware.AvalancheL1Middleware__CollateralClassNotActive.selector,
             99
         ));
         vaultManager.registerVault(address(vault2), 99, 1000 ether);
@@ -2900,7 +2900,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Test updating with wrong asset class
         vm.startPrank(validatorManagerAddress);
         vm.expectRevert(abi.encodeWithSelector(
-            IMiddlewareVaultManager.MiddlewareVaultManager__WrongVaultAssetClass.selector
+            IMiddlewareVaultManager.MiddlewareVaultManager__WrongVaultCollateralClass.selector
         ));
         vaultManager.updateVaultMaxL1Limit(address(vault2), 2, 1000 ether);
         vm.stopPrank();
@@ -2993,7 +2993,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Verify vault is removed
         assertEq(vaultManager.getVaultCount(), vaultCountBefore - 1);
-        assertEq(vaultManager.getVaultAssetClass(address(vault2)), 0);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault2)), 0);
 
         // Try to remove non-existent vault
         vm.startPrank(validatorManagerAddress);
@@ -3047,20 +3047,20 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertEq(activeVaults.length, 2);
     }
 
-    function test_vaultManager_MultipleAssetClasses() public {
+    function test_vaultManager_MultipleCollateralClasses() public {
         // Setup asset class 2
-        uint96 assetClass2 = 2;
+        uint96 collateralClass2 = 2;
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(assetClass2, 1 ether, 0, address(collateral2));
-        middleware.activateSecondaryAssetClass(assetClass2);
+        middleware.addCollateralClass(collateralClass2, 1 ether, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(collateralClass2);
         vm.stopPrank();
 
         // Setup asset class 3
         Token collateral3 = new Token("MockCollateral3");
-        uint96 assetClass3 = 3;
+        uint96 collateralClass3 = 3;
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(assetClass3, 2 ether, 0, address(collateral3));
-        middleware.activateSecondaryAssetClass(assetClass3);
+        middleware.addCollateralClass(collateralClass3, 2 ether, 0, address(collateral3));
+        middleware.activateSecondaryCollateralClass(collateralClass3);
         vm.stopPrank();
 
         // Create vault for asset class 3
@@ -3120,26 +3120,26 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Register vaults with different asset classes
         vm.startPrank(validatorManagerAddress);
         vaultManager.registerVault(address(vault2), 1, 2000 ether);      // Asset class 1
-        vaultManager.registerVault(address(vault3), assetClass2, 1500 ether); // Asset class 2
-        vaultManager.registerVault(address(vault4), assetClass3, 1000 ether); // Asset class 3
+        vaultManager.registerVault(address(vault3), collateralClass2, 1500 ether); // Asset class 2
+        vaultManager.registerVault(address(vault4), collateralClass3, 1000 ether); // Asset class 3
         vm.stopPrank();
 
         // Verify asset class assignments
-        assertEq(vaultManager.getVaultAssetClass(address(vault)), 1);
-        assertEq(vaultManager.getVaultAssetClass(address(vault2)), 1);
-        assertEq(vaultManager.getVaultAssetClass(address(vault3)), assetClass2);
-        assertEq(vaultManager.getVaultAssetClass(address(vault4)), assetClass3);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault)), 1);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault2)), 1);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault3)), collateralClass2);
+        assertEq(vaultManager.getVaultCollateralClass(address(vault4)), collateralClass3);
 
         // Test updating limits with correct asset classes
         vm.startPrank(validatorManagerAddress);
-        vaultManager.updateVaultMaxL1Limit(address(vault3), assetClass2, 2000 ether);
-        vaultManager.updateVaultMaxL1Limit(address(vault4), assetClass3, 1500 ether);
+        vaultManager.updateVaultMaxL1Limit(address(vault3), collateralClass2, 2000 ether);
+        vaultManager.updateVaultMaxL1Limit(address(vault4), collateralClass3, 1500 ether);
         vm.stopPrank();
 
         // Test error when using wrong asset class
         vm.startPrank(validatorManagerAddress);
         vm.expectRevert(abi.encodeWithSelector(
-            IMiddlewareVaultManager.MiddlewareVaultManager__WrongVaultAssetClass.selector
+            IMiddlewareVaultManager.MiddlewareVaultManager__WrongVaultCollateralClass.selector
         ));
         vaultManager.updateVaultMaxL1Limit(address(vault3), 1, 2000 ether);
         vm.stopPrank();
@@ -3179,10 +3179,10 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
     function test_vaultManager_ComplexVaultLifecycle() public {
         // Setup asset class 2
-        uint96 assetClass2 = 2;
+        uint96 collateralClass2 = 2;
         vm.startPrank(validatorManagerAddress);
-        middleware.addAssetClass(assetClass2, 1 ether, 0, address(collateral2));
-        middleware.activateSecondaryAssetClass(assetClass2);
+        middleware.addCollateralClass(collateralClass2, 1 ether, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(collateralClass2);
         vm.stopPrank();
 
         uint48 epoch0 = middleware.getCurrentEpoch();
@@ -3190,7 +3190,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // EPOCH 0: Register vault2 and vault3 during epoch0
         vm.startPrank(validatorManagerAddress);
         vaultManager.registerVault(address(vault2), 1, 2000 ether);      // vault2 enabled in epoch0
-        vaultManager.registerVault(address(vault3), assetClass2, 1500 ether); // vault3 enabled in epoch0
+        vaultManager.registerVault(address(vault3), collateralClass2, 1500 ether); // vault3 enabled in epoch0
         vm.stopPrank();
 
         // Move to epoch1
@@ -3212,7 +3212,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // EPOCH 2: Update vault3 limit and re-enable vault2
         vm.startPrank(validatorManagerAddress);
-        vaultManager.updateVaultMaxL1Limit(address(vault3), assetClass2, 3000 ether); // vault3 limit updated
+        vaultManager.updateVaultMaxL1Limit(address(vault3), collateralClass2, 3000 ether); // vault3 limit updated
         vaultManager.updateVaultMaxL1Limit(address(vault2), 1, 2500 ether);         // vault2 re-enabled in epoch2
         vm.stopPrank();
 

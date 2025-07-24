@@ -7,7 +7,7 @@ interface IDelegatorHook {
     /**
      * @notice Called when a slash happens.
      * @param l1 address of the l1.
-     * @param assetClass the uint96 assetClass.
+     * @param collateralClass the uint96 collateralClass.
      * @param operator address of the operator
      * @param amount amount of the collateral to be slashed
      * @param captureTimestamp time point when the stake was captured
@@ -15,7 +15,7 @@ interface IDelegatorHook {
      */
     function onSlash(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,
