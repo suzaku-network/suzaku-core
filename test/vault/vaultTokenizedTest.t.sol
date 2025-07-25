@@ -60,7 +60,7 @@ contract VaultTokenizedTest is Test {
     // OperatorRegistry operatorRegistry;
     // MetadataService operatorMetadataService;
     // MetadataService l1MetadataService;
-    // L1MiddlewareService l1MiddlewareService;
+    // L1MiddlewareService middlewareService;
     OperatorVaultOptInService operatorVaultOptInService; // TODO add tests for this
     OperatorL1OptInService operatorL1OptInService; // TODO add tests for this
     L1Registry l1Registry;
@@ -2875,7 +2875,7 @@ contract VaultTokenizedTest is Test {
     // function _registerL1(address user, address middleware) internal {
     //     vm.startPrank(user);
     //     l1Registry.registerL1();
-    //     l1MiddlewareService.setMiddleware(middleware);
+    //     middlewareService.setMiddleware(middleware);
     //     vm.stopPrank();
     // }
 

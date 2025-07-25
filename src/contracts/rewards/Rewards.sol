@@ -46,7 +46,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     uint16 public curatorFee;
 
     // External contracts
-    AvalancheL1Middleware public l1Middleware;
+    AvalancheL1Middleware public middleware;
     MiddlewareVaultManager public middlewareVaultManager;
     UptimeTracker public uptimeTracker;
 
@@ -95,14 +95,14 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     function initialize(
         address admin_,
         address protocolOwner_,
-        address payable l1Middleware_,
+        address payable middleware_,
         address uptimeTracker_,
         uint16 protocolFee_,
         uint16 operatorFee_,
         uint16 curatorFee_,
         uint256 minRequiredUptime_
     ) public initializer {
-        if (l1Middleware_ == address(0)) revert InvalidL1Middleware(l1Middleware_);
+        if (middleware_ == address(0)) revert InvalidL1Middleware(middleware_);
         if (uptimeTracker_ == address(0)) revert InvalidUptimeTracker(uptimeTracker_);
         if (admin_ == address(0)) revert InvalidAdmin(admin_);
         if (protocolOwner_ == address(0)) revert InvalidProtocolOwner(protocolOwner_);
@@ -115,10 +115,10 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         _grantRole(REWARDS_DISTRIBUTOR_ROLE, admin_);
         _grantRole(PROTOCOL_OWNER_ROLE, protocolOwner_);
 
-        l1Middleware = AvalancheL1Middleware(l1Middleware_);
-        middlewareVaultManager = MiddlewareVaultManager(l1Middleware.getVaultManager());
+        middleware = AvalancheL1Middleware(middleware_);
+        middlewareVaultManager = MiddlewareVaultManager(middleware.getVaultManager());
         uptimeTracker = UptimeTracker(uptimeTracker_);
-        epochDuration = l1Middleware.EPOCH_DURATION();
+        epochDuration = middleware.EPOCH_DURATION();
 
         _checkFees(protocolFee_, operatorFee_, curatorFee_);
 
@@ -134,7 +134,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     function distributeRewards(uint48 epoch, uint48 batchSize) external nonReentrant onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
         DistributionBatch storage batch = distributionBatches[epoch];
         EpochStatus storage st = epochStatus[epoch];
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
 
         // window guards
         if (currentEpoch < DISTRIBUTION_EARLIEST_OFFSET) 
@@ -146,7 +146,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             
         bool fundingWindowOpen = epoch + FUNDING_DEADLINE_OFFSET >= currentEpoch;
         if (fundingWindowOpen && !st.funded) {
-            if (l1Middleware.getAllOperators().length != 0)
+            if (middleware.getAllOperators().length != 0)
                 revert EpochNotFunded(epoch);
         }
 
@@ -160,7 +160,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         if (batch.isComplete) revert AlreadyCompleted(epoch);
 
-        address[] memory operators = l1Middleware.getAllOperators();
+        address[] memory operators = middleware.getAllOperators();
         uint48 operatorCount = 0;
 
         for (uint256 i = batch.lastProcessedOperator; i < operators.length && operatorCount < batchSize;) {
@@ -184,7 +184,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
         uint48 lastClaimedEpoch = lastEpochClaimedStaker[msg.sender][rewardsToken];
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
 
         if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
             revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
@@ -201,7 +201,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             (bool funded, uint256 epochRewards) = rewardsAmountPerTokenFromEpoch[epoch].tryGet(rewardsToken);
             if (funded && epochRewards > 0) {
                 address[] memory vaults = _getStakerVaults(msg.sender, epoch);
-                uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
+                uint48 epochTs = middleware.getEpochStartTs(epoch);
 
                 for (uint256 i = 0; i < vaults.length; i++) {
                     address vault = vaults[i];
@@ -251,7 +251,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     function claimOperatorFee(address rewardsToken, address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
         uint48 lastClaimedEpoch = lastEpochClaimedOperator[msg.sender][rewardsToken];
 
         if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
@@ -294,7 +294,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     function claimCuratorFee(address rewardsToken, address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
         uint48 lastClaimedEpoch = lastEpochClaimedCurator[msg.sender][rewardsToken];
 
         if (currentEpoch > 0 && lastClaimedEpoch >= currentEpoch - 1) {
@@ -360,7 +360,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         if (!st.distributionComplete) revert DistributionNotComplete(epoch);
 
         // The sweep can only happen after the distribution offset AND the claim grace period have passed.
-        uint48 currentEpoch = l1Middleware.getCurrentEpoch();
+        uint48 currentEpoch = middleware.getCurrentEpoch();
         uint48 requiredEpoch = epoch + DISTRIBUTION_EARLIEST_OFFSET + CLAIM_GRACE_PERIOD_EPOCHS;
         
         if (currentEpoch < requiredEpoch) {
@@ -376,7 +376,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalDistributedShares = 0;
 
         // Sum operator shares
-        address[] memory operators = l1Middleware.getAllOperators();
+        address[] memory operators = middleware.getAllOperators();
         for (uint256 i = 0; i < operators.length; i++) {
             totalDistributedShares += operatorShares[epoch][operators[i]];
         }
@@ -570,7 +570,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     // INTERNAL FUNCTIONS
     // Helper functions
     function _totalCollateralClassShares() internal view returns (uint256 total) {
-        uint96[] memory ids = l1Middleware.getCollateralClassIds();
+        uint96[] memory ids = middleware.getCollateralClassIds();
         for (uint256 i; i < ids.length; ++i) total += rewardsSharePerCollateralClass[ids[i]];
     }
 
@@ -583,10 +583,10 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     // Calculation functions
     /// @dev Ensures the total stake cache is populated for the given epoch and asset class
     function _ensureStakeCache(uint48 epoch, uint96 collateralClass) internal returns (uint256 totalStake) {
-        totalStake = l1Middleware.totalStakeCache(epoch, collateralClass);
+        totalStake = middleware.totalStakeCache(epoch, collateralClass);
         if (totalStake == 0) {
-            try l1Middleware.calcAndCacheStakes(epoch, collateralClass) {} catch {}
-            totalStake = l1Middleware.totalStakeCache(epoch, collateralClass);
+            try middleware.calcAndCacheStakes(epoch, collateralClass) {} catch {}
+            totalStake = middleware.totalStakeCache(epoch, collateralClass);
         }
     }
 
@@ -607,7 +607,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalBeneficiaryShare = 0;
         uint256 totalOperatorFeeShare = 0;
 
-        uint96[] memory collateralClasses = l1Middleware.getCollateralClassIds();
+        uint96[] memory collateralClasses = middleware.getCollateralClassIds();
         uint256 rawShare;
         uint256 operatorFeeShare;
         for (uint256 i = 0; i < collateralClasses.length; i++) {
@@ -616,7 +616,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
             if (totalStake == 0 || collateralClassShare == 0) continue;
 
-            uint256 operatorStake = l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass);
+            uint256 operatorStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass);
 
             rawShare = Math.mulDiv(
                 Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
@@ -643,7 +643,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
      */
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
         address[] memory vaults = middlewareVaultManager.getVaults(epoch);
-        uint48 epochTs = l1Middleware.getEpochStartTs(epoch);
+        uint48 epochTs = middleware.getEpochStartTs(epoch);
 
         for (uint256 i = 0; i < vaults.length; i++) {
             address vault = vaults[i];
@@ -653,12 +653,12 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             if (operatorCollateralClassShare == 0) continue;
 
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                l1Middleware.L1_VALIDATOR_MANAGER(), vaultCollateralClass, operator, epochTs, new bytes(0)
+                middleware.L1_VALIDATOR_MANAGER(), vaultCollateralClass, operator, epochTs, new bytes(0)
             );
 
             if (vaultStake > 0) {
                 uint256 operatorActiveStake =
-                    l1Middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultCollateralClass);
+                    middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultCollateralClass);
                 if (operatorActiveStake == 0) continue;
                 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
@@ -688,7 +688,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
      */
     function _getStakerVaults(address staker, uint48 epoch) internal view returns (address[] memory) {
         address[] memory vaults = middlewareVaultManager.getVaults(epoch);
-        uint48 epochStart = l1Middleware.getEpochStartTs(epoch);
+        uint48 epochStart = middleware.getEpochStartTs(epoch);
 
         // Use temporary array sized to maximum possible length
         address[] memory tempVaults = new address[](vaults.length);

@@ -20,7 +20,7 @@ import {
  */
 contract UptimeTracker is IUptimeTracker {
     uint48 private immutable epochDuration;
-    AvalancheL1Middleware private immutable l1Middleware;
+    AvalancheL1Middleware private immutable middleware;
     BalancerValidatorManager private immutable validatorManager;
     bytes32 private immutable l1ID;
 
@@ -42,12 +42,12 @@ contract UptimeTracker is IUptimeTracker {
     mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
     constructor(
-        address payable l1Middleware_,
+        address payable middleware_,
         bytes32 l1ID_
     ) {
-        l1Middleware = AvalancheL1Middleware(l1Middleware_);
-        epochDuration = l1Middleware.EPOCH_DURATION();
-        validatorManager = BalancerValidatorManager(l1Middleware.L1_VALIDATOR_MANAGER());
+        middleware = AvalancheL1Middleware(middleware_);
+        epochDuration = middleware.EPOCH_DURATION();
+        validatorManager = BalancerValidatorManager(middleware.L1_VALIDATOR_MANAGER());
         l1ID = l1ID_;
     }
 
@@ -87,12 +87,12 @@ contract UptimeTracker is IUptimeTracker {
         }
 
         // Get last checkpoint epoch start
-        uint48 lastUptimeEpoch = l1Middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
-        uint256 lastUptimeEpochStart = l1Middleware.getEpochStartTs(lastUptimeEpoch);
+        uint48 lastUptimeEpoch = middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
+        uint256 lastUptimeEpochStart = middleware.getEpochStartTs(lastUptimeEpoch);
 
         // Get current epoch start
-        uint48 currentEpoch = l1Middleware.getEpochAtTs(uint48(block.timestamp));
-        uint256 currentEpochStart = l1Middleware.getEpochStartTs(currentEpoch);
+        uint48 currentEpoch = middleware.getEpochAtTs(uint48(block.timestamp));
+        uint256 currentEpochStart = middleware.getEpochStartTs(currentEpoch);
 
         // Calculate the recorded uptime since the last checkpoint
         uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
@@ -151,7 +151,7 @@ contract UptimeTracker is IUptimeTracker {
      * @inheritdoc IUptimeTracker
      */
     function computeOperatorUptimeAt(address operator, uint48 epoch) external {
-        bytes32[] memory operatorNodes = l1Middleware.getActiveNodesForEpoch(operator, epoch);
+        bytes32[] memory operatorNodes = middleware.getActiveNodesForEpoch(operator, epoch);
         uint256 numberOfValidators = operatorNodes.length;
         if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
         uint256 sumValidatorsUptime = 0;

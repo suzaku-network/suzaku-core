@@ -92,9 +92,9 @@ interface IRewards {
 
     /**
      * @dev Error thrown when an invalid l1 middleware address is provided
-     * @param l1Middleware Invalid l1 middleware address
+     * @param middleware Invalid l1 middleware address
      */
-    error InvalidL1Middleware(address l1Middleware);
+    error InvalidL1Middleware(address middleware);
 
     /**
      * @dev Error thrown when an invalid uptime tracker address is provided

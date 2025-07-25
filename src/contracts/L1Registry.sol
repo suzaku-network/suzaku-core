@@ -14,8 +14,8 @@ contract L1Registry is IL1Registry, Ownable {
 
     EnumerableSet.AddressSet private l1s;
 
-    /// @notice The l1Middleware for each L1
-    mapping(address => address) public l1Middleware;
+    /// @notice The middleware for each L1
+    mapping(address => address) public middleware;
 
     /// @notice The metadata URL for each L1
     mapping(address => string) public l1MetadataURL;
@@ -73,7 +73,7 @@ contract L1Registry is IL1Registry, Ownable {
     /// @inheritdoc IL1Registry
     function registerL1(
         address l1,
-        address l1Middleware_,
+        address middleware_,
         string calldata metadataURL
     ) external payable notZeroAddress(l1) onlyValidatorManagerOwner(l1) {
         if (registerFee == 0) {
@@ -98,22 +98,22 @@ contract L1Registry is IL1Registry, Ownable {
         if (!registered) {
             revert L1Registry__L1AlreadyRegistered();
         }
-        l1Middleware[l1] = l1Middleware_;
+        middleware[l1] = middleware_;
         l1MetadataURL[l1] = metadataURL;
 
         emit RegisterL1(l1);
-        emit SetL1Middleware(l1, l1Middleware_);
+        emit SetL1Middleware(l1, middleware_);
         emit SetMetadataURL(l1, metadataURL);
     }
 
     /// @inheritdoc IL1Registry
     function setL1Middleware(
         address l1,
-        address l1Middleware_
-    ) external notZeroAddress(l1Middleware_) isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
-        l1Middleware[l1] = l1Middleware_;
+        address middleware_
+    ) external notZeroAddress(middleware_) isRegisteredL1(l1) onlyValidatorManagerOwner(l1) {
+        middleware[l1] = middleware_;
 
-        emit SetL1Middleware(l1, l1Middleware_);
+        emit SetL1Middleware(l1, middleware_);
     }
 
     /// @inheritdoc IL1Registry
@@ -141,7 +141,7 @@ contract L1Registry is IL1Registry, Ownable {
             return false;
         }
 
-        address middleware = l1Middleware[l1];
+        address middleware = middleware[l1];
         if (middleware == address(0)) {
             return false;
         }
@@ -160,7 +160,7 @@ contract L1Registry is IL1Registry, Ownable {
         uint256 index
     ) public view returns (address, address, string memory) {
         address l1 = l1s.at(index);
-        return (l1, l1Middleware[l1], l1MetadataURL[l1]);
+        return (l1, middleware[l1], l1MetadataURL[l1]);
     }
 
     /// @inheritdoc IL1Registry
@@ -171,13 +171,13 @@ contract L1Registry is IL1Registry, Ownable {
     /// @inheritdoc IL1Registry
     function getAllL1s() public view returns (address[] memory, address[] memory, string[] memory) {
         address[] memory l1sList = l1s.values();
-        address[] memory l1Middlewares = new address[](l1sList.length);
+        address[] memory middlewares = new address[](l1sList.length);
         string[] memory metadataURLs = new string[](l1sList.length);
         for (uint256 i = 0; i < l1sList.length; i++) {
-            l1Middlewares[i] = l1Middleware[l1sList[i]];
+            middlewares[i] = middleware[l1sList[i]];
             metadataURLs[i] = l1MetadataURL[l1sList[i]];
         }
-        return (l1sList, l1Middlewares, metadataURLs);
+        return (l1sList, middlewares, metadataURLs);
     }
 
     /// @notice Adjust fee collector. Only owner can change it.
