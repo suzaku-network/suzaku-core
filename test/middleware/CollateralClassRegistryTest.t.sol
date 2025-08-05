@@ -36,10 +36,10 @@ contract CollateralClassRegistryTest is Test {
         // - maxValidatorStake = 1000
         // collateralClassRegistry = new CollateralClassRegistry(1000, 50, tokenA);
 
-        // Manually add a primary asset to class and primary asset with tokenA
+        // Manually add a primary collateral to class and primary collateral with tokenA
         collateralClassRegistry.addCollateralClass(1, 50, 1000, tokenA);
-        // declare primaryAsset from collateralClassRegistry as tokenA
-        collateralClassRegistry.setPrimaryAsset(address(tokenA));
+        // declare primaryCollateral from collateralClassRegistry as tokenA
+        collateralClassRegistry.setPrimaryCollateral(address(tokenA));
 
         // Add a "secondary" class #2
         collateralClassRegistry.addCollateralClass(2, 10, 0, tokenB);
@@ -47,12 +47,12 @@ contract CollateralClassRegistryTest is Test {
 
     function test_DefaultClass1Values() public view {
         // Class 1 is auto-created in the constructor
-        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = collateralClassRegistry.getClassStakingRequirements(1);
-        assertEq(primaryAssetMinStake, 50, "Expected primaryAssetMinStake = 50 for class 1");
-        assertEq(primaryAssetMaxStake, 1000, "Expected primaryAssetMaxStake = 1000 for class 1");
+        (uint256 primaryCollateralMinStake, uint256 primaryCollateralMaxStake) = collateralClassRegistry.getClassStakingRequirements(1);
+        assertEq(primaryCollateralMinStake, 50, "Expected primaryCollateralMinStake = 50 for class 1");
+        assertEq(primaryCollateralMaxStake, 1000, "Expected primaryCollateralMaxStake = 1000 for class 1");
     }
 
-    function test_PrimaryAssetIsInClass1() public view {
+    function test_PrimaryCollateralIsInClass1() public view {
         address[] memory assets = collateralClassRegistry.getClassAssets(1);
         assertEq(assets.length, 1, "Expected exactly 1 default asset in class 1");
         assertEq(assets[0], tokenA, "Expected tokenA to be in class 1 as default asset");
@@ -60,7 +60,7 @@ contract CollateralClassRegistryTest is Test {
 
     // Should be moved to the AvalancheL1MiddlewareTest Test
 
-    function test_RevertOnRemovePrimaryAssetFromClass1() public {
+    function test_RevertOnRemovePrimaryCollateralFromClass1() public {
         // Trying to remove the default asset (tokenA) from class #1 must revert
         vm.expectRevert(
             abi.encodeWithSelector(ICollateralClassRegistry.CollateralClassRegistry__AssetIsPrimaryCollateralClass.selector, 1)
@@ -159,9 +159,9 @@ contract CollateralClassRegistryTest is Test {
         // Add new class #3
         collateralClassRegistry.addCollateralClass(3, 123, 456, address(tokenC));
 
-        (uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake) = collateralClassRegistry.getClassStakingRequirements(3);
-        assertEq(primaryAssetMinStake, 123, "Expected primaryAssetMinStake = 123 for class 3");
-        assertEq(primaryAssetMaxStake, 456, "Expected primaryAssetMaxStake = 456 for class 3");
+        (uint256 primaryCollateralMinStake, uint256 primaryCollateralMaxStake) = collateralClassRegistry.getClassStakingRequirements(3);
+        assertEq(primaryCollateralMinStake, 123, "Expected primaryCollateralMinStake = 123 for class 3");
+        assertEq(primaryCollateralMaxStake, 456, "Expected primaryCollateralMaxStake = 456 for class 3");
     }
 
     function test_RevertOnDuplicateCollateralClass() public {

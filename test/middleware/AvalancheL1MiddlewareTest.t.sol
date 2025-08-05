@@ -1396,11 +1396,11 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Test PRIMARY_ASSET_CLASS (1)
         uint256 primaryStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, alice, 1);
-        assertGt(primaryStake, 0, "Primary asset stake should be > 0");
+        assertGt(primaryStake, 0, "Primary collateral stake should be > 0");
 
-        // Test secondary asset class (2)
+        // Test secondary collateral class (2)
         uint256 secondaryStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, alice, 2);
-        assertEq(secondaryStake, 0, "Secondary asset stake should be 0 as none was added");
+        assertEq(secondaryStake, 0, "Secondary collateral stake should be 0 as none was added");
     }
 
     function test_AutoUpdateFailsIfTooManyEpochsPending() public {
@@ -1946,14 +1946,14 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint96 secondaryCollateralClassId = 2;
         uint256 minSecondaryStakePerNodeForClass2 = 5 ether;
 
-        // Setup the secondary asset class
+        // Setup the secondary collateral class
         vm.startPrank(validatorManagerAddress);
         middleware.addCollateralClass(secondaryCollateralClassId, minSecondaryStakePerNodeForClass2, 0, address(collateral2));
         middleware.activateSecondaryCollateralClass(secondaryCollateralClassId);
         vaultManager.registerVault(address(vault3), secondaryCollateralClassId, 3000 ether);
         vm.stopPrank();
         
-        // Set L1 limit for the secondary asset class
+        // Set L1 limit for the secondary collateral class
         _setL1Limit(bob, validatorManagerAddress, secondaryCollateralClassId, 2500 ether, delegator3);
 
         // --- Alice gets and deposits secondary stake into vault3 ---

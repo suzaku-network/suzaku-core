@@ -13,7 +13,7 @@ interface ICollateralClassRegistry {
     error CollateralClassRegistry__AssetsStillExist();
     error CollateralClassRegistry__InvalidStakingRequirements();
 
-    event CollateralClassAdded(uint256 indexed collateralClassId, uint256 primaryAssetMinStake, uint256 primaryAssetMaxStake);
+    event CollateralClassAdded(uint256 indexed collateralClassId, uint256 primaryCollateralMinStake, uint256 primaryCollateralMaxStake);
     event AssetAdded(uint256 indexed collateralClassId, address indexed asset);
     event AssetRemoved(uint256 indexed collateralClassId, address indexed asset);
     event CollateralClassRemoved(uint256 indexed collateralClassId);

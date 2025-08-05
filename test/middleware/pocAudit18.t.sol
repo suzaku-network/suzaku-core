@@ -173,7 +173,7 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
         rewards.setRewardsAmountForEpochs(1, 10, address(rewardsToken), 100_000 * 1e18);
         vm.stopPrank();
         
-        // 100 % of rewards go to the primary asset-class (id 1) ---------------
+        // 100 % of rewards go to the primary collateral-class (id 1) ---------------
         vm.startPrank(REWARDS_MANAGER_ROLE);
         rewards.setRewardsShareForCollateralClass(1, 10000); // 10 000 bp == 100 %
         vm.stopPrank();

@@ -144,13 +144,13 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
         vm.stopPrank();
         console2.log("Reward share split set: 60/40");
 
-        // Create a secondary asset-class + vault so split is in effect
+        // Create a secondary collateral-class + vault so split is in effect
         _setupCollateralClassAndRegisterVault(
             secondaryCollateralClassId, 0,
             collateral2, vault3,
             type(uint256).max, type(uint256).max, delegator3
         );
-        console2.log("Secondary asset-class & vault registered\n");
+        console2.log("Secondary collateral-class & vault registered\n");
     }
 
     function getEpochCurators(uint48 epoch) external view returns (address[] memory) {

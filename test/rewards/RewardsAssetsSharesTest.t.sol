@@ -90,7 +90,7 @@ contract RewardsAssetShareTest is Test {
 
         // Set Operator A stake = 300 tokens (30% of network)
         middleware.setOperatorStake(epoch, OPERATOR_A, 1, 300);
-        // Set operator A node stake (for primary asset class calculation)
+        // Set operator A node stake (for primary collateral class calculation)
         bytes32[] memory operatorNodes = middleware.getOperatorNodes(OPERATOR_A);
         middleware.setNodeStake(epoch, operatorNodes[0], 300);
 

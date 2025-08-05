@@ -113,7 +113,7 @@ interface IAvalancheL1Middleware {
     }
     // External functions
     /**
-     * @notice Activates a secondary asset class
+     * @notice Activates a secondary collateral class
      * @param collateralClassId The asset class ID to activate
      */
 
@@ -122,7 +122,7 @@ interface IAvalancheL1Middleware {
     ) external;
 
     /**
-     * @notice Deactivates a secondary asset class
+     * @notice Deactivates a secondary collateral class
      * @param collateralClassId The asset class ID to deactivate
      */
     function deactivateSecondaryCollateralClass(
@@ -248,9 +248,9 @@ interface IAvalancheL1Middleware {
     function calcAndCacheNodeStakeForAllOperators() external;
 
     /**
-     * @notice Fetches the primary and secondary asset classes
-     * @return primary The primary asset class
-     * @return secondaries An array of secondary asset classes
+     * @notice Fetches the primary and secondary collateral classes
+     * @return primary The primary collateral class
+     * @return secondaries An array of secondary collateral classes
      */
     function getActiveCollateralClasses() external view returns (uint256 primary, uint256[] memory secondaries);
 

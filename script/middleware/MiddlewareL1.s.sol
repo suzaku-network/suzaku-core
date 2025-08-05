@@ -32,10 +32,10 @@ contract DeployTestAvalancheL1Middleware is Script {
                 stakeUpdateWindow: middlewareConfig.stakeUpdateWindow
             }),
             middlewareConfig.middlewareOwnerAddress, // Set the owner
-            middlewareConfig.primaryAsset,
-            middlewareConfig.primaryAssetMaxStake,
-            middlewareConfig.primaryAssetMinStake,
-            middlewareConfig.primaryAssetWeightScaleFactor
+            middlewareConfig.primaryCollateral,
+            middlewareConfig.primaryCollateralMaxStake,
+            middlewareConfig.primaryCollateralMinStake,
+            middlewareConfig.primaryCollateralWeightScaleFactor
         );
 
         // Deploy the MiddlewareVaultManager

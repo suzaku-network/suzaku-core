@@ -31,7 +31,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
     function setUp() public override {
         super.setUp();                                // ← real middleware & vaults ready
 
-        // ── fast‑path: add two secondary asset‑classes & their vaults ───────────
+        // ── fast‑path: add two secondary collateral‑classes & their vaults ───────────
         if (middleware.getCollateralClassIds().length == 1) {          // only class‑1 present
             _setupCollateralClassAndRegisterVault(
                 2, 0,                   // id‑2, minStake = 0
@@ -114,7 +114,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         if (cur < epoch) _moveToNextEpochAndCalc(epoch - cur);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
-        // cache every secondary asset‑class stake to avoid div‑0
+        // cache every secondary collateral‑class stake to avoid div‑0
         uint96[] memory ids = middleware.getCollateralClassIds();
         for (uint256 i = 0; i < ids.length; ++i) {
             if (ids[i] != 1) {                         // 1 = primary, already done above

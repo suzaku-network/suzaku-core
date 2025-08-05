@@ -358,7 +358,7 @@ contract RewardsTest is Test {
                 totalPrimaryStake += stakePerNode;
             }
 
-            // Set same stake percentage for secondary asset classes
+            // Set same stake percentage for secondary collateral classes
             middleware.setOperatorStake(epoch, operator, 2, operatorStake);
             middleware.setOperatorStake(epoch, operator, 3, operatorStake);
             totalSecondaryStake1 += operatorStake;
@@ -503,7 +503,7 @@ contract RewardsTest is Test {
                 totalPrimaryStake += stakePerNode;
             }
 
-            // Set secondary asset class stakes
+            // Set secondary collateral class stakes
             middleware.setOperatorStake(epoch, operator, 2, operatorStake);
             middleware.setOperatorStake(epoch, operator, 3, operatorStake);
             totalSecondaryStake1 += operatorStake;
@@ -1979,11 +1979,11 @@ contract RewardsTest is Test {
         // Setup stakes for operators normally
         _setupStakes(epoch, uptime);
 
-        // Set totalStakeCache to 0 for secondary asset classes to simulate uncached state
-        middleware.setTotalStakeCache(epoch, 2, 0); // Secondary asset class 2
-        middleware.setTotalStakeCache(epoch, 3, 0); // Secondary asset class 3
+        // Set totalStakeCache to 0 for secondary collateral classes to simulate uncached state
+        middleware.setTotalStakeCache(epoch, 2, 0); // Secondary collateral class 2
+        middleware.setTotalStakeCache(epoch, 3, 0); // Secondary collateral class 3
 
-        // Keep primary asset class cached (this would be cached by addNode/forceUpdateNodes)
+        // Keep primary collateral class cached (this would be cached by addNode/forceUpdateNodes)
         middleware.setTotalStakeCache(epoch, 1, 100000); // This stays cached
 
         // Move to epoch where distribution is allowed (must be at least 2 epochs ahead)
@@ -1994,8 +1994,8 @@ contract RewardsTest is Test {
         rewards.distributeRewards(epoch, 3);
 
         // Verify that the stakes were cached on-demand
-        assertGt(middleware.totalStakeCache(epoch, 2), 0, "Secondary asset class 2 stake should be cached");
-        assertGt(middleware.totalStakeCache(epoch, 3), 0, "Secondary asset class 3 stake should be cached");
+        assertGt(middleware.totalStakeCache(epoch, 2), 0, "Secondary collateral class 2 stake should be cached");
+        assertGt(middleware.totalStakeCache(epoch, 3), 0, "Secondary collateral class 3 stake should be cached");
 
         // Verify distribution progressed as expected
         (uint256 lastProcessed, ) = rewards.distributionBatches(epoch);

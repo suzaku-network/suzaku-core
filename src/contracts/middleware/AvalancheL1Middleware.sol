@@ -95,17 +95,17 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      * @notice Initializes contract settings
      * @param settings General contract parameters
      * @param owner Owner address
-     * @param primaryAsset The primary asset address
-     * @param primaryAssetMaxStake Max stake for the primary asset class
-     * @param primaryAssetMinStake Min stake for the primary asset class
+     * @param primaryCollateral The primary collateral address
+     * @param primaryCollateralMaxStake Max stake for the primary collateral class
+     * @param primaryCollateralMinStake Min stake for the primary collateral class
      */
     constructor(
         AvalancheL1MiddlewareSettings memory settings,
         address owner,
-        address primaryAsset,
-        uint256 primaryAssetMaxStake,
-        uint256 primaryAssetMinStake,
-        uint256 primaryAssetWeightScaleFactor
+        address primaryCollateral,
+        uint256 primaryCollateralMaxStake,
+        uint256 primaryCollateralMinStake,
+        uint256 primaryCollateralWeightScaleFactor
     ) CollateralClassRegistry(owner) {
         if (settings.l1ValidatorManager == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress();
@@ -122,7 +122,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         if (owner == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress();
         }
-        if (primaryAsset == address(0)) {
+        if (primaryCollateral == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress();
         }
         if (settings.slashingWindow < settings.epochDuration) {
@@ -137,17 +137,17 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             revert AvalancheL1Middleware__InvalidWindow();
         }
 
-        uint256 _minAllowed = (primaryAssetMaxStake + type(uint64).max - 1)
+        uint256 _minAllowed = (primaryCollateralMaxStake + type(uint64).max - 1)
             / type(uint64).max;  // ceiling (maxStake / (2⁶⁴‑1))
         if (_minAllowed == 0) _minAllowed = 1;
-        uint256 _maxAllowed = primaryAssetMinStake;   // ensures minStake implies weight ≥ 1
+        uint256 _maxAllowed = primaryCollateralMinStake;   // ensures minStake implies weight ≥ 1
 
         if (
-            primaryAssetWeightScaleFactor < _minAllowed ||
-            primaryAssetWeightScaleFactor > _maxAllowed
+            primaryCollateralWeightScaleFactor < _minAllowed ||
+            primaryCollateralWeightScaleFactor > _maxAllowed
         ) {
             revert AvalancheL1Middleware__ScaleFactorOutOfBounds(
-                primaryAssetWeightScaleFactor,
+                primaryCollateralWeightScaleFactor,
                 _minAllowed,
                 _maxAllowed
             );
@@ -159,12 +159,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         OPERATOR_REGISTRY = settings.operatorRegistry;
         OPERATOR_L1_OPTIN = settings.operatorL1Optin;
         SLASHING_WINDOW = settings.slashingWindow;
-        PRIMARY_ASSET = primaryAsset;
+        PRIMARY_ASSET = primaryCollateral;
         UPDATE_WINDOW = settings.stakeUpdateWindow;
-        WEIGHT_SCALE_FACTOR = primaryAssetWeightScaleFactor;
+        WEIGHT_SCALE_FACTOR = primaryCollateralWeightScaleFactor;
 
         balancerValidatorManager = BalancerValidatorManager(settings.l1ValidatorManager);
-        _addCollateralClass(PRIMARY_ASSET_CLASS, primaryAssetMinStake, primaryAssetMaxStake, PRIMARY_ASSET);
+        _addCollateralClass(PRIMARY_ASSET_CLASS, primaryCollateralMinStake, primaryCollateralMaxStake, PRIMARY_ASSET);
     }
 
     /**
@@ -261,7 +261,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     }
 
     /**
-     * @notice Removes an asset from an asset class, except primary asset
+     * @notice Removes an asset from an asset class, except primary collateral
      * @param collateralClassId The ID of the asset class
      * @param asset The address of the asset to remove
      */

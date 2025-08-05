@@ -8,20 +8,20 @@ import "../../src/contracts/middleware/CollateralClassRegistry.sol";
 error CollateralClassRegistry__AssetIsPrimaryCollateralClass(uint256 collateralClassId);
 
 contract MockCollateralClassRegistry is CollateralClassRegistry {
-    address public primaryAsset;
+    address public primaryCollateral;
 
     constructor(
         address initialOwner
     ) CollateralClassRegistry(initialOwner) {}
 
-    function setPrimaryAsset(
-        address _primaryAsset
+    function setPrimaryCollateral(
+        address _primaryCollateral
     ) external {
-        primaryAsset = _primaryAsset;
+        primaryCollateral = _primaryCollateral;
     }
 
     function removeAssetFromClass(uint256 collateralClassId, address asset) public override {
-        if (collateralClassId == 1 && asset == primaryAsset) {
+        if (collateralClassId == 1 && asset == primaryCollateral) {
             revert CollateralClassRegistry__AssetIsPrimaryCollateralClass(collateralClassId);
         }
         _removeAssetFromClass(collateralClassId, asset);

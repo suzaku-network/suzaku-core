@@ -96,9 +96,9 @@ contract L1RestakeDelegatorTest is Test {
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
             ,
-            uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake,
-            uint256 primaryAssetWeightScaleFactor
+            uint256 primaryCollateralMaxStake,
+            uint256 primaryCollateralMinStake,
+            uint256 primaryCollateralWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -139,9 +139,9 @@ contract L1RestakeDelegatorTest is Test {
             middlewareSettings,
             owner,
             address(collateral),
-            primaryAssetMaxStake,
-            primaryAssetMinStake,
-            primaryAssetWeightScaleFactor
+            primaryCollateralMaxStake,
+            primaryCollateralMinStake,
+            primaryCollateralWeightScaleFactor
         );
 
         vm.startPrank(owner); // the test contract is the current owner

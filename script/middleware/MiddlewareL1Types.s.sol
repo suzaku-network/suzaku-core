@@ -7,10 +7,10 @@ struct MiddlewareConfig {
     address operatorRegistry;
     address vaultFactory;
     address operatorL1OptIn;
-    address primaryAsset;
-    uint256 primaryAssetMaxStake;
-    uint256 primaryAssetMinStake;
-    uint256 primaryAssetWeightScaleFactor;
+    address primaryCollateral;
+    uint256 primaryCollateralMaxStake;
+    uint256 primaryCollateralMinStake;
+    uint256 primaryCollateralWeightScaleFactor;
     uint48 epochDuration;
     uint48 slashingWindow;
     uint48 stakeUpdateWindow;

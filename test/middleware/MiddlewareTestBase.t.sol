@@ -126,10 +126,10 @@ abstract contract MiddlewareTestBase is Test {
             ,
             ,
             ,
-            address primaryAsset,
-            uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake,
-            uint256 primaryAssetWeightScaleFactor
+            address primaryCollateral,
+            uint256 primaryCollateralMaxStake,
+            uint256 primaryCollateralMinStake,
+            uint256 primaryCollateralWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
 
         mockValidatorManager = new MockBalancerValidatorManager(owner);
@@ -167,7 +167,7 @@ abstract contract MiddlewareTestBase is Test {
         // Create a test collateral token
         collateral = new Token("MockCollateral");
         collateral2 = new Token("MockCollateral2");
-        primaryAsset = address(collateral);
+        primaryCollateral = address(collateral);
 
         uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;
         blockTimestamp = blockTimestamp + 1_720_700_948;
@@ -350,14 +350,14 @@ abstract contract MiddlewareTestBase is Test {
         middleware = new AvalancheL1Middleware(
             middlewareSettings,
             owner,
-            primaryAsset,
-            primaryAssetMaxStake,
-            primaryAssetMinStake,
-            primaryAssetWeightScaleFactor
+            primaryCollateral,
+            primaryCollateralMaxStake,
+            primaryCollateralMinStake,
+            primaryCollateralWeightScaleFactor
         );
 
         vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware), 24); // 24 epoch delay
-        // middleware.addCollateralClass(2, primaryAssetMinStake, primaryAssetMaxStake);
+        // middleware.addCollateralClass(2, primaryCollateralMinStake, primaryCollateralMaxStake);
         // middleware.activateSecondaryCollateralClass(0);
 
         // Set the vault manager in the middleware
