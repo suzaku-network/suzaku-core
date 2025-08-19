@@ -10,12 +10,5 @@ out/
 /broadcast/*/43113/
 /broadcast/**/dry-run/
 
-# Docs
-docs/
-
 # Dotenv file
 .env
-
-# Other files
-.gas-snapshot
-lcov.info
