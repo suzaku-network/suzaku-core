@@ -20,9 +20,9 @@ import {
  */
 contract UptimeTracker is IUptimeTracker {
     uint48 private immutable epochDuration;
-    AvalancheL1Middleware private immutable l1Middleware;
+    AvalancheL1Middleware private immutable middleware;
     BalancerValidatorManager private immutable validatorManager;
-    bytes32 private immutable l1ChainID;
+    bytes32 private immutable uptimeBlockchainID; // blockchainID of the L1
 
     IWarpMessenger public constant WARP_MESSENGER = IWarpMessenger(0x0200000000000000000000000000000000000005);
 
@@ -42,13 +42,13 @@ contract UptimeTracker is IUptimeTracker {
     mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
     constructor(
-        address payable l1Middleware_,
-        bytes32 l1ChainID_
+        address payable middleware_,
+        bytes32 uptimeBlockchainID_
     ) {
-        l1Middleware = AvalancheL1Middleware(l1Middleware_);
-        epochDuration = l1Middleware.EPOCH_DURATION();
-        validatorManager = BalancerValidatorManager(l1Middleware.L1_VALIDATOR_MANAGER());
-        l1ChainID = l1ChainID_;
+        middleware = AvalancheL1Middleware(middleware_);
+        epochDuration = middleware.EPOCH_DURATION();
+        validatorManager = BalancerValidatorManager(middleware.L1_VALIDATOR_MANAGER());
+        uptimeBlockchainID = uptimeBlockchainID_;
     }
 
     /**
@@ -63,7 +63,7 @@ contract UptimeTracker is IUptimeTracker {
             revert InvalidWarpMessage();
         }
         // Must match to P-Chain blockchain id
-        if (warpMessage.sourceChainID != l1ChainID) {
+        if (warpMessage.sourceChainID != uptimeBlockchainID) {
             revert InvalidWarpSourceChainID(warpMessage.sourceChainID);
         }
         if (warpMessage.originSenderAddress != address(0)) {
@@ -87,12 +87,12 @@ contract UptimeTracker is IUptimeTracker {
         }
 
         // Get last checkpoint epoch start
-        uint48 lastUptimeEpoch = l1Middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
-        uint256 lastUptimeEpochStart = l1Middleware.getEpochStartTs(lastUptimeEpoch);
+        uint48 lastUptimeEpoch = middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
+        uint256 lastUptimeEpochStart = middleware.getEpochStartTs(lastUptimeEpoch);
 
         // Get current epoch start
-        uint48 currentEpoch = l1Middleware.getEpochAtTs(uint48(block.timestamp));
-        uint256 currentEpochStart = l1Middleware.getEpochStartTs(currentEpoch);
+        uint48 currentEpoch = middleware.getEpochAtTs(uint48(block.timestamp));
+        uint256 currentEpochStart = middleware.getEpochStartTs(currentEpoch);
 
         // Calculate the recorded uptime since the last checkpoint
         uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
@@ -151,7 +151,7 @@ contract UptimeTracker is IUptimeTracker {
      * @inheritdoc IUptimeTracker
      */
     function computeOperatorUptimeAt(address operator, uint48 epoch) external {
-        bytes32[] memory operatorNodes = l1Middleware.getActiveNodesForEpoch(operator, epoch);
+        bytes32[] memory operatorNodes = middleware.getActiveNodesForEpoch(operator, epoch);
         uint256 numberOfValidators = operatorNodes.length;
         if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
         uint256 sumValidatorsUptime = 0;

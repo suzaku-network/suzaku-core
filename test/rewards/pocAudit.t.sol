@@ -28,13 +28,13 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
     address internal REWARDS_MANAGER_ROLE     = makeAddr("REWARDS_MANAGER_ROLE");
     address internal REWARDS_DISTRIBUTOR_ROLE = makeAddr("REWARDS_DISTRIBUTOR_ROLE");
 
-    uint96 secondaryAssetClassId = 2;          // activate a 2nd asset-class (40 % of rewards)
+    uint96 secondaryCollateralClassId = 2;          // activate a 2nd asset-class (40 % of rewards)
 
     // -----------------------------------------------------------------------
     //                      MAIN TEST ROUTINE
     // -----------------------------------------------------------------------
     function test_PoCIncorrectSumOfShares() public {
-        _setupRewardsAndSecondaryAssetClass();          // 1. deploy + fund rewards
+        _setupRewardsAndSecondaryCollateralClass();          // 1. deploy + fund rewards
 
         address[] memory operators = middleware.getAllOperators();
 
@@ -51,8 +51,8 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
         console2.log("Moved to one epoch ");
 
         // Cache total stakes for primary & secondary classes
-        middleware.calcAndCacheStakes(epoch, assetClassId);
-        middleware.calcAndCacheStakes(epoch, secondaryAssetClassId);
+        middleware.calcAndCacheStakes(epoch, collateralClassId);
+        middleware.calcAndCacheStakes(epoch, secondaryCollateralClassId);
 
         // 5. Give everyone perfect uptime so shares are fully counted --------
         for (uint i = 0; i < operators.length; i++) {
@@ -103,7 +103,7 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
     // -----------------------------------------------------------------------
     //                      SET-UP HELPER
     // -----------------------------------------------------------------------
-    function _setupRewardsAndSecondaryAssetClass() internal {
+    function _setupRewardsAndSecondaryCollateralClass() internal {
         uptimeTracker = new MockUptimeTracker();
         rewards       = new Rewards();
 
@@ -139,18 +139,18 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
 
         // Configure 60 % primary / 40 % secondary split ---------------------
         vm.startPrank(REWARDS_MANAGER_ROLE);
-        rewards.setRewardsShareForAssetClass(1,                     6000); // 60 %
-        rewards.setRewardsShareForAssetClass(secondaryAssetClassId, 4000); // 40 %
+        rewards.setRewardsShareForCollateralClass(1,                     6000); // 60 %
+        rewards.setRewardsShareForCollateralClass(secondaryCollateralClassId, 4000); // 40 %
         vm.stopPrank();
         console2.log("Reward share split set: 60/40");
 
-        // Create a secondary asset-class + vault so split is in effect
-        _setupAssetClassAndRegisterVault(
-            secondaryAssetClassId, 0,
+        // Create a secondary collateral-class + vault so split is in effect
+        _setupCollateralClassAndRegisterVault(
+            secondaryCollateralClassId, 0,
             collateral2, vault3,
             type(uint256).max, type(uint256).max, delegator3
         );
-        console2.log("Secondary asset-class & vault registered\n");
+        console2.log("Secondary collateral-class & vault registered\n");
     }
 
     function getEpochCurators(uint48 epoch) external view returns (address[] memory) {

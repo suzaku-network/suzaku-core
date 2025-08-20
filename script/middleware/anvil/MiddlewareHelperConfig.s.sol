@@ -13,10 +13,10 @@ contract MiddlewareHelperConfig is Script {
         bytes32 l1ID;
         uint64 churnPeriodSeconds;
         uint8 maximumChurnPercentage;
-        address primaryAsset;
-        uint256 primaryAssetMaxStake;
-        uint256 primaryAssetMinStake;
-        uint256 primaryAssetWeightScaleFactor;
+        address primaryCollateral;
+        uint256 primaryCollateralMaxStake;
+        uint256 primaryCollateralMinStake;
+        uint256 primaryCollateralWeightScaleFactor;
     }
 
     NetworkConfig public activeNetworkConfig;
@@ -41,10 +41,10 @@ contract MiddlewareHelperConfig is Script {
             l1ID: 0x5f4c8570d996184af03052f1b3acc1c7b432b0a41e7480de1b72d4c6f5983eb9,
             churnPeriodSeconds: 1 hours,
             maximumChurnPercentage: 20,
-            primaryAsset: address(localToken),
-            primaryAssetMaxStake: 100_000_000_000_000_000_000,
-            primaryAssetMinStake: 100_000_000_000_000,
-            primaryAssetWeightScaleFactor: 1e8
+            primaryCollateral: address(localToken),
+            primaryCollateralMaxStake: 100_000_000_000_000_000_000,
+            primaryCollateralMinStake: 100_000_000_000_000,
+            primaryCollateralWeightScaleFactor: 1e8
         });
     }
 }

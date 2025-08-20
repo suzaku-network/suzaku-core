@@ -43,19 +43,19 @@ interface IL1RestakeDelegator is IBaseDelegator {
     /**
      * @notice Emitted when a subnetwork's limit is set.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param amount new subnetwork's limit
      */
-    event SetL1Limit(address indexed l1, uint96 indexed assetClass, uint256 amount);
+    event SetL1Limit(address indexed l1, uint96 indexed collateralClass, uint256 amount);
 
     /**
      * @notice Emitted when an operator's shares inside a subnetwork are set.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param operator address of the operator
      * @param shares new operator's shares
      */
-    event SetOperatorL1Shares(address indexed l1, uint96 indexed assetClass, address indexed operator, uint256 shares);
+    event SetOperatorL1Shares(address indexed l1, uint96 indexed collateralClass, address indexed operator, uint256 shares);
 
     /**
      * @notice Get a subnetwork limit setter's role.
@@ -72,14 +72,14 @@ interface IL1RestakeDelegator is IBaseDelegator {
     /**
      * @notice Get a subnetwork's limit at a given timestamp using a hint.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param timestamp time point to get the subnetwork limit at
      * @param hint hint for checkpoint index
      * @return limit of the subnetwork at the given timestamp
      */
     function l1LimitAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         uint48 timestamp,
         bytes memory hint
     ) external view returns (uint256);
@@ -87,22 +87,22 @@ interface IL1RestakeDelegator is IBaseDelegator {
     /**
      * @notice Get a subnetwork's limit.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @return limit of the subnetwork
      */
-    function l1Limit(address l1, uint96 assetClass) external view returns (uint256);
+    function l1Limit(address l1, uint96 collateralClass) external view returns (uint256);
 
     /**
      * @notice Get total operators' shares for a subnetwork at a given timestamp using a hint.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param timestamp time point to get the total operators' shares at
      * @param hint hint for checkpoint index
      * @return total shares of the operators for the subnetwork at the given timestamp
      */
     function totalOperatorL1SharesAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         uint48 timestamp,
         bytes memory hint
     ) external view returns (uint256);
@@ -110,15 +110,15 @@ interface IL1RestakeDelegator is IBaseDelegator {
     /**
      * @notice Get total operators' shares for a subnetwork.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @return total shares of the operators for the subnetwork
      */
-    function totalOperatorL1Shares(address l1, uint96 assetClass) external view returns (uint256);
+    function totalOperatorL1Shares(address l1, uint96 collateralClass) external view returns (uint256);
 
     /**
      * @notice Get an operator's shares for a subnetwork at a given timestamp using a hint.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param operator address of the operator
      * @param timestamp time point to get the operator's shares at
      * @param hint hint for checkpoint index
@@ -126,7 +126,7 @@ interface IL1RestakeDelegator is IBaseDelegator {
      */
     function operatorL1SharesAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         bytes memory hint
@@ -135,28 +135,28 @@ interface IL1RestakeDelegator is IBaseDelegator {
     /**
      * @notice Get an operator's shares for a subnetwork.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param operator address of the operator
      * @return shares of the operator for the subnetwork
      */
-    function operatorL1Shares(address l1, uint96 assetClass, address operator) external view returns (uint256);
+    function operatorL1Shares(address l1, uint96 collateralClass, address operator) external view returns (uint256);
 
     /**
      * @notice Set a subnetwork's limit.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param amount new limit of the subnetwork
      * @dev Only a L1_LIMIT_SET_ROLE holder can call this function.
      */
-    function setL1Limit(address l1, uint96 assetClass, uint256 amount) external;
+    function setL1Limit(address l1, uint96 collateralClass, uint256 amount) external;
 
     /**
      * @notice Set an operator's shares for a subnetwork.
      * @param l1 address of the L1
-     * @param assetClass uint96 identifier of the stakable asset
+     * @param collateralClass uint96 identifier of the stakable asset
      * @param operator address of the operator
      * @param shares new shares of the operator for the subnetwork
      * @dev Only an OPERATOR_L1_SHARES_SET_ROLE holder can call this function.
      */
-    function setOperatorL1Shares(address l1, uint96 assetClass, address operator, uint256 shares) external;
+    function setOperatorL1Shares(address l1, uint96 collateralClass, address operator, uint256 shares) external;
 }

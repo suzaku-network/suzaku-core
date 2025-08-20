@@ -92,9 +92,9 @@ interface IRewards {
 
     /**
      * @dev Error thrown when an invalid l1 middleware address is provided
-     * @param l1Middleware Invalid l1 middleware address
+     * @param middleware Invalid l1 middleware address
      */
-    error InvalidL1Middleware(address l1Middleware);
+    error InvalidL1Middleware(address middleware);
 
     /**
      * @dev Error thrown when an invalid uptime tracker address is provided
@@ -124,7 +124,7 @@ interface IRewards {
      * @dev Error thrown when a vault's asset class cannot be found
      * @param vault Address of the vault
      */
-    error AssetClassNotFound(address vault);
+    error CollateralClassNotFound(address vault);
 
     /**
      * @dev Error thrown when trying to operate on an unfinished epoch
@@ -186,7 +186,7 @@ interface IRewards {
      * @notice Error thrown when the sum of all asset class shares exceeds 100%
      * @param totalBp Sum of all basis points
      */
-    error AssetClassSharesExceed100(uint256 totalBp);
+    error CollateralClassSharesExceed100(uint256 totalBp);
 
     /**
      * @notice Error thrown when the sum of all fees exceeds 100%
@@ -294,10 +294,10 @@ interface IRewards {
 
     /**
      * @notice Emitted when the reward share percentage for an asset class is updated
-     * @param assetClassId ID of the asset class
+     * @param collateralClassId ID of the asset class
      * @param rewardsPercentage New reward percentage in basis points
      */
-    event RewardsShareUpdated(uint96 indexed assetClassId, uint16 rewardsPercentage);
+    event RewardsShareUpdated(uint96 indexed collateralClassId, uint16 rewardsPercentage);
 
     /**
      * @notice Emitted when rewards are set for a range of epochs
@@ -442,10 +442,10 @@ interface IRewards {
     /**
      * @notice Sets the rewards share percentage for a specific asset class
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
-     * @param assetClassId ID of the asset class
+     * @param collateralClassId ID of the asset class
      * @param rewardsPercentage New reward percentage in basis points
      */
-    function setRewardsShareForAssetClass(uint96 assetClassId, uint16 rewardsPercentage) external;
+    function setRewardsShareForCollateralClass(uint96 collateralClassId, uint16 rewardsPercentage) external;
 
     /**
      * @notice Sets the rewards amount for a range of epochs

@@ -37,10 +37,10 @@ contract DeployTestAvalancheL1Middleware is Script {
             bytes32 l1ID,
             uint64 churnPeriodSeconds,
             uint8 maximumChurnPercentage,
-            address primaryAsset,
-            uint256 primaryAssetMaxStake,
-            uint256 primaryAssetMinStake,
-            uint256 primaryAssetWeightScaleFactor
+            address primaryCollateral,
+            uint256 primaryCollateralMaxStake,
+            uint256 primaryCollateralMinStake,
+            uint256 primaryCollateralWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
@@ -77,10 +77,10 @@ contract DeployTestAvalancheL1Middleware is Script {
                 stakeUpdateWindow: 3 hours
             }),
             protocolOwnerAddress,
-            primaryAsset,
-            primaryAssetMaxStake,
-            primaryAssetMinStake,
-            primaryAssetWeightScaleFactor
+            primaryCollateral,
+            primaryCollateralMaxStake,
+            primaryCollateralMinStake,
+            primaryCollateralWeightScaleFactor
         );
 
         MiddlewareVaultManager vaultManager =

@@ -21,7 +21,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         vm.startBroadcast();
 
         // Deploy the AvalancheL1Middleware
-        AvalancheL1Middleware l1Middleware = new AvalancheL1Middleware(
+        AvalancheL1Middleware middleware = new AvalancheL1Middleware(
             AvalancheL1MiddlewareSettings({
                 l1ValidatorManager: middlewareConfig.validatorManager,
                 operatorRegistry: middlewareConfig.operatorRegistry,
@@ -31,28 +31,28 @@ contract DeployTestAvalancheL1Middleware is Script {
                 slashingWindow: middlewareConfig.slashingWindow,
                 stakeUpdateWindow: middlewareConfig.stakeUpdateWindow
             }),
-            middlewareConfig.l1MiddlewareOwnerAddress, // Set the owner
-            middlewareConfig.primaryAsset,
-            middlewareConfig.primaryAssetMaxStake,
-            middlewareConfig.primaryAssetMinStake,
-            middlewareConfig.primaryAssetWeightScaleFactor
+            middlewareConfig.middlewareOwnerAddress, // Set the owner
+            middlewareConfig.primaryCollateral,
+            middlewareConfig.primaryCollateralMaxStake,
+            middlewareConfig.primaryCollateralMinStake,
+            middlewareConfig.primaryCollateralWeightScaleFactor
         );
 
         // Deploy the MiddlewareVaultManager
         // Linking both to the same validator manager
         MiddlewareVaultManager middlewareVaultManager = new MiddlewareVaultManager(
-            middlewareConfig.vaultFactory, middlewareConfig.l1MiddlewareOwnerAddress, address(l1Middleware), middlewareConfig.vaultRemovalEpochDelay
+            middlewareConfig.vaultFactory, middlewareConfig.middlewareOwnerAddress, address(middleware), middlewareConfig.vaultRemovalEpochDelay
         );
 
         vm.stopBroadcast();
 
         // Configure the vault manager in the middleware
         vm.startBroadcast();
-        l1Middleware.setVaultManager(address(middlewareVaultManager));
+        middleware.setVaultManager(address(middlewareVaultManager));
         vm.stopBroadcast();
 
         // Return addresses
-        middlewareL1 = address(l1Middleware);
+        middlewareL1 = address(middleware);
         vaultManager = address(middlewareVaultManager);
 
         console2.log("AvalancheL1Middleware deployed at:", middlewareL1);

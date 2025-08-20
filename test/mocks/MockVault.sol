@@ -44,7 +44,7 @@ contract MockVault is IVaultTokenized {
         return _owner;
     }
 
-    function activeSharesOfAt(address account, uint48, bytes calldata) public view override returns (uint256) {
+    function activeSharesOfAt(address /* account */, uint48, bytes calldata) public pure override returns (uint256) {
         return 100;
     }
 

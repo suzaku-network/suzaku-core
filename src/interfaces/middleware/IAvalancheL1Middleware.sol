@@ -17,46 +17,34 @@ import {
  */
 interface IAvalancheL1Middleware {
     // Errors
-    error AvalancheL1Middleware__ActiveSecondaryAssetClass(uint256 assetClassId);
-    error AvalancheL1Middleware__AssetClassNotActive(uint256 assetClassId);
-    error AvalancheL1Middleware__AssetStillInUse(uint256 assetClassId);
-    error AvalancheL1Middleware__AlreadyRebalanced(address operator, uint48 epoch);
+    error AvalancheL1Middleware__ActiveSecondaryCollateralClass(uint256 collateralClassId);
+    error AvalancheL1Middleware__CollateralClassNotActive(uint256 collateralClassId);
+    error AvalancheL1Middleware__AssetStillInUse(uint256 collateralClassId);
     error AvalancheL1Middleware__WeightUpdateNotPending(bytes32 validationId);
-    error AvalancheL1Middleware__CollateralNotInAssetClass(address collateral, uint96 assetClassId);
+    error AvalancheL1Middleware__CollateralNotInCollateralClass(address collateral, uint96 collateralClassId);
     error AvalancheL1Middleware__EpochError(uint48 epochStartTs);
-    error AvalancheL1Middleware__MaxL1LimitZero();
-    error AvalancheL1Middleware__NoSlasher();
-    error AvalancheL1Middleware__NotEnoughFreeStakeSecondaryAssetClasses();
-    error AvalancheL1Middleware__NodeNotActive();
-    error AvalancheL1Middleware__NotEnoughFreeStake(uint256 newStake);
-    error AvalancheL1Middleware__StakeTooHigh(uint256 newStake, uint256 maxStake);
-    error AvalancheL1Middleware__StakeTooLow(uint256 newStake, uint256 minStake);
+    error AvalancheL1Middleware__InsufficientStake();
+    error AvalancheL1Middleware__InvalidStakeAmount();
     error AvalancheL1Middleware__OperatorGracePeriodNotPassed(uint48 disabledTime, uint48 slashingWindow);
     error AvalancheL1Middleware__OperatorAlreadyRegistered(address operator);
     error AvalancheL1Middleware__OperatorNotOptedIn(address operator, address l1ValidatorManager);
     error AvalancheL1Middleware__OperatorNotRegistered(address operator);
-    error AvalancheL1Middleware__SlashingWindowTooShort(uint48 slashingWindow, uint48 epochDuration);
-    error AvalancheL1Middleware__TooBigSlashAmount();
+    error AvalancheL1Middleware__InvalidWindow();
     error AvalancheL1Middleware__NodeNotFound(bytes32 nodeId);
     error AvalancheL1Middleware__SecurityModuleCapacityNotEnough(uint256 securityModuleCapacity, uint256 minStake);
     error AvalancheL1Middleware__WeightUpdatePending(bytes32 validationID);
     error AvalancheL1Middleware__NodeStateNotUpdated(bytes32 validationID);
     error AvalancheL1Middleware__NotEpochUpdatePeriod(uint48 timeNow, uint48 epochUpdatePeriod);
     error AvalancheL1Middleware__NotImplemented();
-    error AvalancheL1Middleware__NodePendingRemoval(bytes32 nodeId);
-    error AvalancheL1Middleware__NodePendingUpdate(bytes32 nodeId);
-    error AvalancheL1Middleware__ZeroAddress(string name);
-    error AvalancheL1Middleware__InvalidScaleFactor();
+    error AvalancheL1Middleware__NodePending();
+    error AvalancheL1Middleware__ZeroAddress();
     error AvalancheL1Middleware__ScaleFactorOutOfBounds(uint256 supplied, uint256 minAllowed, uint256 maxAllowed);
-    error AvalancheL1Middleware__ManualEpochUpdateRequired(uint48 epochsPending, uint48 maxAutoUpdates);
+    error AvalancheL1Middleware__ManualEpochUpdateRequired(uint48 epochsPending);
     error AvalancheL1Middleware__NoEpochsToProcess();
-    error AvalancheL1Middleware__TooManyEpochsRequested(uint48 requested, uint48 pending);
-    error AvalancheL1Middleware__LimitStakeTooLow(uint256 limitStake, uint256 minMeaningfulStake);
-    error AvalancheL1Middleware__NoMeaningfulUpdatesAvailable(address operator, uint256 leftoverStake);
+    error AvalancheL1Middleware__RebalanceNotRequired();
     error AvalancheL1Middleware__CannotCacheFutureEpoch(uint48 epoch);
     error AvalancheL1Middleware__VaultManagerAlreadySet(address vaultManager);
     error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
-    error AvalancheL1Middleware__InvalidUpdateWindow(uint48 stakeUpdateWindow, uint48 epochDuration);
 
     // Events
     /**
@@ -125,20 +113,20 @@ interface IAvalancheL1Middleware {
     }
     // External functions
     /**
-     * @notice Activates a secondary asset class
-     * @param assetClassId The asset class ID to activate
+     * @notice Activates a secondary collateral class
+     * @param collateralClassId The asset class ID to activate
      */
 
-    function activateSecondaryAssetClass(
-        uint256 assetClassId
+    function activateSecondaryCollateralClass(
+        uint256 collateralClassId
     ) external;
 
     /**
-     * @notice Deactivates a secondary asset class
-     * @param assetClassId The asset class ID to deactivate
+     * @notice Deactivates a secondary collateral class
+     * @param collateralClassId The asset class ID to deactivate
      */
-    function deactivateSecondaryAssetClass(
-        uint256 assetClassId
+    function deactivateSecondaryCollateralClass(
+        uint256 collateralClassId
     ) external;
 
     /**
@@ -242,17 +230,17 @@ interface IAvalancheL1Middleware {
      * @param epoch The epoch of the slash
      * @param operator The operator being slashed
      * @param amount The slash amount
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      */
-    function slash(uint48 epoch, address operator, uint256 amount, uint96 assetClassId) external;
+    function slash(uint48 epoch, address operator, uint256 amount, uint96 collateralClassId) external;
 
     /**
      * @notice Calculates and caches total stake for an epoch
      * @param epoch The epoch number
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return totalStake The total stake calculated and cached
      */
-    function calcAndCacheStakes(uint48 epoch, uint96 assetClassId) external returns (uint256);
+    function calcAndCacheStakes(uint48 epoch, uint96 collateralClassId) external returns (uint256);
 
     /**
      * @notice Calculates and caches node stakes for all operators retroactively for all epochs
@@ -260,19 +248,19 @@ interface IAvalancheL1Middleware {
     function calcAndCacheNodeStakeForAllOperators() external;
 
     /**
-     * @notice Fetches the primary and secondary asset classes
-     * @return primary The primary asset class
-     * @return secondaries An array of secondary asset classes
+     * @notice Fetches the primary and secondary collateral classes
+     * @return primary The primary collateral class
+     * @return secondaries An array of secondary collateral classes
      */
-    function getActiveAssetClasses() external view returns (uint256 primary, uint256[] memory secondaries);
+    function getActiveCollateralClasses() external view returns (uint256 primary, uint256[] memory secondaries);
 
     /**
      * @notice Checks if the classId is active
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return bool True if active
      */
-    function isActiveAssetClass(
-        uint96 assetClassId
+    function isActiveCollateralClass(
+        uint96 collateralClassId
     ) external view returns (bool);
 
     /**
@@ -303,18 +291,18 @@ interface IAvalancheL1Middleware {
      * @notice Returns an operator's stake at a given epoch for a specific asset class
      * @param operator The operator address
      * @param epoch The epoch number
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return stake The operator's stake
      */
-    function getOperatorStake(address operator, uint48 epoch, uint96 assetClassId) external view returns (uint256);
+    function getOperatorStake(address operator, uint48 epoch, uint96 collateralClassId) external view returns (uint256);
 
     /**
      * @notice Returns total stake across all operators in a specific epoch
      * @param epoch The epoch number
-     * @param assetClassId The asset class ID
+     * @param collateralClassId The asset class ID
      * @return The total stake in that epoch
      */
-    function getTotalStake(uint48 epoch, uint96 assetClassId) external view returns (uint256);
+    function getTotalStake(uint48 epoch, uint96 collateralClassId) external view returns (uint256);
 
     /**
      * @notice Returns all operators
@@ -365,12 +353,12 @@ interface IAvalancheL1Middleware {
      * @notice Returns the true active stake for an operator in a given epoch and asset class
      * @param epoch The epoch number
      * @param operator The operator address
-     * @param assetClass The asset class ID
+     * @param collateralClass The asset class ID
      * @return The true active stake
      */
     function getOperatorUsedStakeCachedPerEpoch(
         uint48 epoch,
         address operator,
-        uint96 assetClass
+        uint96 collateralClass
     ) external view returns (uint256);
 }

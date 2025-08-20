@@ -126,12 +126,12 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
      */
     function stakeAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         bytes memory hints
     ) public view returns (uint256) {
-        (uint256 stake_, bytes memory baseHints) = _stakeAt(l1, assetClass, operator, timestamp, hints);
+        (uint256 stake_, bytes memory baseHints) = _stakeAt(l1, collateralClass, operator, timestamp, hints);
         StakeBaseHints memory stakeBaseHints;
         if (baseHints.length > 0) {
             stakeBaseHints = abi.decode(baseHints, (StakeBaseHints));
@@ -155,7 +155,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
     /**
      * @inheritdoc IBaseDelegator
      */
-    function stake(address l1, uint96 assetClass, address operator) external view returns (uint256) {
+    function stake(address l1, uint96 collateralClass, address operator) external view returns (uint256) {
         if (
             !IOptInService(OPERATOR_VAULT_OPT_IN_SERVICE).isOptedIn(operator, vault)
                 || !IOptInService(OPERATOR_L1_OPT_IN_SERVICE).isOptedIn(operator, l1)
@@ -163,13 +163,13 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             return 0;
         }
 
-        return _stake(l1, assetClass, operator);
+        return _stake(l1, collateralClass, operator);
     }
     /**
      * @inheritdoc IBaseDelegator
      */
 
-    function setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) external nonReentrant {
+    function setMaxL1Limit(address l1, uint96 collateralClass, uint256 amount) external nonReentrant {
         if (!IL1Registry(L1_REGISTRY).isRegistered(l1)) {
             revert BaseDelegator__NotL1();
         }
@@ -180,16 +180,16 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             revert BaseDelegator__NotAuthorizedMiddleware();
         }
 
-        uint256 currentLimit = maxL1Limit[l1][assetClass];
+        uint256 currentLimit = maxL1Limit[l1][collateralClass];
         if (currentLimit == amount) {
             revert BaseDelegator__AlreadySet();
         }
 
-        maxL1Limit[l1][assetClass] = amount;
+        maxL1Limit[l1][collateralClass] = amount;
 
-        _setMaxL1Limit(l1, assetClass, amount);
+        _setMaxL1Limit(l1, collateralClass, amount);
 
-        emit SetMaxL1Limit(l1, assetClass, amount);
+        emit SetMaxL1Limit(l1, collateralClass, amount);
     }
 
     /**
@@ -212,7 +212,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
      */
     function onSlash(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint256 amount,
         uint48 captureTimestamp,
@@ -225,7 +225,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
         address hook_ = hook;
         if (hook_ != address(0)) {
             bytes memory calldata_ =
-                abi.encodeCall(IDelegatorHook.onSlash, (l1, assetClass, operator, amount, captureTimestamp, data));
+                abi.encodeCall(IDelegatorHook.onSlash, (l1, collateralClass, operator, amount, captureTimestamp, data));
 
             if (gasleft() < HOOK_RESERVE + HOOK_GAS_LIMIT * 64 / 63) {
                 revert BaseDelegator__InsufficientHookGas();
@@ -236,7 +236,7 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
             }
         }
 
-        emit OnSlash(l1, assetClass, operator, amount, captureTimestamp);
+        emit OnSlash(l1, collateralClass, operator, amount, captureTimestamp);
     }
 
     /**
@@ -276,15 +276,15 @@ abstract contract BaseDelegator is AccessControlUpgradeable, ReentrancyGuardUpgr
 
     function _stakeAt(
         address l1,
-        uint96 assetClass,
+        uint96 collateralClass,
         address operator,
         uint48 timestamp,
         bytes memory hints
     ) internal view virtual returns (uint256, bytes memory);
 
-    function _stake(address l1, uint96 assetClass, address operator) internal view virtual returns (uint256);
+    function _stake(address l1, uint96 collateralClass, address operator) internal view virtual returns (uint256);
 
-    function _setMaxL1Limit(address l1, uint96 assetClass, uint256 amount) internal virtual;
+    function _setMaxL1Limit(address l1, uint96 collateralClass, uint256 amount) internal virtual;
 
     function __initialize(address vault_, bytes memory data) internal virtual returns (BaseParams memory);
 

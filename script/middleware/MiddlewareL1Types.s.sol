@@ -2,15 +2,15 @@
 pragma solidity 0.8.25;
 
 struct MiddlewareConfig {
-    address l1MiddlewareOwnerAddress;
+    address middlewareOwnerAddress;
     address validatorManager;
     address operatorRegistry;
     address vaultFactory;
     address operatorL1OptIn;
-    address primaryAsset;
-    uint256 primaryAssetMaxStake;
-    uint256 primaryAssetMinStake;
-    uint256 primaryAssetWeightScaleFactor;
+    address primaryCollateral;
+    uint256 primaryCollateralMaxStake;
+    uint256 primaryCollateralMinStake;
+    uint256 primaryCollateralWeightScaleFactor;
     uint48 epochDuration;
     uint48 slashingWindow;
     uint48 stakeUpdateWindow;

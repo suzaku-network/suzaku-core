@@ -75,22 +75,22 @@ contract RewardsAssetShareTest is Test {
 
     function test_AssetShareFormula() public {
         uint48 epoch = 1;
-        // Set Asset Class 1 to 50% rewards share (5000 basis points)
+        // Set Collateral Class 1 to 50% rewards share (5000 basis points)
         vm.prank(REWARDS_MANAGER);
-        rewards.setRewardsShareForAssetClass(1, 5000); // 50%
+        rewards.setRewardsShareForCollateralClass(1, 5000); // 50%
         vm.prank(REWARDS_MANAGER);
-        rewards.setRewardsShareForAssetClass(2, 2000); // 20%
+        rewards.setRewardsShareForCollateralClass(2, 2000); // 20%
         vm.prank(REWARDS_MANAGER);
-        rewards.setRewardsShareForAssetClass(3, 3000); // 30%
+        rewards.setRewardsShareForCollateralClass(3, 3000); // 30%
 
-        // Set total stake in Asset Class 1 = 1000 tokens across network
+        // Set total stake in Collateral Class 1 = 1000 tokens across network
         middleware.setTotalStakeCache(epoch, 1, 1000);
-        middleware.setTotalStakeCache(epoch, 2, 100); // Asset Class 2: 100 tokens
-        middleware.setTotalStakeCache(epoch, 3, 100); // Asset Class 3: 100 tokens
+        middleware.setTotalStakeCache(epoch, 2, 100); // Collateral Class 2: 100 tokens
+        middleware.setTotalStakeCache(epoch, 3, 100); // Collateral Class 3: 100 tokens
 
         // Set Operator A stake = 300 tokens (30% of network)
         middleware.setOperatorStake(epoch, OPERATOR_A, 1, 300);
-        // Set operator A node stake (for primary asset class calculation)
+        // Set operator A node stake (for primary collateral class calculation)
         bytes32[] memory operatorNodes = middleware.getOperatorNodes(OPERATOR_A);
         middleware.setNodeStake(epoch, operatorNodes[0], 300);
 
@@ -98,7 +98,7 @@ contract RewardsAssetShareTest is Test {
         middleware.setOperatorStake(epoch, OPERATOR_A, 2, 0);
         middleware.setOperatorStake(epoch, OPERATOR_A, 3, 0);
         bytes32[] memory operatorBNodes = middleware.getOperatorNodes(OPERATOR_B);
-        middleware.setNodeStake(epoch, operatorBNodes[0], 700); // Remaining Asset Class 1 stake
+        middleware.setNodeStake(epoch, operatorBNodes[0], 700); // Remaining Collateral Class 1 stake
         middleware.setOperatorStake(epoch, OPERATOR_B, 1, 700);
         middleware.setOperatorStake(epoch, OPERATOR_B, 2, 100);
         middleware.setOperatorStake(epoch, OPERATOR_B, 3, 100);
@@ -107,29 +107,29 @@ contract RewardsAssetShareTest is Test {
         uptimeTracker.setOperatorUptimePerEpoch(epoch, OPERATOR_A, 4 hours);
         uptimeTracker.setOperatorUptimePerEpoch(epoch, OPERATOR_B, 4 hours);
 
-        // Create a vault for Asset Class 1 with 300 tokens staked (100% of operator's stake)
+        // Create a vault for Collateral Class 1 with 300 tokens staked (100% of operator's stake)
         address vault1Owner = address(0x500);
         (address vault1, address delegator1) = vaultManager.deployAndAddVault(
             address(0x123), // collateral
             vault1Owner
         );
-        middleware.setAssetInAssetClass(1, vault1);
-        vaultManager.setVaultAssetClass(vault1, 1);
+        middleware.setAssetInCollateralClass(1, vault1);
+        vaultManager.setVaultCollateralClass(vault1, 1);
 
-        // Create vault for Asset Class 2
+        // Create vault for Collateral Class 2
         address vault2Owner = address(0x600);
         (address vault2, address delegator2) = vaultManager.deployAndAddVault(address(0x123), vault2Owner);
-        middleware.setAssetInAssetClass(2, vault2);
-        vaultManager.setVaultAssetClass(vault2, 2);
+        middleware.setAssetInCollateralClass(2, vault2);
+        vaultManager.setVaultCollateralClass(vault2, 2);
 
-        // Create vault for Asset Class 3
+        // Create vault for Collateral Class 3
         address vault3Owner = address(0x700);
         (address vault3, address delegator3) = vaultManager.deployAndAddVault(
             address(0x125), // different collateral
             vault3Owner
         );
-        middleware.setAssetInAssetClass(3, vault3);
-        vaultManager.setVaultAssetClass(vault3, 3);
+        middleware.setAssetInCollateralClass(3, vault3);
+        vaultManager.setVaultCollateralClass(vault3, 3);
 
         // Set vault delegation: 300 tokens staked to Operator A
         uint256 epochTs = middleware.getEpochStartTs(epoch);
@@ -160,14 +160,14 @@ contract RewardsAssetShareTest is Test {
         rewards.distributeRewards(epoch, 2);
 
         // Get calculated shares MANUALLY for the test
-        uint256 operatorAShare_Class1 = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_A, 1);
-        uint256 operatorAShare_Class2 = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_A, 2);
-        uint256 operatorAShare_Class3 = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_A, 3);
+        uint256 operatorAShare_Class1 = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_A, 1);
+        uint256 operatorAShare_Class2 = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_A, 2);
+        uint256 operatorAShare_Class3 = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_A, 3);
         uint256 totalOperatorAShare = operatorAShare_Class1 + operatorAShare_Class2 + operatorAShare_Class3;
 
-        uint256 operatorBShare_Class1 = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_B, 1);
-        uint256 operatorBShare_Class2 = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_B, 2);
-        uint256 operatorBShare_Class3 = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_B, 3);
+        uint256 operatorBShare_Class1 = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_B, 1);
+        uint256 operatorBShare_Class2 = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_B, 2);
+        uint256 operatorBShare_Class3 = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_B, 3);
         uint256 totalOperatorBShare = operatorBShare_Class1 + operatorBShare_Class2 + operatorBShare_Class3;
 
         uint256 vault1Share = rewards.vaultShares(epoch, vault1);
@@ -196,9 +196,9 @@ contract RewardsAssetShareTest is Test {
         uint48 epoch = 1;
 
         // --- Setup ---
-        // Asset Class 1 gets 100% of rewards for simplicity
+        // Collateral Class 1 gets 100% of rewards for simplicity
         vm.prank(REWARDS_MANAGER);
-        rewards.setRewardsShareForAssetClass(1, 10000); // 100%
+        rewards.setRewardsShareForCollateralClass(1, 10000); // 100%
 
         // Total stake in the asset class is 1000
         middleware.setTotalStakeCache(epoch, 1, 1000);
@@ -214,7 +214,7 @@ contract RewardsAssetShareTest is Test {
 
         // A single vault delegates the full 100 active stake to Operator A
         (address vault, address delegator) = vaultManager.deployAndAddVault(address(0x123), address(0x500));
-        vaultManager.setVaultAssetClass(vault, 1);
+        vaultManager.setVaultCollateralClass(vault, 1);
         uint256 epochTs = middleware.getEpochStartTs(epoch);
         MockDelegator(delegator).setStake(middleware.L1_VALIDATOR_MANAGER(), 1, OPERATOR_A, uint48(epochTs), 100);
 
@@ -231,7 +231,7 @@ contract RewardsAssetShareTest is Test {
         // --- Assertion ---
         // Operator A's share of the asset class budget is 100/1000 = 10%
         // Since asset class share is 100%, this is 1000 basis points.
-        uint256 operatorShare = rewards.operatorBeneficiariesSharesPerAssetClass(epoch, OPERATOR_A, 1);
+        uint256 operatorShare = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, OPERATOR_A, 1);
         assertEq(operatorShare, 1000, "Operator A beneficiary share should be 10%");
 
         // The vault contributed 100% of the operator's active stake (100/100).
