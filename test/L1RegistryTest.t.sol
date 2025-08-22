@@ -182,9 +182,9 @@ contract L1RegistryTest is Test {
         assertEq(l10, address(mockACP99Manager));
         assertEq(middleware0, middleware1SecurityModule);
         assertEq(metadataURL0, middleware1MetadataURL);
-        (address l11, address middleware1, string memory metadataURL1) = registry.getL1At(1);
+        (address l11, address mw1, string memory metadataURL1) = registry.getL1At(1);
         assertEq(l11, address(middleware2Manager));
-        assertEq(middleware1, middleware2SecurityModule);
+        assertEq(mw1, middleware2SecurityModule);
         assertEq(metadataURL1, middleware2MetadataURL);
     }
 

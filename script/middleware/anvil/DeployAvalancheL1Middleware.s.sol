@@ -3,12 +3,9 @@
 
 pragma solidity 0.8.25;
 
-import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
 import {MiddlewareHelperConfig} from "./MiddlewareHelperConfig.s.sol";
-import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
 import {Script} from "forge-std/Script.sol";
-import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
-import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
+import {DeployBalancerValidatorManager} from "../../../lib/suzaku-contracts-library/script/ValidatorManager/DeployBalancerValidatorManager.s.sol";
 import {OperatorRegistry} from "../../../src/contracts/OperatorRegistry.sol";
 import {VaultFactory} from "../../../src/contracts/VaultFactory.sol";
 import {OperatorL1OptInService} from "../../../src/contracts/service/OperatorL1OptInService.sol";
@@ -45,16 +42,13 @@ contract DeployTestAvalancheL1Middleware is Script {
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
-        ValidatorManagerSettings memory settings = ValidatorManagerSettings({
-            l1ID: l1ID,
-            churnPeriodSeconds: churnPeriodSeconds,
-            maximumChurnPercentage: maximumChurnPercentage
-        });
-
-        vm.startBroadcast(proxyAdminOwnerKey);
-
-        address validatorManagerAddress =
-            _deployValidatorManager(settings, proxyAdminOwnerAddress, protocolOwnerAddress);
+        DeployBalancerValidatorManager deployScript = new DeployBalancerValidatorManager();
+        
+        (address balancerAddress, address securityModule, address validatorManagerAddress) = deployScript.run(
+            address(0), // will deploy PoASecurityModule
+            1000, // initialSecurityModuleWeight
+            new bytes[](0) // fresh deployment
+        );
         L1Registry l1Registry = new L1Registry(
             payable(protocolOwnerAddress), // fee collector
             0.01 ether, // initial register fee
@@ -68,7 +62,7 @@ contract DeployTestAvalancheL1Middleware is Script {
 
         AvalancheL1Middleware avalancheL1Middleware = new AvalancheL1Middleware(
             AvalancheL1MiddlewareSettings({
-                l1ValidatorManager: validatorManagerAddress,
+                l1ValidatorManager: balancerAddress,
                 operatorRegistry: address(operatorRegistry),
                 vaultRegistry: address(vaultFactory),
                 operatorL1Optin: address(operatorL1OptIn),
@@ -86,8 +80,6 @@ contract DeployTestAvalancheL1Middleware is Script {
         MiddlewareVaultManager vaultManager =
             new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress, 24); // 24 epoch delay
 
-        vm.stopBroadcast();
-
         vm.startBroadcast(protocolOwnerKey);
         avalancheL1Middleware.setVaultManager(address(vaultManager));
         vm.stopBroadcast();
@@ -95,19 +87,4 @@ contract DeployTestAvalancheL1Middleware is Script {
         return address(avalancheL1Middleware);
     }
 
-    function _deployValidatorManager(
-        ValidatorManagerSettings memory settings,
-        address proxyAdminOwnerAddress,
-        address protocolOwnerAddress
-    ) private returns (address) {
-        PoAValidatorManager validatorSetManager = new PoAValidatorManager(ICMInitializable.Allowed);
-
-        address proxy = UnsafeUpgrades.deployTransparentProxy(
-            address(validatorSetManager),
-            proxyAdminOwnerAddress,
-            abi.encodeCall(PoAValidatorManager.initialize, (settings, protocolOwnerAddress))
-        );
-
-        return proxy;
-    }
 }

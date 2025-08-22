@@ -7,7 +7,7 @@ import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 import {IUptimeTracker, LastUptimeCheckpoint} from "../../interfaces/rewards/IUptimeTracker.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
-import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManager.sol";
+import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
 import {
     IWarpMessenger, WarpMessage
@@ -80,7 +80,7 @@ contract UptimeTracker is IUptimeTracker {
             // Get validator details
             Validator memory validator = validatorManager.getValidator(validationID);
             validatorLastUptimeCheckpoint[validationID] =
-                LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startedAt});
+                LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startTime});
 
             // Refresh the reference to the updated struct
             lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
@@ -157,7 +157,7 @@ contract UptimeTracker is IUptimeTracker {
         uint256 sumValidatorsUptime = 0;
         
         for (uint256 i = 0; i < numberOfValidators; i++) {
-            bytes32 validationID = validatorManager.registeredValidators(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
+            bytes32 validationID = validatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
             if (isValidatorUptimeSet[epoch][validationID] == false) {
                 revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, validationID);
             }

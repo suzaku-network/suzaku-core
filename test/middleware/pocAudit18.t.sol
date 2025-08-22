@@ -10,7 +10,7 @@ import {Rewards} from "src/contracts/rewards/Rewards.sol";
 import {MockUptimeTracker} from "../mocks/MockUptimeTracker.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {VaultTokenized} from "src/contracts/vault/VaultTokenized.sol";
-import {PChainOwner} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {console2} from "forge-std/console2.sol";
 import {IAvalancheL1Middleware} from "src/interfaces/middleware/IAvalancheL1Middleware.sol";
 

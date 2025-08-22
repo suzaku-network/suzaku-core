@@ -8,7 +8,7 @@ pragma solidity 0.8.25;
 // inside `operatorNodesArray`, blowing up storage & breaking future logic.
 //
 import {MiddlewareTestBase} from "./MiddlewareTestBase.t.sol";
-import {PChainOwner} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {StakeConversion} from "src/contracts/middleware/libraries/StakeConversion.sol";
 import {console2} from "forge-std/console2.sol";
 
@@ -27,8 +27,6 @@ contract PoCIrremovableNode is MiddlewareTestBase {
             nodeId,
             hex"ABABABAB",
             // dummy BLS key
-            uint64(block.timestamp + 2 days),
-            // expiry
             PChainOwner({threshold: 1, addresses: new address[](0)}),
             PChainOwner({threshold: 1, addresses: new address[](0)}),
             100_000_000_000_000
@@ -71,7 +69,6 @@ contract PoCIrremovableNode is MiddlewareTestBase {
             nodeId,
             // same id!
             hex"ABABABAB",
-            uint64(block.timestamp + 2 days),
             PChainOwner({threshold: 1, addresses: new address[](0)}),
             PChainOwner({threshold: 1, addresses: new address[](0)}),
             100_000_000_000_000

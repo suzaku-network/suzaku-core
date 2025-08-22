@@ -7,7 +7,7 @@ import {console2} from "forge-std/console2.sol";
 import {UptimeTracker} from "../../src/contracts/rewards/UptimeTracker.sol";
 import {IUptimeTracker, LastUptimeCheckpoint} from "../../src/interfaces/rewards/IUptimeTracker.sol";
 import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
-import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManager.sol";
+import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 
 import {
     WarpMessage, IWarpMessenger

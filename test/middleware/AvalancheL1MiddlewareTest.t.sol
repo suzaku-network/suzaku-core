@@ -5,10 +5,10 @@ pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
 
-import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
+import {ValidatorManagerSettings} from "@avalabs/icm-contracts/validator-manager/ValidatorManager.sol";
+import {PoAManager} from "@avalabs/icm-contracts/validator-manager/PoAManager.sol";
 import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
-import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
+import {ICMInitializable} from "@avalabs/icm-contracts/utilities/ICMInitializable.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 import {
@@ -40,9 +40,8 @@ import {
     InitialValidator,
     PChainOwner,
     Validator,
-    ValidatorRegistrationInput,
     ValidatorStatus
-} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
@@ -157,7 +156,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         middleware.addNode(
             nodeId,
             hex"abcdef1234",
-            uint64(block.timestamp + 1 days),
             PChainOwner({threshold: 1, addresses: new address[](1)}),
             PChainOwner({threshold: 1, addresses: new address[](1)}),
             stakeWanted
@@ -538,7 +536,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Add node
         vm.prank(alice);
-        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId, blsKey, ownerStruct, ownerStruct, 0);
         bytes32 validationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
 
         // Check node stake from the public getter
@@ -590,7 +588,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Add the same node again (the system allows re-adding after full removal)
         vm.prank(alice);
-        middleware.addNode(nodeId, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId, blsKey, ownerStruct, ownerStruct, 0);
 
         bytes32 newValidationID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
         uint256 nodeStake2 = middleware.getNodeStake(epoch, newValidationID);
@@ -729,7 +727,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector));
                 vm.prank(alice);
                 middleware.addNode(
-                    nodeId, blsKey, uint64(block.timestamp + 2 days),
+                    nodeId, blsKey,
                     ownerStruct, ownerStruct, 0        // will revert
                 );
                 nodeCount = i;                         // shrink arrays; creation done
@@ -737,7 +735,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
            }
 
             vm.prank(alice);
-            middleware.addNode(nodeId, blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
+            middleware.addNode(nodeId, blsKey, ownerStruct, ownerStruct, 0);
 
             addMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
 
@@ -803,13 +801,13 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 expectedFinalStake[i] = 0;
 
                 // Read the old validator from the mock
-                // to confirm status=Completed and endedAt != 0
+                // to confirm status=Completed and endTime != 0
                 {
                     bytes32 oldValID = oldRemovedValidationIds[i];
                     Validator memory oldVal = mockValidatorManager.getValidator(oldValID);
-                    // Some mocks only finalize endedAt in initializeEndValidation, so check that
-                    // we got endedAt there:
-                    assertGt(oldVal.endedAt, 0, "Old val endedAt must be set");
+                    // Some mocks only finalize endTime in initializeEndValidation, so check that
+                    // we got endTime there:
+                    assertGt(oldVal.endTime, 0, "Old val endTime must be set");
                     // Also check status is Completed:
                     assertEq(uint256(oldVal.status), uint256(ValidatorStatus.Completed), "Old val must be completed");
                 }
@@ -822,7 +820,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             if (wasRemoved) {
                 // Re-add
                 vm.prank(alice);
-                middleware.addNode(nodeIds[i], blsKey, uint64(block.timestamp + 2 days), ownerStruct, ownerStruct, 0);
+                middleware.addNode(nodeIds[i], blsKey, ownerStruct, ownerStruct, 0);
 
                 reAddMsgIndex[i] = mockValidatorManager.nextMessageIndex() - 1;
 
@@ -919,7 +917,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector));
                 vm.prank(alice);
                 middleware.addNode(
-                    nodeId, blsKey, uint64(block.timestamp + 2 days),
+                    nodeId, blsKey,
                     ownerStruct, ownerStruct, 0        // will revert
                 );
                 nodeCount = i;                         // shrink arrays; creation done
@@ -930,7 +928,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             middleware.addNode(
                 nodeId,
                 hex"1234ABCD", // dummy BLS
-                uint64(block.timestamp + 1 days),
                 ownerStruct,
                 ownerStruct,
                 0
@@ -1115,7 +1112,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             middleware.addNode(
                 nodeId,
                 hex"1234ABCD",
-                uint64(block.timestamp + 1 days),
                 PChainOwner({threshold: 1, addresses: new address[](1)}),
                 PChainOwner({threshold: 1, addresses: new address[](1)}),
                 0
@@ -1136,7 +1132,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             middleware.addNode(
                 nodeId,
                 hex"9999DDDD",
-                uint64(block.timestamp + 1 days),
                 PChainOwner({threshold: 1, addresses: new address[](1)}),
                 PChainOwner({threshold: 1, addresses: new address[](1)}),
                 0
@@ -1423,7 +1418,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         middleware.addNode(
             nodeId,
             hex"1234",
-            uint64(block.timestamp + 1 days),
             PChainOwner({threshold: 1, addresses: new address[](1)}),
             PChainOwner({threshold: 1, addresses: new address[](1)}),
             0
@@ -1716,7 +1710,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // --- Epoch E0: Operator A registers node N1 using sharedNodeId_X ---
         /* uint48 epochE0 = */ middleware.getCurrentEpoch();
         vm.prank(operatorA);
-        middleware.addNode(sharedNodeId_X, blsKey_A, registrationExpiry, pchainOwner_A, pchainOwner_A, 0);
+        middleware.addNode(sharedNodeId_X, blsKey_A, pchainOwner_A, pchainOwner_A, 0);
         uint32 msgIdx_A1_add = mockValidatorManager.nextMessageIndex() - 1;
         
         // Get the L1 validationID for Operator A's node
@@ -1779,7 +1773,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint48 epochE2 = middleware.getCurrentEpoch();
 
         vm.prank(operatorB);
-        middleware.addNode(sharedNodeId_X, blsKey_B, registrationExpiry, pchainOwner_B, pchainOwner_B, 0);
+        middleware.addNode(sharedNodeId_X, blsKey_B, pchainOwner_B, pchainOwner_B, 0);
         uint32 msgIdx_B2_add = mockValidatorManager.nextMessageIndex() - 1;
 
         // Get the L1 validationID for Operator B's new node
@@ -1986,9 +1980,9 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // --- Add 3 Nodes for Alice ---
         vm.startPrank(alice);
-        middleware.addNode(nodeId_A, blsKey, registrationExpiry, ownerStruct, ownerStruct, 0);
-        middleware.addNode(nodeId_B, hex"1235", registrationExpiry, ownerStruct, ownerStruct, 0);
-        middleware.addNode(nodeId_C, hex"1236", registrationExpiry, ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId_A, blsKey, ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId_B, hex"1235", ownerStruct, ownerStruct, 0);
+        middleware.addNode(nodeId_C, hex"1236", ownerStruct, ownerStruct, 0);
         vm.stopPrank();
 
         // Get validation IDs

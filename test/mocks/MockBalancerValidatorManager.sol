@@ -4,21 +4,19 @@ pragma solidity ^0.8.25;
 import {Test, console2} from "forge-std/Test.sol";
 
 import {
-    IValidatorManager,
     Validator,
     ValidatorStatus,
-    ValidatorRegistrationInput,
-    ValidatorChurnPeriod,
     PChainOwner,
-    ValidatorManagerSettings,
     ConversionData
-} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
+import {IValidatorManager} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManager.sol";
+import {ValidatorChurnPeriod, ValidatorManagerSettings} from "@avalabs/icm-contracts/validator-manager/ValidatorManager.sol";
 import {IBalancerValidatorManager} from
     "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 // Declare missing event (do not duplicate events already in IBalancerValidatorManager)
-event ValidationPeriodRegistered(bytes32 indexed validationID, uint64 weight, uint256 startedAt);
+event ValidationPeriodRegistered(bytes32 indexed validationID, uint64 weight, uint256 startTime);
 
 contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
     // --- Validator storage ---
@@ -40,6 +38,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
 
     // --- Pending registration messages (simulated) ---
     mapping(uint32 => bytes32) public pendingRegistrationMessages;
+    mapping(uint32 => bytes32) public pendingWeightUpdateMessages; // Track which validationID corresponds to each messageIndex for weight updates
     uint32 public nextMessageIndex;
 
     // mapping from nodeID => validationID ---
@@ -52,7 +51,7 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
     // --- IValidatorManager stubs for functions not needed by middleware ---
     function completeValidatorRegistration(
         uint32 messageIndex
-    ) external override {
+    ) external override returns (bytes32) {
         // Retrieve the pending registration message (simulated via messageIndex)
         bytes32 validationID = pendingRegistrationMessages[messageIndex];
         require(validationID != bytes32(0), "Invalid validationID");
@@ -63,11 +62,13 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
 
         // Complete registration: activate and record start time
         validator.status = ValidatorStatus.Active;
-        validator.startedAt = uint64(block.timestamp);
+        validator.startTime = uint64(block.timestamp);
 
         // Remove pending registration entry and emit event
         delete pendingRegistrationMessages[messageIndex];
         emit ValidationPeriodRegistered(validationID, validator.weight, block.timestamp);
+        
+        return validationID;
     }
 
     function resendRegisterValidatorMessage(
@@ -115,19 +116,23 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         emit SetUpSecurityModule(securityModule, maxWeight);
     }
 
-    function initializeValidatorRegistration(
-        ValidatorRegistrationInput calldata registrationInput,
+    function initiateValidatorRegistration(
+        bytes memory nodeID,
+        bytes memory blsPublicKey,
+        PChainOwner memory remainingBalanceOwner,
+        PChainOwner memory disableOwner,
         uint64 weight
     ) external override returns (bytes32 validationID) {
-        validationID = keccak256(abi.encodePacked(registrationInput.nodeID, weight, block.timestamp));
+        validationID = keccak256(abi.encodePacked(nodeID, weight, block.timestamp));
         validators[validationID] = Validator({
             status: ValidatorStatus.PendingAdded,
-            nodeID: registrationInput.nodeID,
+            nodeID: nodeID,
             startingWeight: weight,
-            messageNonce: 0,
+            sentNonce: 0,
+            receivedNonce: 0,
             weight: weight,
-            startedAt: 0,
-            endedAt: 0
+            startTime: 0,
+            endTime: 0
         });
         if (!isSecurityModuleRegistered[msg.sender]) {
             revert("Security module not registered");
@@ -138,13 +143,13 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         // Simulate storing a pending registration message linked to a messageIndex
         pendingRegistrationMessages[nextMessageIndex] = validationID;
         nextMessageIndex++;
-        _registeredValidators[registrationInput.nodeID] = validationID; // <-- ADD
+        _registeredValidators[nodeID] = validationID; // <-- ADD
         return validationID;
     }
 
-    function initializeEndValidation(
+    function initiateValidatorRemoval(
         bytes32 validationID
-    ) external returns (Validator memory validator) {
+    ) external override {
         Validator storage v = validators[validationID];
         v.status = ValidatorStatus.PendingRemoved;
         pendingTermination[validationID] = true;
@@ -152,18 +157,17 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         if (securityModuleWeight[secMod] >= v.weight) {
             securityModuleWeight[secMod] -= v.weight;
         }
-        v.endedAt = uint64(block.timestamp);
+        v.endTime = uint64(block.timestamp);
         pendingRegistrationMessages[nextMessageIndex] = validationID;
         nextMessageIndex++;
         console2.log("validationID", uint256(validationID));
         console2.log("nextMessageIndex", nextMessageIndex);
-        return v;
     }
 
-    function initializeValidatorWeightUpdate(
+    function initiateValidatorWeightUpdate(
         bytes32 validationID,
         uint64 newWeight
-    ) external override returns (Validator memory validator) {
+    ) external override returns (uint64, bytes32) {
         Validator memory v = validators[validationID];
         require(v.status == ValidatorStatus.Active, "Validator not active");
         require(!pendingWeightUpdate[validationID], "Pending weight update exists");
@@ -181,34 +185,50 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
             uint64 delta = uint64(v.weight - newWeight);
             securityModuleWeight[secMod] -= delta;
         }
-        return v;
+        
+        // Enqueue a "message" so tests can complete it later
+        pendingWeightUpdateMessages[nextMessageIndex] = validationID;
+        nextMessageIndex++;
+        
+        return (1, validationID); // Return nonce and validationID
     }
 
-    function completeValidatorWeightUpdate(bytes32 validationID, uint32 /* messageIndex */ ) external override {
+    function completeValidatorWeightUpdate(uint32 messageIndex) external override returns (bytes32, uint64) {
+        bytes32 validationID = pendingWeightUpdateMessages[messageIndex];
+        require(validationID != bytes32(0), "Invalid messageIndex");
         require(pendingWeightUpdate[validationID], "No pending weight update");
-        pendingWeightUpdate[validationID] = false;
-        // Now update the validator's weight to the new value.
-        validators[validationID].weight = pendingNewWeight[validationID];
+
+        uint64 newWeight = pendingNewWeight[validationID];
+        Validator storage v = validators[validationID];
+        require(v.status == ValidatorStatus.Active, "Validator not active");
+
+        v.weight = newWeight;
+
+        // Clear pending markers
+        delete pendingWeightUpdate[validationID];
         delete pendingNewWeight[validationID];
+        delete pendingWeightUpdateMessages[messageIndex];
+
+        return (validationID, newWeight);
     }
 
     // --- Additional IValidatorManager function stubs ---
     function initializeValidatorSet(
         ConversionData calldata, /* conversionData */
         uint32 /* messageIndex */
-    ) external pure override {
+    ) external pure {
         revert("initializeValidatorSet not implemented in mock");
     }
 
     function resendEndValidatorMessage(
         bytes32 /* validationID */
-    ) external pure override {
+    ) external pure {
         revert("resendEndValidatorMessage not implemented in mock");
     }
 
-    function completeEndValidation(
+    function completeValidatorRemoval(
         uint32 messageIndex
-    ) external override {
+    ) external override returns (bytes32) {
         bytes32 validationID = pendingRegistrationMessages[messageIndex];
         console2.log("validationID 1", uint256(pendingRegistrationMessages[1]));
         console2.log("validationID 2", uint256(pendingRegistrationMessages[2]));
@@ -222,12 +242,14 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
 
         // Mark it ended/completed
         validator.status = ValidatorStatus.Completed;
-        // validator.endedAt = uint64(block.timestamp);
+        // validator.endTime = uint64(block.timestamp);
 
         // Clean up
         delete pendingRegistrationMessages[messageIndex];
         delete pendingTermination[validationID];
         delete _registeredValidators[validator.nodeID];
+        
+        return validationID;
     }
 
     // --- Additional helper functions ---
@@ -248,12 +270,18 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         Validator storage validator = validators[validationID];
         require(validator.status == ValidatorStatus.PendingAdded, "Validator must be PendingAdded");
         validator.status = ValidatorStatus.Active;
-        validator.startedAt = uint64(block.timestamp);
+        validator.startTime = uint64(block.timestamp);
     }
 
     function registeredValidators(
         bytes calldata nodeID
     ) public view returns (bytes32) {
+        return _registeredValidators[nodeID];
+    }
+
+    function getNodeValidationID(
+        bytes calldata nodeID
+    ) external view override returns (bytes32) {
         return _registeredValidators[nodeID];
     }
 
@@ -272,8 +300,28 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         revert("resendValidatorWeightUpdate not implemented in mock");
     }
 
-    function setUpSecurityModule(address securityModule, uint64 maxWeight) external pure override {
-        console2.log("setUpSecurityModule", securityModule, maxWeight);
-        revert("setUpSecurityModule not implemented in mock");
+    function setUpSecurityModule(address securityModule, uint64 maxWeight) external override {
+        this.setupSecurityModule(securityModule, maxWeight); // reuse the implemented version
+    }
+    
+    // Missing functions from the interface
+    function getValidatorSecurityModule(bytes32 validationID) external view override returns (address) {
+        return validatorSecurityModule[validationID];
+    }
+    
+    function l1TotalWeight() external pure override returns (uint64) {
+        return 1000; // Mock value
+    }
+    
+    function migrateFromV1(bytes32 validationID, uint32 receivedNonce) external pure override {
+        revert("migrateFromV1 not implemented in mock");
+    }
+    
+    function resendValidatorRemovalMessage(bytes32 validationID) external pure override {
+        revert("resendValidatorRemovalMessage not implemented in mock");
+    }
+    
+    function subnetID() external pure override returns (bytes32) {
+        return bytes32(uint256(1)); // Mock value
     }
 }

@@ -5,10 +5,11 @@ pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
 
-import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
+import {ValidatorManager, ValidatorManagerSettings} from "@avalabs/icm-contracts/validator-manager/ValidatorManager.sol";
+import {PoAManager} from "@avalabs/icm-contracts/validator-manager/PoAManager.sol";
+import {IValidatorManagerExternalOwnable} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManagerExternalOwnable.sol";
 import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
-import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
+import {ICMInitializable} from "@avalabs/icm-contracts/utilities/ICMInitializable.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 import {
@@ -27,7 +28,9 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {MiddlewareHelperConfig} from "../../script/middleware/anvil/MiddlewareHelperConfig.s.sol";
+import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
 import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
+import {DeployBalancerValidatorManager} from "lib/suzaku-contracts-library/script/ValidatorManager/DeployBalancerValidatorManager.s.sol";
 
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
@@ -39,9 +42,10 @@ import {
     InitialValidator,
     PChainOwner,
     Validator,
-    ValidatorRegistrationInput,
     ValidatorStatus
-} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
+import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
+import {IWarpMessenger, WarpMessage} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
@@ -55,6 +59,9 @@ import {StakeConversion} from "../../src/contracts/middleware/libraries/StakeCon
 import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
 
 abstract contract MiddlewareTestBase is Test {
+    // Constants
+    address constant WARP = 0x0200000000000000000000000000000000000005;
+    
     address internal owner;
     address internal validatorManagerAddress;
     address internal alice;
@@ -95,6 +102,12 @@ abstract contract MiddlewareTestBase is Test {
     MiddlewareVaultManager internal vaultManager;
     Token internal collateral;
     Token internal collateral2; // New collateral token
+    // Real ValidatorManager stack addresses
+    address internal balancer;      // BalancerValidatorManager proxy
+    address internal validatorManager;  // ValidatorManager proxy  
+    address internal secModule;     // PoASecurityModule
+    
+    // Keep the mock for existing tests
     MockBalancerValidatorManager internal mockValidatorManager;
 
     function setUp() public virtual {
@@ -132,8 +145,20 @@ abstract contract MiddlewareTestBase is Test {
             uint256 primaryCollateralWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
 
-        mockValidatorManager = new MockBalancerValidatorManager(owner);
-        validatorManagerAddress = address(mockValidatorManager);
+        // Deploy real ValidatorManager + Balancer + SecurityModule
+        DeployBalancerValidatorManager deployScript = new DeployBalancerValidatorManager();
+        bytes[] memory emptyMigration = new bytes[](0);
+        (balancer, secModule, validatorManager) = 
+            deployScript.run(address(0), /* initialSecModMaxWeight */ uint64(1_000_000_000), emptyMigration);
+
+        // Override the canonical Warp messenger (installed by the deploy script)
+        // with a simple push-based test messenger for dynamic flows.
+        MockWarpMessenger messenger = new MockWarpMessenger();
+        address WARP_MESSENGER_ADDR = 0x0200000000000000000000000000000000000005;
+        vm.etch(WARP_MESSENGER_ADDR, address(messenger).code);
+        
+        // The "L1 address" the rest of this test suite uses
+        validatorManagerAddress = balancer;
 
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
@@ -366,12 +391,16 @@ abstract contract MiddlewareTestBase is Test {
         middleware.transferOwnership(validatorManagerAddress);
         vaultManager.transferOwnership(validatorManagerAddress);
 
-        // middleware = new AvalancheL1Middleware();
-        uint64 maxWeight = 18 ether;
-        mockValidatorManager.setupSecurityModule(address(middleware), maxWeight);
+        // Setup middleware as a security module on the Balancer
+        // Note: The deployment script sets up an initial security module, but we need to add middleware
+        {
+            address balOwner = BalancerValidatorManager(balancer).owner();
+            uint64 maxWeight = uint64(1_000_000_000); // 1e9 weight cap (>> enough for tests)
+            vm.prank(balOwner);
+            BalancerValidatorManager(balancer).setUpSecurityModule(address(middleware), maxWeight);
+        }
 
-        // Maybe not recomended, but passing the ownership to itself
-        mockValidatorManager.transferOwnership(validatorManagerAddress);
+        // The real stack handles ownership during deployment
 
         // Give validatorManager some ETH to pay the registration fee
         vm.deal(validatorManagerAddress, 1 ether);
@@ -503,6 +532,62 @@ abstract contract MiddlewareTestBase is Test {
     // INTERNAL HELPERS
     ///////////////////////////////
 
+    function _pushRegistrationAck(bytes32 validationID, bool accepted) internal returns (uint32 idx) {
+        bytes memory payload = abi.encodePacked(
+            ValidatorMessages.CODEC_ID,
+            ValidatorMessages.L1_VALIDATOR_REGISTRATION_MESSAGE_TYPE_ID,
+            validationID,
+            accepted
+        );
+        WarpMessage memory m = WarpMessage({
+            sourceChainID: bytes32(0),            // ok for tests
+            originSenderAddress: address(0),      // ok for tests
+            payload: payload
+        });
+        MockWarpMessenger(WARP).push(m);
+        return 0; // always pass 0 to complete* calls
+    }
+
+    function _pushWeight(bytes32 validationID, uint64 nonce, uint64 weight)
+        internal
+        returns (uint32 idx)
+    {
+        bytes memory payload = abi.encodePacked(
+            ValidatorMessages.CODEC_ID,
+            ValidatorMessages.L1_VALIDATOR_WEIGHT_MESSAGE_TYPE_ID,
+            validationID,
+            nonce,
+            weight
+        );
+        WarpMessage memory m = WarpMessage({
+            sourceChainID: bytes32(0),
+            originSenderAddress: address(0),
+            payload: payload
+        });
+        MockWarpMessenger(WARP).push(m);
+        return 0;
+    }
+
+    function _pushRemovalAck(bytes32 validationID)
+        internal
+        returns (uint32 idx)
+    {
+        // completeValidatorRemoval expects a L1ValidatorRegistrationMessage with registered=false
+        bytes memory payload = abi.encodePacked(
+            ValidatorMessages.CODEC_ID,
+            ValidatorMessages.L1_VALIDATOR_REGISTRATION_MESSAGE_TYPE_ID,
+            validationID,
+            bytes1(0x00) // registered=false for removal
+        );
+        WarpMessage memory m = WarpMessage({
+            sourceChainID: bytes32(0),
+            originSenderAddress: address(0),
+            payload: payload
+        });
+        MockWarpMessenger(WARP).push(m);
+        return 0;
+    }
+
     function _registerOperator(address user, string memory metadataURL) internal {
         vm.startPrank(user);
         operatorRegistry.registerOperator(metadataURL);
@@ -604,21 +689,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
     }
 
-    function _deployValidatorManager(
-        ValidatorManagerSettings memory settings,
-        address proxyAdminOwnerAddress,
-        address protocolOwnerAddress
-    ) private returns (address) {
-        PoAValidatorManager validatorSetManager = new PoAValidatorManager(ICMInitializable.Allowed);
 
-        address proxy = UnsafeUpgrades.deployTransparentProxy(
-            address(validatorSetManager),
-            proxyAdminOwnerAddress,
-            abi.encodeCall(PoAValidatorManager.initialize, (settings, protocolOwnerAddress))
-        );
-
-        return proxy;
-    }
 
     function _moveToNextEpochAndCalc(
         uint256 numberOfEpochs
@@ -742,7 +813,6 @@ abstract contract MiddlewareTestBase is Test {
                 middleware.addNode(
                     nodeId,
                     hex"ABABABAB",
-                    uint64(block.timestamp + 2 days),
                     PChainOwner({threshold: 1, addresses: new address[](0)}),
                     PChainOwner({threshold: 1, addresses: new address[](0)}),
                     stakeForThisNode    
@@ -754,7 +824,6 @@ abstract contract MiddlewareTestBase is Test {
             middleware.addNode(
                 nodeId,
                 hex"ABABABAB",
-                uint64(block.timestamp + 2 days),
                 PChainOwner({threshold: 1, addresses: new address[](0)}),
                 PChainOwner({threshold: 1, addresses: new address[](0)}),
                 stakeForThisNode                 // ← explicit max or caller‑provided
@@ -762,14 +831,20 @@ abstract contract MiddlewareTestBase is Test {
             
             // Store the successful registration
             tempNodeIds[actualNodeCount] = nodeId;
-            uint32 msgIdx = mockValidatorManager.nextMessageIndex() - 1;
-
+            
+            // Get the validation ID from the real balancer
+            bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(
+                abi.encodePacked(uint160(uint256(nodeId)))
+            );
+            tempValidationIDs[actualNodeCount] = validationID;
+            
             if (confirmImmediately) {
+                // Push registration acceptance in the warp messenger
+                uint32 msgIdx = _pushRegistrationAck(validationID, true);
+                
                 vm.prank(operator);
                 middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
             }
-            
-            tempValidationIDs[actualNodeCount] = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
             uint48 epoch = middleware.getCurrentEpoch();
             tempNodeWeights[actualNodeCount] = middleware.nodeStakeCache(epoch, tempValidationIDs[actualNodeCount]);
             assertGt(tempNodeWeights[actualNodeCount], 0, "Node weight must be positive");
@@ -800,7 +875,9 @@ abstract contract MiddlewareTestBase is Test {
         uint48 epoch = middleware.getCurrentEpoch();
 
         for (uint256 i = 0; i < nodeIds.length; i++) {
-            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
+            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(
+                abi.encodePacked(uint160(uint256(nodeIds[i])))
+            );
             uint256 currentStake = middleware.getNodeStake(epoch, valID);
             if (currentStake == 0) {
                 continue;
@@ -809,6 +886,10 @@ abstract contract MiddlewareTestBase is Test {
             if (doRemove) {
                 vm.prank(operator);
                 middleware.removeNode(nodeIds[i]);
+
+                // finalize removal with a proper removal-ack message
+                uint32 rmIdx = _pushRemovalAck(valID);      // our messenger always returns last msg on index 0
+                middleware.completeValidatorRemoval(rmIdx);  // rmIdx == 0 with our messenger
                 continue;
             }
             bool stakeDown = ((stakeDeltaMask >> i) & 0x01) == 1;
@@ -828,7 +909,19 @@ abstract contract MiddlewareTestBase is Test {
                 vm.prank(operator);
                 middleware.initializeValidatorStakeUpdate(nodeIds[i], newStake);
 
-                uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
+                // Get validation ID and compute the scaled weight
+                bytes32 validationIdForUpdate = IBalancerValidatorManager(balancer).getNodeValidationID(
+                    abi.encodePacked(uint160(uint256(nodeIds[i])))
+                );
+                uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, middleware.WEIGHT_SCALE_FACTOR());
+                
+                // Get current nonce from validator
+                Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationIdForUpdate);
+                uint64 nextNonce = v.sentNonce + 1;
+                
+                // Push weight update in the warp messenger
+                uint32 stakeMsgIdx = _pushWeight(validationIdForUpdate, nextNonce, scaledWeight);
+                
                 vm.prank(operator);
                 middleware.completeStakeUpdate(nodeIds[i], stakeMsgIdx);
             }
@@ -839,7 +932,9 @@ abstract contract MiddlewareTestBase is Test {
         uint48 epoch = middleware.getCurrentEpoch();
         uint256 sumStakes;
         for (uint256 i = 0; i < nodeIds.length; i++) {
-            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
+            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(
+                abi.encodePacked(uint160(uint256(nodeIds[i])))
+            );
             sumStakes += middleware.getNodeStake(epoch, valID);
         }
         uint256 operatorUsed = middleware.getOperatorUsedStakeCached(operator);
