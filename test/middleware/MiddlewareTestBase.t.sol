@@ -147,15 +147,20 @@ abstract contract MiddlewareTestBase is Test {
 
         // Deploy real ValidatorManager + Balancer + SecurityModule
         DeployBalancerValidatorManager deployScript = new DeployBalancerValidatorManager();
-        bytes[] memory emptyMigration = new bytes[](0);
+        // Balancer requires at least one migrated validator – use two known 20-byte NodeIDs
+        bytes[] memory migrated = new bytes[](2);
+        migrated[0] = hex"2345678123456781234567812345678123456781";
+        migrated[1] = hex"3456781234567812345678123456781234567812";
         (balancer, secModule, validatorManager) = 
-            deployScript.run(address(0), /* initialSecModMaxWeight */ uint64(1_000_000_000), emptyMigration);
+            deployScript.run(address(0), /* initialSecModMaxWeight */ uint64(1_000_000_000), migrated);
 
-        // Override the canonical Warp messenger (installed by the deploy script)
-        // with a simple push-based test messenger for dynamic flows.
-        MockWarpMessenger messenger = new MockWarpMessenger();
-        address WARP_MESSENGER_ADDR = 0x0200000000000000000000000000000000000005;
-        vm.etch(WARP_MESSENGER_ADDR, address(messenger).code);
+        // AFTER deploy script finishes (it installs its own test messenger internally),
+        // override the canonical warp messenger with our push-style test messenger:
+        {
+            MockWarpMessenger messenger = new MockWarpMessenger();
+            address WARP_MESSENGER_ADDR = WARP;
+            vm.etch(WARP_MESSENGER_ADDR, address(messenger).code);
+        }
         
         // The "L1 address" the rest of this test suite uses
         validatorManagerAddress = balancer;
@@ -528,6 +533,11 @@ abstract contract MiddlewareTestBase is Test {
     }
 
     
+    /* ---------------------------- tiny helpers ---------------------------- */
+    function _nodeBytes(bytes32 nodeId) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint160(uint256(nodeId))); // 20-byte NodeID encoding
+    }
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////
@@ -812,7 +822,7 @@ abstract contract MiddlewareTestBase is Test {
                 vm.prank(operator);
                 middleware.addNode(
                     nodeId,
-                    hex"ABABABAB",
+                    new bytes(48), // 48-byte BLS
                     PChainOwner({threshold: 1, addresses: new address[](0)}),
                     PChainOwner({threshold: 1, addresses: new address[](0)}),
                     stakeForThisNode    
@@ -823,19 +833,17 @@ abstract contract MiddlewareTestBase is Test {
             vm.prank(operator);
             middleware.addNode(
                 nodeId,
-                hex"ABABABAB",
+                new bytes(48), // 48-byte BLS
                 PChainOwner({threshold: 1, addresses: new address[](0)}),
                 PChainOwner({threshold: 1, addresses: new address[](0)}),
-                stakeForThisNode                 // ← explicit max or caller‑provided
+                stakeForThisNode
             );
             
             // Store the successful registration
             tempNodeIds[actualNodeCount] = nodeId;
             
             // Get the validation ID from the real balancer
-            bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(
-                abi.encodePacked(uint160(uint256(nodeId)))
-            );
+            bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
             tempValidationIDs[actualNodeCount] = validationID;
             
             if (confirmImmediately) {
@@ -875,9 +883,7 @@ abstract contract MiddlewareTestBase is Test {
         uint48 epoch = middleware.getCurrentEpoch();
 
         for (uint256 i = 0; i < nodeIds.length; i++) {
-            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(
-                abi.encodePacked(uint160(uint256(nodeIds[i])))
-            );
+            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeIds[i]));
             uint256 currentStake = middleware.getNodeStake(epoch, valID);
             if (currentStake == 0) {
                 continue;
@@ -932,9 +938,7 @@ abstract contract MiddlewareTestBase is Test {
         uint48 epoch = middleware.getCurrentEpoch();
         uint256 sumStakes;
         for (uint256 i = 0; i < nodeIds.length; i++) {
-            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(
-                abi.encodePacked(uint160(uint256(nodeIds[i])))
-            );
+            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeIds[i]));
             sumStakes += middleware.getNodeStake(epoch, valID);
         }
         uint256 operatorUsed = middleware.getOperatorUsedStakeCached(operator);
