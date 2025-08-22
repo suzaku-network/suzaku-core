@@ -3,13 +3,7 @@
 
 pragma solidity 0.8.25;
 
-import {
-    IValidatorManager,
-    Validator,
-    ValidatorStatus,
-    ValidatorRegistrationInput,
-    PChainOwner
-} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import { PChainOwner } from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 
 /**
  * @title IAvalancheL1Middleware
@@ -45,7 +39,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__CannotCacheFutureEpoch(uint48 epoch);
     error AvalancheL1Middleware__VaultManagerAlreadySet(address vaultManager);
     error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
-
+    error AvalancheL1Middleware__UnexpectedWeightUpdate(bytes32 validationID);
     // Events
     /**
      * @notice Emitted when a node is added
@@ -166,7 +160,6 @@ interface IAvalancheL1Middleware {
      * Check the new node stake also ensure security module capacity.
      * @param nodeId The node ID
      * @param blsKey The BLS key
-     * @param registrationExpiry The Unix timestamp after which the reigistration is no longer valid on the P-Chain
      * @param remainingBalanceOwner The owner of a validator's remaining balance
      * @param disableOwner The owner of a validator's disable owner on the P-Chain
      * @param stakeAmount The initial stake of the node to be added(optional)
@@ -174,7 +167,6 @@ interface IAvalancheL1Middleware {
     function addNode(
         bytes32 nodeId,
         bytes calldata blsKey,
-        uint64 registrationExpiry,
         PChainOwner calldata remainingBalanceOwner,
         PChainOwner calldata disableOwner,
         uint256 stakeAmount
