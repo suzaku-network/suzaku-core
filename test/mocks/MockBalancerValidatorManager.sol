@@ -324,4 +324,9 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
     function subnetID() external pure override returns (bytes32) {
         return bytes32(uint256(1)); // Mock value
     }
+    
+    function transferValidatorManagerOwnership(address newOwner) external override onlyOwner {
+        // In the mock, we can use the standard Ownable transferOwnership
+        transferOwnership(newOwner);
+    }
 }

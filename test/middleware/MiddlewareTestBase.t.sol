@@ -4,6 +4,7 @@
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 import {ValidatorManager, ValidatorManagerSettings} from "@avalabs/icm-contracts/validator-manager/ValidatorManager.sol";
 import {PoAManager} from "@avalabs/icm-contracts/validator-manager/PoAManager.sol";
@@ -152,7 +153,7 @@ abstract contract MiddlewareTestBase is Test {
         migrated[0] = hex"2345678123456781234567812345678123456781";
         migrated[1] = hex"3456781234567812345678123456781234567812";
         (balancer, secModule, validatorManager) = 
-            deployScript.run(address(0), /* initialSecModMaxWeight */ uint64(1_000_000_000), migrated);
+            deployScript.run(address(0), /* initialSecModMaxWeight */ uint64(18 ether), migrated);
 
         // AFTER deploy script finishes (it installs its own test messenger internally),
         // override the canonical warp messenger with our push-style test messenger:
@@ -538,6 +539,17 @@ abstract contract MiddlewareTestBase is Test {
         return abi.encodePacked(uint160(uint256(nodeId))); // 20-byte NodeID encoding
     }
 
+    function _pOwner1(address who) internal pure returns (PChainOwner memory o) {
+        address[] memory a = new address[](1);
+        a[0] = who;
+        o = PChainOwner({threshold: 1, addresses: a});
+    }
+
+    function _pOwnerEmpty() internal pure returns (PChainOwner memory o) {
+        address[] memory a = new address[](0);
+        o = PChainOwner({threshold: 0, addresses: a});
+    }
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////
@@ -605,7 +617,10 @@ abstract contract MiddlewareTestBase is Test {
     }
 
     function _registerL1(address _l1, address _middleware) internal {
-        vm.prank(_l1);
+        // L1Registry expects the call to come from the owner of the validator manager
+        address l1Owner = Ownable(_l1).owner();
+        vm.deal(l1Owner, 1 ether); // Ensure the owner has ETH for registration fee
+        vm.prank(l1Owner);
         l1Registry.registerL1{value: 0.01 ether}(_l1, _middleware, "metadataURL");
     }
 
@@ -823,8 +838,8 @@ abstract contract MiddlewareTestBase is Test {
                 middleware.addNode(
                     nodeId,
                     new bytes(48), // 48-byte BLS
-                    PChainOwner({threshold: 1, addresses: new address[](0)}),
-                    PChainOwner({threshold: 1, addresses: new address[](0)}),
+                    _pOwner1(operator),
+                    _pOwner1(operator),
                     stakeForThisNode    
                 );
                 break;
@@ -834,8 +849,8 @@ abstract contract MiddlewareTestBase is Test {
             middleware.addNode(
                 nodeId,
                 new bytes(48), // 48-byte BLS
-                PChainOwner({threshold: 1, addresses: new address[](0)}),
-                PChainOwner({threshold: 1, addresses: new address[](0)}),
+                _pOwner1(operator),
+                _pOwner1(operator),
                 stakeForThisNode
             );
             
@@ -852,6 +867,12 @@ abstract contract MiddlewareTestBase is Test {
                 
                 vm.prank(operator);
                 middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
+                
+                // If the caller is confirming a batch, space them across epochs
+                // so we never pile multiple weight changes into the same churn window.
+                if (actualNodeCount + 1 < nodeCount) {
+                    _calcAndWarpOneEpoch();
+                }
             }
             uint48 epoch = middleware.getCurrentEpoch();
             tempNodeWeights[actualNodeCount] = middleware.nodeStakeCache(epoch, tempValidationIDs[actualNodeCount]);
@@ -923,7 +944,7 @@ abstract contract MiddlewareTestBase is Test {
                 
                 // Get current nonce from validator
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationIdForUpdate);
-                uint64 nextNonce = v.sentNonce + 1;
+                uint64 nextNonce = uint64(v.sentNonce);
                 
                 // Push weight update in the warp messenger
                 uint32 stakeMsgIdx = _pushWeight(validationIdForUpdate, nextNonce, scaledWeight);
