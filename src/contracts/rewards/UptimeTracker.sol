@@ -19,7 +19,6 @@ import {
  * Used to monitor validator and operator performance.
  */
 contract UptimeTracker is IUptimeTracker {
-    uint48 private immutable epochDuration;
     AvalancheL1Middleware private immutable middleware;
     BalancerValidatorManager private immutable validatorManager;
     bytes32 private immutable uptimeBlockchainID; // blockchainID of the L1
@@ -46,7 +45,6 @@ contract UptimeTracker is IUptimeTracker {
         bytes32 uptimeBlockchainID_
     ) {
         middleware = AvalancheL1Middleware(middleware_);
-        epochDuration = middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(middleware.L1_VALIDATOR_MANAGER());
         uptimeBlockchainID = uptimeBlockchainID_;
     }
@@ -54,97 +52,60 @@ contract UptimeTracker is IUptimeTracker {
     /**
      * @inheritdoc IUptimeTracker
      */
-    function computeValidatorUptime(
-        uint32 messageIndex
-    ) external {
-        // Get warp message directly
-        (WarpMessage memory warpMessage, bool valid) = WARP_MESSENGER.getVerifiedWarpMessage(messageIndex);
-        if (!valid) {
-            revert InvalidWarpMessage();
-        }
-        // Must match to P-Chain blockchain id
-        if (warpMessage.sourceChainID != uptimeBlockchainID) {
-            revert InvalidWarpSourceChainID(warpMessage.sourceChainID);
-        }
-        if (warpMessage.originSenderAddress != address(0)) {
-            revert InvalidWarpOriginSenderAddress(warpMessage.originSenderAddress);
-        }
+    function computeValidatorUptime(uint32 messageIndex) external {
+        (bytes32 vID, uint256 uptime) = _readUptimeMessage(messageIndex);
 
-        // Unpack the uptime message
-        (bytes32 validationID, uint256 uptime) = ValidatorMessages.unpackValidationUptimeMessage(warpMessage.payload);
-
-        LastUptimeCheckpoint storage lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
-
-        // No timestamp means no initial checkpoint
-        if (lastUptimeCheckpoint.timestamp == 0) {
-            // Get validator details
-            Validator memory validator = validatorManager.getValidator(validationID);
-            validatorLastUptimeCheckpoint[validationID] =
-                LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startTime});
-
-            // Refresh the reference to the updated struct
-            lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
-        }
-
-        // Get last checkpoint epoch start
-        uint48 lastUptimeEpoch = middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
-        uint256 lastUptimeEpochStart = middleware.getEpochStartTs(lastUptimeEpoch);
-
-        // Get current epoch start
-        uint48 currentEpoch = middleware.getEpochAtTs(uint48(block.timestamp));
+        // Current epoch context
+        uint48  currentEpoch      = middleware.getCurrentEpoch();
         uint256 currentEpochStart = middleware.getEpochStartTs(currentEpoch);
 
-        // Calculate the recorded uptime since the last checkpoint
-        uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
+        // Ensure we have an initial checkpoint (clamped to <= current epoch start)
+        _ensureCheckpoint(vID, currentEpochStart);
 
-        // Determine how many full epochs have passed - optimized calculation
-        uint256 elapsedEpochs = currentEpoch - lastUptimeEpoch;
+        LastUptimeCheckpoint storage chk = validatorLastUptimeCheckpoint[vID];
 
-        // Calculate the elapsed time between the last recorded epoch and the current epoch
-        uint256 elapsedTime = currentEpochStart - lastUptimeEpochStart;
+        // Clamp checkpoint timestamp so it never points into the future
+        uint256 checkpointTs = chk.timestamp;
+        if (checkpointTs > currentEpochStart) checkpointTs = currentEpochStart;
 
-        uint256 remainingUptime = recordedUptime > elapsedTime ? recordedUptime - elapsedTime : 0;
+        uint48 lastEpoch      = middleware.getEpochAtTs(uint48(checkpointTs));
+        uint48 elapsedEpochs  = currentEpoch - lastEpoch;
 
-        // The uptime to distribute across the elapsed epochs
-        uint256 uptimeToDistribute = recordedUptime - remainingUptime;
+        // Monotonic accumulate: ignore regressions to avoid underflow on (uptime - attributed)
+        uint256 delta     = uptime >= chk.attributedUptime ? uptime - chk.attributedUptime : 0;
+        uint256 recorded  = chk.remainingUptime + delta;
 
-        // If the recorded uptime is greater than the elapsed time, carry over the excess uptime else reset it
-        validatorLastUptimeCheckpoint[validationID] = LastUptimeCheckpoint({
-            remainingUptime: remainingUptime, // Store the leftover uptime for future epochs if any
-            attributedUptime: uptime, // Update the last recorded uptime
-            timestamp: currentEpochStart // Move the checkpoint forward
-        });
+        // If no full epoch has elapsed, just carry forward and return
+        if (elapsedEpochs == 0) {
+            chk.remainingUptime  = recorded;
+            chk.attributedUptime = uptime;
+            chk.timestamp        = currentEpochStart;
+            emit ValidatorUptimeComputed(vID, lastEpoch, 0, 0);
+            return;
+        }
 
-        // Distribute the recorded uptime across multiple epochs
-        if (elapsedEpochs >= 1) {
-            uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
-            uint256 remainder = uptimeToDistribute % elapsedEpochs;
+        // Bound distribution to actual elapsed wall time across full epochs
+        uint256 lastEpochStart  = middleware.getEpochStartTs(lastEpoch);
+        uint256 elapsedTime     = currentEpochStart - lastEpochStart;
+        uint256 toDistribute    = recorded <= elapsedTime ? recorded : elapsedTime;
+        uint256 carry           = recorded - toDistribute;
 
-            for (uint48 i = 0; i < elapsedEpochs;) {
-                uint48 epoch;
-                unchecked {
-                    epoch = lastUptimeEpoch + i;
-                    i++;
-                }
+        // Move checkpoint to current epoch start
+        chk.remainingUptime  = carry;
+        chk.attributedUptime = uptime;
+        chk.timestamp        = currentEpochStart;
 
-                // Skip epochs already processed
-                if (isValidatorUptimeSet[epoch][validationID] == true) {
-                    continue;
-                }
-
-                uint256 epochUptime = uptimePerEpoch;
-                // Distribute the leftover seconds one by one to the earliest available epochs
-                if (remainder > 0) {
-                    epochUptime += 1;
-                    remainder -= 1;
-                }
-
-                validatorUptimePerEpoch[epoch][validationID] = epochUptime;
-                isValidatorUptimeSet[epoch][validationID] = true;
+        if (toDistribute > 0) {
+            uint256 need = _countUnsetEpochs(lastEpoch, elapsedEpochs, vID);
+            if (need == 0) {
+                // All epochs already had values; carry everything forward
+                chk.remainingUptime += toDistribute;
+            } else {
+                _fillUptime(lastEpoch, elapsedEpochs, vID, toDistribute, need);
             }
         }
 
-        emit ValidatorUptimeComputed(validationID, lastUptimeEpoch, uptimeToDistribute, elapsedEpochs);
+        emit ValidatorUptimeComputed(vID, lastEpoch, toDistribute, elapsedEpochs);
     }
 
     /**
@@ -178,5 +139,56 @@ contract UptimeTracker is IUptimeTracker {
         bytes32 validationID
     ) external view returns (LastUptimeCheckpoint memory) {
         return validatorLastUptimeCheckpoint[validationID];
+    }
+
+    // --- helpers ----------------------------------------------------------------
+
+    function _readUptimeMessage(uint32 index) internal view returns (bytes32 vID, uint256 up) {
+        (WarpMessage memory msg_, bool ok) = WARP_MESSENGER.getVerifiedWarpMessage(index);
+        if (!ok) revert InvalidWarpMessage();
+        if (msg_.sourceChainID != uptimeBlockchainID) revert InvalidWarpSourceChainID(msg_.sourceChainID);
+        if (msg_.originSenderAddress != address(0))   revert InvalidWarpOriginSenderAddress(msg_.originSenderAddress);
+        (vID, up) = ValidatorMessages.unpackValidationUptimeMessage(msg_.payload);
+    }
+
+    function _ensureCheckpoint(bytes32 vID, uint256 currentEpochStart) internal {
+        LastUptimeCheckpoint storage chk = validatorLastUptimeCheckpoint[vID];
+        if (chk.timestamp != 0) return;
+        Validator memory v = validatorManager.getValidator(vID);
+        uint256 ts = v.startTime;
+        if (ts > currentEpochStart) ts = currentEpochStart; // clamp initial ts
+        validatorLastUptimeCheckpoint[vID] = LastUptimeCheckpoint({
+            remainingUptime:  0,
+            attributedUptime: 0,
+            timestamp:        ts
+        });
+    }
+
+    function _countUnsetEpochs(uint48 startEpoch, uint48 elapsed, bytes32 vID) internal view returns (uint256 n) {
+        for (uint48 i = 0; i < elapsed; ) {
+            uint48 e;
+            unchecked { e = startEpoch + i; ++i; }
+            if (!isValidatorUptimeSet[e][vID]) n++;
+        }
+    }
+
+    function _fillUptime(
+        uint48 startEpoch,
+        uint48 elapsed,
+        bytes32 vID,
+        uint256 total,
+        uint256 count
+    ) internal {
+        uint256 base = total / count;
+        uint256 rem  = total % count;
+        for (uint48 i = 0; i < elapsed; ) {
+            uint48 e;
+            unchecked { e = startEpoch + i; ++i; }
+            if (isValidatorUptimeSet[e][vID]) continue;
+            uint256 u = base;
+            if (rem > 0) { u += 1; rem -= 1; }
+            validatorUptimePerEpoch[e][vID] = u;
+            isValidatorUptimeSet[e][vID]    = true;
+        }
     }
 }

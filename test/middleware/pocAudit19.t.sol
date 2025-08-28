@@ -11,6 +11,7 @@ import {MiddlewareTestBase} from "./MiddlewareTestBase.t.sol";
 import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {StakeConversion} from "src/contracts/middleware/libraries/StakeConversion.sol";
 import {console2} from "forge-std/console2.sol";
+import {IBalancerValidatorManager} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
 contract PoCIrremovableNode is MiddlewareTestBase {
     /// Demonstrates *expected* vs *buggy* behaviour side-by-side
@@ -19,83 +20,68 @@ contract PoCIrremovableNode is MiddlewareTestBase {
         // 1) NORMAL FLOW – node can be removed
         //
         console2.log("=== NORMAL FLOW ===");
-        vm.startPrank(alice);
-        // Create a fresh nodeId so it is unique for Alice
         bytes32 nodeId = keccak256(abi.encodePacked(alice, "node-A", block.timestamp));
-        console2.log("Registering nodeA");
-        middleware.addNode(
-            nodeId,
-            hex"ABABABAB",
-            // dummy BLS key
-            PChainOwner({threshold: 1, addresses: new address[](0)}),
-            PChainOwner({threshold: 1, addresses: new address[](0)}),
-            100_000_000_000_000
-            // stake
-        );
-        // Complete registration on the mock validator manager
-        uint32 regMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
-        middleware.completeValidatorRegistration(alice, nodeId, regMsgIdx);
-        console2.log("nodeA registered");
-        // Length should now be 1
-        assertEq(middleware.getOperatorNodesLength(alice), 1);
-        
-        // Initiate removal
-        console2.log("Removing nodeA");
-        middleware.removeNode(nodeId);
-        vm.stopPrank();
-        
-        // Advance 1 epoch so stake caches roll over
-        _calcAndWarpOneEpoch();
-        
-        // Confirm removal from P-Chain and complete it on L1
-        uint32 rmMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
+
+        // Add & confirm
         vm.prank(alice);
-        middleware.completeValidatorRemoval(rmMsgIdx);
-        console2.log("nodeA removal completed");
-        
-        // Now node array should be empty
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        // Resolve L1 validationID for this nodeId
+        bytes32 valId = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+
+        // Push registration ack, then complete(0)
+        _pushRegistrationAck(valId, true);
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1);
+
+        // Remove
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // Advance one epoch so stake cache rolls over
+        _calcAndWarpOneEpoch();
+
+        // Push removal ack, then complete(0)
+        _pushRemovalAck(valId);
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(0);
+
+        // Array should be empty now
         assertEq(middleware.getOperatorNodesLength(alice), 0);
         console2.log("NORMAL FLOW success: array length = 0\n");
-        
+
         //
-        // 2) BUGGY FLOW – removal inside same epoch phantom entry
+        // 2) SAME-EPOCH RE-REGISTER & REMOVE – ensure no phantom entry
         //
-        console2.log("=== BUGGY FLOW (same epoch) ===");
-        vm.startPrank(alice);
-        
-        // Re-use *same* nodeId to simulate quick re-registration
-        console2.log("Registering nodeA in the SAME epoch");
-        middleware.addNode(
-            nodeId,
-            // same id!
-            hex"ABABABAB",
-            PChainOwner({threshold: 1, addresses: new address[](0)}),
-            PChainOwner({threshold: 1, addresses: new address[](0)}),
-            100_000_000_000_000
-        );
-        uint32 regMsgIdx2 = mockValidatorManager.nextMessageIndex() - 1;
-        middleware.completeValidatorRegistration(alice, nodeId, regMsgIdx2);
-        console2.log("nodeA (second time) registered");
-        
-        // Expect length == 1 again
+        console2.log("=== SAME-EPOCH RE-REGISTER ===");
+
+        // Re-use *same* nodeId; add & confirm again
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId2, true);
+        vm.prank(alice);
+        middleware.completeValidatorRegistration(alice, nodeId, 0);
+
         assertEq(middleware.getOperatorNodesLength(alice), 1);
-        
-        // Remove immediately
-        console2.log("Immediately removing nodeA again");
+
+        // Remove immediately in the same epoch
+        vm.prank(alice);
         middleware.removeNode(nodeId);
-        
-        // Complete removal *still inside the same epoch* (simulating fast warp msg)
-        uint32 rmMsgIdx2 = mockValidatorManager.nextMessageIndex() - 1;
-        middleware.completeValidatorRemoval(rmMsgIdx2);
-        console2.log("nodeA (second time) removal completed");
-        vm.stopPrank();
-        
-        // Advance to next epoch
+
+        // Complete removal in the same epoch (push ack, then complete)
+        _pushRemovalAck(valId2);
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(0);
+
+        // Advance to next epoch to finalize caches
         _calcAndWarpOneEpoch();
-        
-        // BUG: array length is STILL 1 → phantom node stuck forever
+
+        // No phantom: length must be 0 after fix
         uint256 lenAfter = middleware.getOperatorNodesLength(alice);
-        assertEq(lenAfter, 0, "Phantom node should have changed to 0 afer fix");
-        console2.log("BUGGY FLOW reproduced: node is irremovable.");
+        assertEq(lenAfter, 0, "Phantom node should have changed to 0 after fix");
     }
 }

@@ -44,7 +44,9 @@ contract MiddlewareHelperConfig is Script {
             primaryCollateral: address(localToken),
             primaryCollateralMaxStake: 100_000_000_000_000_000_000,
             primaryCollateralMinStake: 100_000_000_000_000,
-            primaryCollateralWeightScaleFactor: 1e8
+            // Scale so minStake (1e14) -> weight 1, and maxStake (1e20) -> weight 1,000,000
+            // This aligns test stake sizes with a 1,000,000-weight L1 and 20% churn budget (200,000).
+            primaryCollateralWeightScaleFactor: 1e14
         });
     }
 }
