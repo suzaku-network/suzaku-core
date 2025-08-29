@@ -141,12 +141,12 @@ contract L1Registry is IL1Registry, Ownable {
             return false;
         }
 
-        address mw = middleware[l1];
-        if (mw == address(0)) {
+        address _middleware = middleware[l1];
+        if (_middleware == address(0)) {
             return false;
         }
 
-        address actualVaultManager = IAvalancheL1Middleware(mw).getVaultManager();
+        address actualVaultManager = IAvalancheL1Middleware(_middleware).getVaultManager();
 
         if (actualVaultManager != vaultManager_) {
             revert L1Registry__InvalidL1Middleware();
