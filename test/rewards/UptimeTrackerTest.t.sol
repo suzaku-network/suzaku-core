@@ -8,6 +8,7 @@ import {UptimeTracker} from "../../src/contracts/rewards/UptimeTracker.sol";
 import {IUptimeTracker, LastUptimeCheckpoint} from "../../src/interfaces/rewards/IUptimeTracker.sol";
 import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
 import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
+import {IBalancerValidatorManager} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
 import {
     WarpMessage, IWarpMessenger
@@ -17,91 +18,108 @@ import {UptimeTrackerTestBase} from "./UptimeTrackerTestBase.t.sol";
 contract UptimeTrackerTest is UptimeTrackerTestBase {
 
     function test_ComputeValidatorUptime() public {
-        // Start at epoch 1
-        vm.warp(middleware.START_TIME() + middleware.EPOCH_DURATION() + 1);
+        // Find the actual first active epoch for *this* validator
+        Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+        uint48 e0 = middleware.getEpochAtTs(uint48(v.startTime));
+
+        // Cross one boundary so e0 can receive uptime
+        vm.warp(middleware.getEpochStartTs(e0 + 1) + 1);
 
         _push(2 hours);  // Total cumulative uptime: 2 hours
         uptimeTracker.computeValidatorUptime(0);
 
-        uint256 validatorUptime = uptimeTracker.validatorUptimePerEpoch(0, validationID);
-        assertEq(validatorUptime, 2 hours);  // Epoch 0: 0→2 hours = 2 hours
-        assertTrue(uptimeTracker.isValidatorUptimeSet(0, validationID));
+        assertEq(uptimeTracker.validatorUptimePerEpoch(e0, validationID), 2 hours);
+        assertTrue(uptimeTracker.isValidatorUptimeSet(e0, validationID));
 
-        // Move to epoch 2
-        vm.warp(middleware.START_TIME() + 2 * middleware.EPOCH_DURATION() + 1);
-
+        // Next epoch: cumulative 5h ⇒ adds 3h to e0+1
+        vm.warp(middleware.getEpochStartTs(e0 + 2) + 1);
         _push(5 hours);  // Total cumulative uptime: 5 hours
         uptimeTracker.computeValidatorUptime(0);
 
-        validatorUptime = uptimeTracker.validatorUptimePerEpoch(1, validationID);
-        assertEq(validatorUptime, 3 hours);  // Epoch 1: 2→5 hours = 3 hours delta
-        assertTrue(uptimeTracker.isValidatorUptimeSet(1, validationID));
+        assertEq(uptimeTracker.validatorUptimePerEpoch(e0 + 1, validationID), 3 hours);
+        assertTrue(uptimeTracker.isValidatorUptimeSet(e0 + 1, validationID));
     }
 
     function test_ComputeOperatorUptime() public {
-        /* ───────── Epoch 0 ───────── */
-        vm.warp(middleware.START_TIME() + middleware.EPOCH_DURATION() + 1);
+        // First active epoch for Alice & Charlie separately
+        Validator memory vA = IBalancerValidatorManager(balancer).getValidator(aliceVals[0]);
+        Validator memory vC = IBalancerValidatorManager(balancer).getValidator(charlieVals[0]);
+        uint48 eA0 = middleware.getEpochAtTs(uint48(vA.startTime));
+        uint48 eC0 = middleware.getEpochAtTs(uint48(vC.startTime));
 
-        // Alice validators cumulative: 2h, 3h, 1h → epoch‑delta sum 6h → ⌊6/3⌋ = 2h
+        // ---- ALICE @ eA0 ----
+        // Warp to the first second *after* eA0 has fully elapsed,
+        // so eA0 can receive uptime.
+        vm.warp(middleware.getEpochStartTs(eA0 + 1) + 1);
+
+        // Feed 2h, 3h, 1h to Alice's three validators
         _pushFor(aliceVals[0], 2 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(aliceVals[1], 3 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(aliceVals[2], 1 hours); uptimeTracker.computeValidatorUptime(0);
-        uptimeTracker.computeOperatorUptimeAt(alice, 0);
-        uint256 opUptime = uptimeTracker.operatorUptimePerEpoch(0, alice);
-        assertEq(opUptime, 2 hours);
 
-        // Charlie validators cumulative: 4 h, 4 h, 0 h
-        //  epoch‑delta total = 8 h ⇒ average = 8 h / 3 = 9 600 s (2 h 40 m)
+        // Now compute operator uptime for Alice in eA0: (2+3+1)/3 = 2h
+        uptimeTracker.computeOperatorUptimeAt(alice, eA0);
+        assertEq(uptimeTracker.operatorUptimePerEpoch(eA0, alice), 2 hours);
+
+        // ---- CHARLIE @ eC0 ----
+        // Time can only move forward; ensure we're past eC0 as well.
+        uint48 T = eC0 + 1;
+        if (middleware.getCurrentEpoch() < T) {
+            vm.warp(middleware.getEpochStartTs(T) + 1);
+        }
+
+        // Feed 4h, 4h, 0h to Charlie's three validators
         _pushFor(charlieVals[0], 4 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(charlieVals[1], 4 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(charlieVals[2], 0 hours); uptimeTracker.computeValidatorUptime(0);
-        uptimeTracker.computeOperatorUptimeAt(charlie, 0);
-        opUptime = uptimeTracker.operatorUptimePerEpoch(0, charlie);
-        assertEq(opUptime, (8 hours) / 3);   // 9 600 s
 
-        /* ───────── Epoch 1 ───────── */
-        vm.warp(middleware.START_TIME() + 2 * middleware.EPOCH_DURATION() + 1);
+        // (4 + 4 + 0) / 3 = 8h/3 = 9600s
+        uptimeTracker.computeOperatorUptimeAt(charlie, eC0);
+        assertEq(uptimeTracker.operatorUptimePerEpoch(eC0, charlie), (8 hours) / 3);
+
+        /* ───────── Next Epoch ───────── */
+        // Move to next epoch for both operators
+        uint48 nextEpoch = middleware.getCurrentEpoch();
+        vm.warp(middleware.getEpochStartTs(nextEpoch + 1) + 1);
 
         // Add +2h to each validator (cumulative now 4h,5h,3h and 6h,6h,2h)
         _pushFor(aliceVals[0], 4 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(aliceVals[1], 5 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(aliceVals[2], 3 hours); uptimeTracker.computeValidatorUptime(0);
-        uptimeTracker.computeOperatorUptimeAt(alice, 1);
-        opUptime = uptimeTracker.operatorUptimePerEpoch(1, alice);
-        assertEq(opUptime, 2 hours);
+        // Compute for the epoch that just ended
+        uptimeTracker.computeOperatorUptimeAt(alice, nextEpoch);
+        assertEq(uptimeTracker.operatorUptimePerEpoch(nextEpoch, alice), 2 hours);
 
         _pushFor(charlieVals[0], 6 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(charlieVals[1], 6 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(charlieVals[2], 2 hours); uptimeTracker.computeValidatorUptime(0);
-        uptimeTracker.computeOperatorUptimeAt(charlie, 1);
-        opUptime = uptimeTracker.operatorUptimePerEpoch(1, charlie);
-        assertEq(opUptime, 2 hours);
+        uptimeTracker.computeOperatorUptimeAt(charlie, nextEpoch);
+        assertEq(uptimeTracker.operatorUptimePerEpoch(nextEpoch, charlie), 2 hours);
 
-        /* ───────── Epoch 2 ───────── */
-        vm.warp(middleware.START_TIME() + 3 * middleware.EPOCH_DURATION() + 1);
+        /* ───────── Third Epoch ───────── */
+        uint48 thirdEpoch = nextEpoch + 1;
+        vm.warp(middleware.getEpochStartTs(thirdEpoch + 1) + 1);
 
         // Add +2h again to each validator
         _pushFor(aliceVals[0], 6 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(aliceVals[1], 7 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(aliceVals[2], 5 hours); uptimeTracker.computeValidatorUptime(0);
-        uptimeTracker.computeOperatorUptimeAt(alice, 2);
-        opUptime = uptimeTracker.operatorUptimePerEpoch(2, alice);
-        assertEq(opUptime, 2 hours);
+        uptimeTracker.computeOperatorUptimeAt(alice, thirdEpoch);
+        assertEq(uptimeTracker.operatorUptimePerEpoch(thirdEpoch, alice), 2 hours);
 
         _pushFor(charlieVals[0], 8 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(charlieVals[1], 8 hours); uptimeTracker.computeValidatorUptime(0);
         _pushFor(charlieVals[2], 4 hours); uptimeTracker.computeValidatorUptime(0);
-        uptimeTracker.computeOperatorUptimeAt(charlie, 2);
-        opUptime = uptimeTracker.operatorUptimePerEpoch(2, charlie);
-        assertEq(opUptime, 2 hours);
+        uptimeTracker.computeOperatorUptimeAt(charlie, thirdEpoch);
+        assertEq(uptimeTracker.operatorUptimePerEpoch(thirdEpoch, charlie), 2 hours);
 
         /* ───────── assertions ───────── */
-        assertTrue(uptimeTracker.isOperatorUptimeSet(0, alice));
-        assertTrue(uptimeTracker.isOperatorUptimeSet(1, alice));
-        assertTrue(uptimeTracker.isOperatorUptimeSet(2, alice));
-        assertTrue(uptimeTracker.isOperatorUptimeSet(0, charlie));
-        assertTrue(uptimeTracker.isOperatorUptimeSet(1, charlie));
-        assertTrue(uptimeTracker.isOperatorUptimeSet(2, charlie));
+        assertTrue(uptimeTracker.isOperatorUptimeSet(eA0, alice));
+        assertTrue(uptimeTracker.isOperatorUptimeSet(nextEpoch, alice));
+        assertTrue(uptimeTracker.isOperatorUptimeSet(thirdEpoch, alice));
+        assertTrue(uptimeTracker.isOperatorUptimeSet(eC0, charlie));
+        assertTrue(uptimeTracker.isOperatorUptimeSet(nextEpoch, charlie));
+        assertTrue(uptimeTracker.isOperatorUptimeSet(thirdEpoch, charlie));
     }
 
     function test_RevertIfValidatorUptimeNotRecorded() public {
@@ -117,18 +135,27 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
 
 
     function test_ValidatorUptimeEvent() public {
-        vm.warp(middleware.START_TIME() + middleware.EPOCH_DURATION() + 1);
+        // Find the actual first active epoch for this validator
+        Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+        uint48 e0 = middleware.getEpochAtTs(uint48(v.startTime));
+
+        // Cross one boundary so e0 can receive uptime
+        vm.warp(middleware.getEpochStartTs(e0 + 1) + 1);
 
         _push(2 hours);  // Total cumulative: 2 hours
         
         vm.expectEmit(true, true, false, true);
-        emit ValidatorUptimeComputed(validationID, 0, 2 hours, 1);
+        emit ValidatorUptimeComputed(validationID, e0, 2 hours, 1);
         
         uptimeTracker.computeValidatorUptime(0);
     }
 
     function test_OperatorUptimeEvent() public {
-        vm.warp(middleware.START_TIME() + middleware.EPOCH_DURATION() + 1);
+        // Get the first active epoch for Alice's validators
+        Validator memory v = IBalancerValidatorManager(balancer).getValidator(aliceVals[0]);
+        uint48 firstActiveEpoch = middleware.getEpochAtTs(uint48(v.startTime));
+        
+        vm.warp(middleware.getEpochStartTs(firstActiveEpoch) + middleware.EPOCH_DURATION() + 1);
 
         // Feed Alice's three validators (2 h, 3 h, 1 h → average 2 h)
         _pushFor(aliceVals[0], 2 hours); uptimeTracker.computeValidatorUptime(0);
@@ -136,33 +163,37 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         _pushFor(aliceVals[2], 1 hours); uptimeTracker.computeValidatorUptime(0);
 
         vm.expectEmit(true, true, false, true);
-        emit OperatorUptimeComputed(alice, 0, 2 hours);
+        emit OperatorUptimeComputed(alice, firstActiveEpoch, 2 hours);
 
-        uptimeTracker.computeOperatorUptimeAt(alice, 0);
+        uptimeTracker.computeOperatorUptimeAt(alice, firstActiveEpoch);
     }
 
     function test_EdgeCases() public {
+        // Find the actual first active epoch for this validator
+        Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+        uint48 e0 = middleware.getEpochAtTs(uint48(v.startTime));
+
         // Test max uptime for first epoch
-        vm.warp(middleware.START_TIME() + middleware.EPOCH_DURATION() + 1);
+        vm.warp(middleware.getEpochStartTs(e0 + 1) + 1);
         _push(middleware.EPOCH_DURATION());  // Total: 4 hours (epoch duration)
         uptimeTracker.computeValidatorUptime(0);
-        assertEq(uptimeTracker.validatorUptimePerEpoch(0, validationID), middleware.EPOCH_DURATION());
+        assertEq(uptimeTracker.validatorUptimePerEpoch(e0, validationID), middleware.EPOCH_DURATION());
 
         // Test zero uptime delta (validator was already at 4 hours, stays at 4 hours)
         // Move to next epoch first so we can see the zero delta
-        vm.warp(middleware.START_TIME() + 2 * middleware.EPOCH_DURATION() + 1);
+        vm.warp(middleware.getEpochStartTs(e0 + 2) + 1);
         _push(middleware.EPOCH_DURATION());  // Total: still 4 hours (no change)
         uptimeTracker.computeValidatorUptime(0);
-        // Since no uptime was added, epoch 1 should have 0 uptime
-        assertEq(uptimeTracker.validatorUptimePerEpoch(1, validationID), 0);  // Delta = 0
+        // Since no uptime was added, epoch e0+1 should have 0 uptime
+        assertEq(uptimeTracker.validatorUptimePerEpoch(e0 + 1, validationID), 0);  // Delta = 0
 
-        // Test non-consecutive epochs - jump from epoch 1 to epoch 3
-        vm.warp(middleware.START_TIME() + 4 * middleware.EPOCH_DURATION() + 1);
+        // Test non-consecutive epochs - jump from e0+1 to e0+3
+        vm.warp(middleware.getEpochStartTs(e0 + 4) + 1);
         _push(3 * middleware.EPOCH_DURATION());  // Total: 12 hours cumulative
         uptimeTracker.computeValidatorUptime(0);
-        // This should distribute (12-4) = 8 hours across epochs 2 and 3 = 4 hours each
-        assertEq(uptimeTracker.validatorUptimePerEpoch(2, validationID), middleware.EPOCH_DURATION());
-        assertEq(uptimeTracker.validatorUptimePerEpoch(3, validationID), middleware.EPOCH_DURATION());
+        // This should distribute (12-4) = 8 hours across epochs e0+2 and e0+3 = 4 hours each
+        assertEq(uptimeTracker.validatorUptimePerEpoch(e0 + 2, validationID), middleware.EPOCH_DURATION());
+        assertEq(uptimeTracker.validatorUptimePerEpoch(e0 + 3, validationID), middleware.EPOCH_DURATION());
     }
 
     function test_UptimeTruncationCausesRewardLoss() public view {

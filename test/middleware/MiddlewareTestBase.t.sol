@@ -802,6 +802,11 @@ abstract contract MiddlewareTestBase is Test {
         return _calcAndWarpOneEpoch(1);
     }
 
+    // Storage arrays to avoid stack depth issues
+    bytes32[] private _tempNodeIds;
+    bytes32[] private _tempValidationIDs;
+    uint256[] private _tempNodeWeights;
+
     function _createAndConfirmNodes(
         address operator,
         uint256 nodeCount,
@@ -809,88 +814,122 @@ abstract contract MiddlewareTestBase is Test {
         bool confirmImmediately,
         uint256 minMultiplier
     ) internal returns (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) {
-        // Create temporary arrays with maximum size
-        bytes32[] memory tempNodeIds = new bytes32[](nodeCount);
-        bytes32[] memory tempValidationIDs = new bytes32[](nodeCount);
-        uint256[] memory tempNodeWeights = new uint256[](nodeCount);
+        // Clear storage arrays from any previous use
+        delete _tempNodeIds;
+        delete _tempValidationIDs;
+        delete _tempNodeWeights;
         
-        uint256 actualNodeCount = 0; // Track actual successful registrations
-
+        uint256 actualNodeCount = _registerNodes(operator, nodeCount, stake_, confirmImmediately, minMultiplier);
+        
+        // Copy from storage to memory for return
+        nodeIds = new bytes32[](actualNodeCount);
+        validationIDs = new bytes32[](actualNodeCount);
+        nodeWeights = new uint256[](actualNodeCount);
+        
+        for (uint256 i = 0; i < actualNodeCount; i++) {
+            nodeIds[i] = _tempNodeIds[i];
+            validationIDs[i] = _tempValidationIDs[i];
+            nodeWeights[i] = _tempNodeWeights[i];
+        }
+        
+        // Clear storage arrays to save gas
+        delete _tempNodeIds;
+        delete _tempValidationIDs;
+        delete _tempNodeWeights;
+    }
+    
+    function _registerNodes(
+        address operator,
+        uint256 nodeCount,
+        uint256 stake_,
+        bool confirmImmediately,
+        uint256 minMultiplier
+    ) private returns (uint256 actualNodeCount) {
         for (uint256 i = 0; i < nodeCount; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
-            middleware.calcAndCacheNodeStakeForAllOperators();
-            uint256 free = middleware.getOperatorAvailableStake(operator);
-            (uint256 minStake, ) = middleware.getClassStakingRequirements(1);   // PRIMARY_ASSET_CLASS == 1
-    
-            // uint256 stakeForThisNode = (stake_ != 0) ? stake_
-            //                       : (free > maxStake
-            //                            ? maxStake
-            //                            : free);
-    
-            uint256 stakeForThisNode = (stake_ != 0)
-                ? stake_
-                : minStake * minMultiplier;
-
-            if (free < stakeForThisNode) {
-                // accept *any* stake‑deficiency revert
-                vm.expectRevert();          //  ❚❚ removed selector filter
-                vm.prank(operator);
-                middleware.addNode(
-                    nodeId,
-                    new bytes(48), // 48-byte BLS
-                    _pOwner1(operator),
-                    _pOwner1(operator),
-                    stakeForThisNode    
-                );
+            uint256 stakeAmount = _calculateStakeAmount(operator, stake_, minMultiplier);
+            
+            if (!_tryRegisterNode(operator, nodeId, stakeAmount)) {
                 break;
             }
-
+            
+            _tempNodeIds.push(nodeId);
+            
+            bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+            _tempValidationIDs.push(validationID);
+            
+            if (confirmImmediately) {
+                _completeNodeRegistration(operator, nodeId, validationID, actualNodeCount, nodeCount);
+            }
+            
+            uint256 weight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
+            assertGt(weight, 0, "Node weight must be positive");
+            _tempNodeWeights.push(weight);
+            
+            actualNodeCount++;
+        }
+    }
+    
+    function _calculateStakeAmount(
+        address operator,
+        uint256 stake_,
+        uint256 minMultiplier
+    ) internal returns (uint256) {
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        (uint256 minStake, ) = middleware.getClassStakingRequirements(1); // PRIMARY_ASSET_CLASS == 1
+        
+        return (stake_ != 0) ? stake_ : minStake * minMultiplier;
+    }
+    
+    function _tryRegisterNode(
+        address operator,
+        bytes32 nodeId,
+        uint256 stakeAmount
+    ) internal returns (bool success) {
+        uint256 free = middleware.getOperatorAvailableStake(operator);
+        
+        if (free < stakeAmount) {
+            // accept *any* stake‑deficiency revert
+            vm.expectRevert(); // removed selector filter
             vm.prank(operator);
             middleware.addNode(
                 nodeId,
                 new bytes(48), // 48-byte BLS
                 _pOwner1(operator),
                 _pOwner1(operator),
-                stakeForThisNode
+                stakeAmount
             );
-            
-            // Store the successful registration
-            tempNodeIds[actualNodeCount] = nodeId;
-            
-            // Get the validation ID from the real balancer
-            bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
-            tempValidationIDs[actualNodeCount] = validationID;
-            
-            if (confirmImmediately) {
-                // Push registration acceptance in the warp messenger
-                uint32 msgIdx = _pushRegistrationAck(validationID, true);
-                
-                vm.prank(operator);
-                middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
-                
-                // If the caller is confirming a batch, space them across epochs
-                // so we never pile multiple weight changes into the same churn window.
-                if (actualNodeCount + 1 < nodeCount) {
-                    _calcAndWarpOneEpoch();
-                }
-            }
-            uint48 epoch = middleware.getCurrentEpoch();
-            tempNodeWeights[actualNodeCount] = middleware.nodeStakeCache(epoch, tempValidationIDs[actualNodeCount]);
-            assertGt(tempNodeWeights[actualNodeCount], 0, "Node weight must be positive");
-            
-            actualNodeCount++;
+            return false;
         }
         
-        // Create properly sized result arrays
-        nodeIds = new bytes32[](actualNodeCount);
-        validationIDs = new bytes32[](actualNodeCount);
-        nodeWeights = new uint256[](actualNodeCount);
+        vm.prank(operator);
+        middleware.addNode(
+            nodeId,
+            new bytes(48), // 48-byte BLS
+            _pOwner1(operator),
+            _pOwner1(operator),
+            stakeAmount
+        );
+        return true;
+    }
+    
+    function _completeNodeRegistration(
+        address operator,
+        bytes32 nodeId,
+        bytes32 validationID,
+        uint256 currentCount,
+        uint256 totalCount
+    ) internal {
+        // Push registration acceptance in the warp messenger
+        uint32 msgIdx = _pushRegistrationAck(validationID, true);
         
-        // Copy the successful registrations to result arrays
-        for (uint256 i = 0; i < actualNodeCount; i++) {
-            nodeIds[i] = tempNodeIds[i];
-            validationIDs[i] = tempValidationIDs[i];
-            nodeWeights[i] = tempNodeWeights[i];
+        vm.prank(operator);
+        middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
+        
+        // If the caller is confirming a batch, space them across epochs
+        // so we never pile multiple weight changes into the same churn window.
+        if (currentCount + 1 < totalCount) {
+            _calcAndWarpOneEpoch();
         }
     }
 
