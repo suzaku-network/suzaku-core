@@ -8,6 +8,7 @@ import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
 import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
 import {WarpMessage} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
 import {IBalancerValidatorManager} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
+import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 
 abstract contract UptimeTrackerTestBase is MiddlewareTestBase {
     UptimeTracker      public uptimeTracker;
@@ -122,4 +123,13 @@ abstract contract UptimeTrackerTestBase is MiddlewareTestBase {
             uptimeTracker.computeValidatorUptime(0);
         }
     }
+
+    function _ensureStarted(bytes32 valID) internal {
+        Validator memory v = IBalancerValidatorManager(balancer).getValidator(valID);
+        uint48 startEpoch = middleware.getEpochAtTs(uint48(v.startTime));
+        if (middleware.getCurrentEpoch() < startEpoch) {
+            vm.warp(middleware.getEpochStartTs(startEpoch) + 1);
+        }
+    }
+
 }
