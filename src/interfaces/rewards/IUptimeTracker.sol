@@ -42,6 +42,14 @@ interface IUptimeTracker {
     error InvalidWarpMessage();
 
     /**
+     * @dev Error thrown when trying to compute uptime for a validator before its start epoch
+     * @param validationID Validator's unique validation ID
+     * @param startEpoch The epoch when the validator started
+     * @param currentEpoch The current epoch
+     */
+    error UptimeBeforeStart(bytes32 validationID, uint48 startEpoch, uint48 currentEpoch);
+
+    /**
      * @notice Emitted when a validator's uptime is computed.
      * @param validationID Unique ID of the validator's validation period.
      * @param firstEpoch First epoch included in this uptime calculation.
