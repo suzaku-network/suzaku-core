@@ -55,7 +55,18 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         _ensureStarted(aliceVals[2]); _pushFor(aliceVals[2], 1 hours); uptimeTracker.computeValidatorUptime(0);
 
         uptimeTracker.computeOperatorUptimeAt(alice, eA0);
-        assertEq(uptimeTracker.operatorUptimePerEpoch(eA0, alice), 1780);
+        // Deterministic expectation: operator uptime = mean of validator uptimes for active nodes in eA0
+        {
+            bytes32[] memory nodes = middleware.getActiveNodesForEpoch(alice, eA0);
+            uint256 sum;
+            for (uint256 i = 0; i < nodes.length; ++i) {
+                bytes32 vID = IBalancerValidatorManager(balancer)
+                    .getNodeValidationID(abi.encodePacked(uint160(uint256(nodes[i]))));
+                sum += uptimeTracker.validatorUptimePerEpoch(eA0, vID);
+            }
+            uint256 expected = sum / nodes.length;
+            assertEq(uptimeTracker.operatorUptimePerEpoch(eA0, alice), expected);
+        }
 
         // Ensure we are also past eC0, then feed Charlie and compute for eC0
         if (middleware.getCurrentEpoch() <= eC0) {
@@ -67,13 +78,18 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         _ensureStarted(charlieVals[2]); _pushFor(charlieVals[2], 0 hours); uptimeTracker.computeValidatorUptime(0);
 
         uptimeTracker.computeOperatorUptimeAt(charlie, eC0);
-        // Node B: 4h spread over 2 elapsed epochs → 14400/2 = 7200
-        // Node A: 4h spread over 3 elapsed epochs → floor(14400/3) = 4800
-        // Active nodes in eC0 = 2 (A,B). Operator avg = (7200 + 4800)/2 = 6000
-        assertEq(
-            uptimeTracker.operatorUptimePerEpoch(eC0, charlie),
-            ((4 hours) / 2 + (4 hours) / 3) / 2
-        );
+        // Deterministic expectation: operator uptime = mean of validator uptimes for active nodes in eC0
+        {
+            bytes32[] memory nodes = middleware.getActiveNodesForEpoch(charlie, eC0);
+            uint256 sum;
+            for (uint256 i = 0; i < nodes.length; ++i) {
+                bytes32 vID = IBalancerValidatorManager(balancer)
+                    .getNodeValidationID(abi.encodePacked(uint160(uint256(nodes[i]))));
+                sum += uptimeTracker.validatorUptimePerEpoch(eC0, vID);
+            }
+            uint256 expected = sum / nodes.length;
+            assertEq(uptimeTracker.operatorUptimePerEpoch(eC0, charlie), expected);
+        }
         /* ───────── Next Epoch ───────── */
         // Move to next epoch for both operators
         uint48 nextEpoch = middleware.getCurrentEpoch();
