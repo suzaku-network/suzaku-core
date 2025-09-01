@@ -378,7 +378,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             revert AvalancheL1Middleware__InsufficientStake();
         }
 
-        bytes32 valId = balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+        bytes32 valId = _vid(nodeId);
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePending();
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(valId)) revert AvalancheL1Middleware__NodePending();
 
@@ -399,7 +399,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         }
 
         bytes32 validationID = balancerValidatorManager.initiateValidatorRegistration(
-            abi.encodePacked(uint160(uint256(nodeId))),
+            _nodeKey(nodeId),
             blsKey,
             remainingBalanceOwner,
             disableOwner,
@@ -434,10 +434,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     )
         external
     {
-        _updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS);
+        uint48 currentEpoch = getCurrentEpoch();
+        _updateStakeCache(currentEpoch, PRIMARY_ASSET_CLASS);
         _onlyDuringFinalWindowOfEpoch();
         _updateGlobalNodeStakeOncePerEpoch();
-        uint48 currentEpoch = getCurrentEpoch();
         if (rebalancedThisEpoch[operator][currentEpoch]) {
             revert AvalancheL1Middleware__RebalanceNotRequired();
         }
@@ -446,8 +446,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
 
-        uint48 epoch = getCurrentEpoch();
-        uint256 newTotalStake = getOperatorStake(operator, epoch, PRIMARY_ASSET_CLASS);
+        uint256 newTotalStake = getOperatorStake(operator, currentEpoch, PRIMARY_ASSET_CLASS);
         
         // Enforce max security module weight cap
         (, uint64 securityModuleMaxWeight) = balancerValidatorManager.getSecurityModuleWeights(address(this));
@@ -494,7 +493,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 i = length; i > 0 && (leftoverStake > 0 || !secondaryOk);) {
             i--;
             bytes32 nodeId = nodesArr[i];
-            bytes32 valID = balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+            bytes32 valID = _vid(nodeId);
             if (balancerValidatorManager.isValidatorPendingWeightUpdate(valID)) {
                 continue;
             }
@@ -579,7 +578,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             revert AvalancheL1Middleware__InvalidStakeAmount();
         }
 
-        bytes32 validationID = balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+        bytes32 validationID = _vid(nodeId);
         
         // Check if operator has enough available stake for the increase
         uint48 currentEpoch = getCurrentEpoch();
@@ -658,7 +657,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         address, /* operator */
         uint256, /* amount */
         uint96 collateralClassId
-    ) public onlyOwner {
+    ) external onlyOwner {
         _updateStakeCache(epoch, collateralClassId);
         _updateGlobalNodeStakeOncePerEpoch();
         revert AvalancheL1Middleware__NotImplemented();
@@ -796,7 +795,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 i = nodeArray.length; i > 0;) {
             i--;
             bytes32 nodeId = nodeArray[i];
-            bytes32 valID = balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+            bytes32 valID = _vid(nodeId);
             // validator already deleted on manager → use local cache
             if (valID == bytes32(0)) {
                 bytes32 saved = pendingRemovalValId[nodeId];
@@ -831,7 +830,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      * @param nodeId The node ID
      */
     function _removeNode(address operator, bytes32 nodeId) internal {
-        bytes32 validationID = balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+        bytes32 validationID = _vid(nodeId);
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__NodePending();
         }
@@ -946,9 +945,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     function _getActiveNodeCount(address operator) internal view returns (uint256 count) {
         bytes32[] storage arr = operatorNodesArray[operator];
         for (uint256 i; i < arr.length;) {
-            bytes32 valID = balancerValidatorManager.getNodeValidationID(
-                abi.encodePacked(uint160(uint256(arr[i])))
-            );
+            bytes32 valID = _vid(arr[i]);
             if (!nodePendingRemoval[valID]) {
                 unchecked { ++count; }
             }
@@ -1147,8 +1144,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
         for (uint256 i = 0; i < allNodeIds.length; i++) {
             bytes32 nodeId = allNodeIds[i];
-            bytes32 validationID =
-                balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+            bytes32 validationID = _vid(nodeId);
             Validator memory validator = balancerValidatorManager.getValidator(validationID);
 
             // Skip if no validator is registered for this nodeId
@@ -1194,8 +1190,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length;) {
             bytes32 nodeId = nodesArr[i];
-            bytes32 validationID =
-                balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+            bytes32 validationID = _vid(nodeId);
             registeredStake += getEffectiveNodeStake(getCurrentEpoch(), validationID);
             unchecked { ++i; }
         }
@@ -1224,8 +1219,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
             for (uint256 i = 0; i < nodesArr.length; i++) {
                 bytes32 nodeId = nodesArr[i];
-                bytes32 validationID =
-                    balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+                bytes32 validationID = _vid(nodeId);
                 operatorStake += getEffectiveNodeStake(epoch, validationID);
             }
             return operatorStake;
@@ -1310,5 +1304,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function _wasActiveAt(uint48 enabledTime, uint48 disabledTime, uint48 timestamp) private pure returns (bool) {
         return enabledTime != 0 && enabledTime <= timestamp && (disabledTime == 0 || disabledTime > timestamp);
+    }
+
+    function _nodeKey(bytes32 nodeId) private pure returns (bytes memory) {
+        return abi.encodePacked(uint160(uint256(nodeId)));
+    }
+
+    function _vid(bytes32 nodeId) private view returns (bytes32) {
+        return balancerValidatorManager.getNodeValidationID(_nodeKey(nodeId));
     }
 }
