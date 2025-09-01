@@ -30,7 +30,6 @@ import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {MiddlewareHelperConfig} from "../../script/middleware/anvil/MiddlewareHelperConfig.s.sol";
 import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
-import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
 import {DeployBalancerValidatorManager} from "lib/suzaku-contracts-library/script/ValidatorManager/DeployBalancerValidatorManager.s.sol";
 
 import {BalancerValidatorManager} from
@@ -108,8 +107,7 @@ abstract contract MiddlewareTestBase is Test {
     address internal validatorManager;  // ValidatorManager proxy  
     address internal secModule;     // PoASecurityModule
     
-    // Keep the mock for existing tests
-    MockBalancerValidatorManager internal mockValidatorManager;
+
 
     function setUp() public virtual {
         owner = address(this);
@@ -847,7 +845,7 @@ abstract contract MiddlewareTestBase is Test {
     ) private returns (uint256 actualNodeCount) {
         for (uint256 i = 0; i < nodeCount; i++) {
             bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
-            uint256 stakeAmount = _calculateStakeAmount(operator, stake_, minMultiplier);
+            uint256 stakeAmount = _calculateStakeAmount(stake_, minMultiplier);
             
             if (!_tryRegisterNode(operator, nodeId, stakeAmount)) {
                 break;
@@ -859,7 +857,7 @@ abstract contract MiddlewareTestBase is Test {
             _tempValidationIDs.push(validationID);
             
             if (confirmImmediately) {
-                _completeNodeRegistration(operator, nodeId, validationID, actualNodeCount, nodeCount);
+                _completeNodeRegistration(validationID, actualNodeCount, nodeCount);
             }
             
             uint256 weight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
@@ -871,7 +869,6 @@ abstract contract MiddlewareTestBase is Test {
     }
     
     function _calculateStakeAmount(
-        address operator,
         uint256 stake_,
         uint256 minMultiplier
     ) internal returns (uint256) {
@@ -914,23 +911,13 @@ abstract contract MiddlewareTestBase is Test {
     }
     
     function _completeNodeRegistration(
-        address operator,
-        bytes32 nodeId,
         bytes32 validationID,
         uint256 currentCount,
         uint256 totalCount
     ) internal {
-        // Push registration acceptance in the warp messenger
         uint32 msgIdx = _pushRegistrationAck(validationID, true);
-        
-        vm.prank(operator);
-        middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
-        
-        // If the caller is confirming a batch, space them across epochs
-        // so we never pile multiple weight changes into the same churn window.
-        if (currentCount + 1 < totalCount) {
-            _calcAndWarpOneEpoch();
-        }
+        middleware.completeValidatorRegistration(msgIdx); // permissionless
+        if (currentCount + 1 < totalCount) _calcAndWarpOneEpoch();
     }
 
     function _stakeOrRemoveNodes(
@@ -987,9 +974,7 @@ abstract contract MiddlewareTestBase is Test {
                 
                 // Push weight update in the warp messenger
                 uint32 stakeMsgIdx = _pushWeight(validationIdForUpdate, nextNonce, scaledWeight);
-                
-                vm.prank(operator);
-                middleware.completeStakeUpdate(nodeIds[i], stakeMsgIdx);
+                middleware.completeStakeUpdate(stakeMsgIdx); // permissionless
             }
         }
     }

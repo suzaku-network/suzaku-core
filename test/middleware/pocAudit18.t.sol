@@ -62,8 +62,7 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
         middleware.addNode(n1, new bytes(48), _pOwner1(alice), _pOwner1(alice), stake1);
         bytes32 v1 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(n1));
         _pushRegistrationAck(v1, true);
-        vm.prank(alice);
-        middleware.completeValidatorRegistration(alice, n1, 0);
+        middleware.completeValidatorRegistration(0);
 
         // --- second node (add + confirm)
         bytes32 n2 = keccak256(abi.encodePacked("alice-n2", block.timestamp));
@@ -71,8 +70,7 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
         middleware.addNode(n2, new bytes(48), _pOwner1(alice), _pOwner1(alice), stake1);
         bytes32 v2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(n2));
         _pushRegistrationAck(v2, true);
-        vm.prank(alice);
-        middleware.completeValidatorRegistration(alice, n2, 0);
+        middleware.completeValidatorRegistration(0);
 
         // Sanity: two should fit, three should not (in terms of initial availability)
         assertTrue(2 * stake1 <= avail && 3 * stake1 > avail, "bad stake sizing");

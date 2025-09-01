@@ -31,8 +31,7 @@ contract PoCIrremovableNode is MiddlewareTestBase {
 
         // Push registration ack, then complete(0)
         _pushRegistrationAck(valId, true);
-        vm.prank(alice);
-        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.completeValidatorRegistration(0);
 
         assertEq(middleware.getOperatorNodesLength(alice), 1);
 
@@ -45,7 +44,6 @@ contract PoCIrremovableNode is MiddlewareTestBase {
 
         // Push removal ack, then complete(0)
         _pushRemovalAck(valId);
-        vm.prank(alice);
         middleware.completeValidatorRemoval(0);
 
         // Array should be empty now
@@ -63,8 +61,7 @@ contract PoCIrremovableNode is MiddlewareTestBase {
 
         bytes32 valId2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
         _pushRegistrationAck(valId2, true);
-        vm.prank(alice);
-        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.completeValidatorRegistration(0);
 
         assertEq(middleware.getOperatorNodesLength(alice), 1);
 
@@ -74,7 +71,6 @@ contract PoCIrremovableNode is MiddlewareTestBase {
 
         // Complete removal in the same epoch (push ack, then complete)
         _pushRemovalAck(valId2);
-        vm.prank(alice);
         middleware.completeValidatorRemoval(0);
 
         // Advance to next epoch to finalize caches

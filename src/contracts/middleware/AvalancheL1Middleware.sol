@@ -594,34 +594,60 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         _initializeValidatorStakeUpdate(msg.sender, validationID, stakeAmount);
     }
 
-    /**
-     * @inheritdoc IAvalancheL1Middleware
-     */
-    function completeValidatorRegistration(
-        address operator,
-        bytes32 nodeId,
-        uint32 messageIndex
-    ) external {
-        _updateGlobalNodeStakeOncePerEpoch();
-        _completeValidatorRegistration(operator, nodeId, messageIndex);
-    }
 
-    /**
-     * @inheritdoc IAvalancheL1Middleware
-     */
-    function completeStakeUpdate(
-        bytes32 nodeId,
-        uint32 messageIndex
-    ) external {
-        _updateGlobalNodeStakeOncePerEpoch();
-        _completeStakeUpdate(msg.sender, nodeId, messageIndex);
-    }
 
     function completeValidatorRemoval(
         uint32 messageIndex
     ) external {
         _updateGlobalNodeStakeOncePerEpoch();
         _completeValidatorRemoval(messageIndex);
+    }
+
+    // --- Permissionless completes (messageIndex-only) ---
+
+    function completeValidatorRegistration(uint32 messageIndex) external {
+        _updateGlobalNodeStakeOncePerEpoch();
+
+        bytes32 vid = balancerValidatorManager.completeValidatorRegistration(messageIndex);
+
+        // Only act for validators owned by this module
+        if (balancerValidatorManager.getValidatorSecurityModule(vid) != address(this)) {
+            return;
+        }
+        // No local cache change needed on registration; stake was staged in addNode().
+    }
+
+    function completeStakeUpdate(uint32 messageIndex) external {
+        _updateGlobalNodeStakeOncePerEpoch();
+
+        (bytes32 vid, /*nonce*/) = balancerValidatorManager.completeValidatorWeightUpdate(messageIndex);
+
+        // Only act for validators owned by this module
+        if (balancerValidatorManager.getValidatorSecurityModule(vid) != address(this)) {
+            return;
+        }
+
+        address operator = validationIdToOperator[vid];
+        if (operator == address(0)) return; // not ours / unknown locally
+
+        uint48 currentEpoch = getCurrentEpoch();
+        uint256 newStake = _pendingStake[vid];
+
+        // Cache next-epoch stake if still active and not pending removal
+        Validator memory v = balancerValidatorManager.getValidator(vid);
+        if (newStake != 0 && v.status == ValidatorStatus.Active && !nodePendingRemoval[vid]) {
+            nodeStakeCache[currentEpoch + 1][vid] = newStake;
+        }
+
+        // Unlock delta on increases
+        uint256 prevStake = getEffectiveNodeStake(currentEpoch, vid);
+        if (newStake > prevStake) {
+            uint256 release = newStake - prevStake;
+            uint256 lockBal = operatorLockedStake[operator];
+            operatorLockedStake[operator] = (release > lockBal) ? 0 : (lockBal - release);
+        }
+
+        delete _pendingStake[vid];
     }
 
     /**
@@ -844,20 +870,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         }
     }
 
-    /**
-     * @notice Completes a validator's registration.
-     * @param operator The operator who owns the validator
-     * @param nodeId The unique ID of the validator whose registration is being finalized
-     * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
-     */
-    function _completeValidatorRegistration(
-        address operator,
-        bytes32 nodeId,
-        uint32 messageIndex
-    ) internal {
-        _onlyRegisteredOperatorNode(operator, nodeId);
-        balancerValidatorManager.completeValidatorRegistration(messageIndex);
-    }
+
 
     /**
      * @notice Completes a validator's removal.
@@ -869,49 +882,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         balancerValidatorManager.completeValidatorRemoval(messageIndex);
     }
 
-    /**
-     * @notice Completes a validator's stake update
-     * @param operator The operator who owns the validator
-     * @param nodeId The unique ID of the validator whose relative weight update is being finalized
-     * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
-     */
-    function _completeStakeUpdate(
-        address operator,
-        bytes32 nodeId,
-        uint32 messageIndex
-    ) internal {
-        _onlyRegisteredOperatorNode(operator, nodeId);
-        bytes32 validationID = balancerValidatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
 
-        if (!balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
-            revert AvalancheL1Middleware__WeightUpdateNotPending(validationID);
-        }
-
-        // Finish the weight update on the P-Chain
-        (bytes32 vid, ) = balancerValidatorManager.completeValidatorWeightUpdate(messageIndex);
-        if (vid != validationID) {
-            revert AvalancheL1Middleware__UnexpectedWeightUpdate(validationID);
-        }
-
-
-        uint48 currentEpoch = getCurrentEpoch();
-        uint256 newStake = _pendingStake[validationID];
-
-        // write to cache active validators
-        Validator memory v = balancerValidatorManager.getValidator(validationID);
-        if (v.status == ValidatorStatus.Active && !nodePendingRemoval[validationID]) {
-            nodeStakeCache[currentEpoch + 1][validationID] = newStake;
-        }
-
-        // unlock stake
-        uint256 prevStake = getEffectiveNodeStake(currentEpoch, validationID);
-        if (newStake > prevStake) {
-            uint256 release = newStake - prevStake;
-            uint256 lockBal = operatorLockedStake[operator];
-            operatorLockedStake[operator] = (release > lockBal) ? 0 : lockBal - release;
-        }
-        delete _pendingStake[validationID];
-    }
 
     /**
      * @notice Sets the stake of a validator and updates the operator's locked stake accordingly.

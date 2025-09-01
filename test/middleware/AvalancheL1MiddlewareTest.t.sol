@@ -218,10 +218,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Confirm node – push ack then complete(0)
         bytes32 vId = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
         _pushRegistrationAck(vId, true);
-        vm.startPrank(alice);
-        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.completeValidatorRegistration(0);
         middleware.calcAndCacheNodeStakeForAllOperators();
-        vm.stopPrank();
 
         // Should be active next epoch
         epoch = _calcAndWarpOneEpoch();
@@ -258,8 +256,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(vId);
             _pushWeight(vId, uint64(v.sentNonce), scaled);
         }
-        vm.prank(alice);
-        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.completeStakeUpdate(0);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         updatedNodeWeight = middleware.nodeStakeCache(epoch, validationID);
@@ -298,8 +295,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(vId);
             _pushWeight(vId, uint64(v.sentNonce), scaled);
         }
-        vm.prank(alice);
-        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.completeStakeUpdate(0);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         epoch = _calcAndWarpOneEpoch();
@@ -599,8 +595,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Confirm node - push ack then complete(0)
         _pushRegistrationAck(validationID, true);
-        vm.prank(alice);
-        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.completeValidatorRegistration(0);
 
         // Warp +1 epoch and check that the node is truly active
         epoch = _calcAndWarpOneEpoch();
@@ -645,8 +640,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Confirm node again - always push ack, then complete(0)
         _pushRegistrationAck(newValidationID, true);
-        vm.prank(alice);
-        middleware.completeValidatorRegistration(alice, nodeId, 0);
+        middleware.completeValidatorRegistration(0);
 
         // Warp another epoch and verify stake
         epoch = _calcAndWarpOneEpoch();
@@ -701,7 +695,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Try to complete stake update before ack - should revert
         vm.prank(alice);
         vm.expectRevert();
-        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.completeStakeUpdate(0);
         
         // First complete the stake update, then remove the node
         {
@@ -709,8 +703,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
             _pushWeight(validationID, uint64(v.sentNonce), scaled);
         }
-        vm.prank(alice);
-        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.completeStakeUpdate(0);
         
         // Verify update was processed and no longer pending
         bool stillPending = IBalancerValidatorManager(balancer).isValidatorPendingWeightUpdate(validationID);
@@ -806,7 +799,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         for (uint256 i = 0; i < nodeCount; i++) {
             _pushRegistrationAck(validationIds[i], true);
             vm.prank(alice);
-            middleware.completeValidatorRegistration(alice, nodeIds[i], 0);
+            middleware.completeValidatorRegistration(0);
             isActive[i] = true;
         }
 
@@ -890,7 +883,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 // Confirm the new registration
                 _pushRegistrationAck(newValID, true);
                 vm.prank(alice);
-                middleware.completeValidatorRegistration(alice, nodeIds[i], 0);
+                middleware.completeValidatorRegistration(0);
                 isActive[i] = true;
 
                 // Verify that the oldVal ID remains at stake=0
@@ -1001,7 +994,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         for (uint256 i = 0; i < nodeCount; i++) {
             _pushRegistrationAck(validationIds[i], true);
             vm.prank(alice);
-            middleware.completeValidatorRegistration(alice, nodeIds[i], 0);
+            middleware.completeValidatorRegistration(0);
             isActive[i] = true;
         }
         epoch = _calcAndWarpOneEpoch();
@@ -1061,7 +1054,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(vid);
                 _pushWeight(vid, uint64(v.sentNonce), scaled);
                 vm.prank(alice);
-                middleware.completeStakeUpdate(nodeIds[i], 0);
+                middleware.completeStakeUpdate(0);
             }
         }
 
@@ -1208,14 +1201,13 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         for (uint256 i = 0; i < nodeCountA; i++) {
             _pushRegistrationAck(validationIdsA[i], true);
             vm.prank(alice);
-            middleware.completeValidatorRegistration(alice, nodeIdsA[i], 0);
+            middleware.completeValidatorRegistration(0);
             isActiveA[i] = true;
         }
 
         for (uint256 i = 0; i < nodeCountB; i++) {
             _pushRegistrationAck(validationIdsB[i], true);
-            vm.prank(charlie);
-            middleware.completeValidatorRegistration(charlie, nodeIdsB[i], 0);
+                    middleware.completeValidatorRegistration(0);
             isActiveB[i] = true;
         }
 
@@ -1261,7 +1253,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(vid);
                 _pushWeight(vid, uint64(v.sentNonce), scaled);
                 vm.prank(alice);
-                middleware.completeStakeUpdate(nodeIdsA[i], 0);
+                middleware.completeStakeUpdate(0);
             }
         }
 
@@ -1300,8 +1292,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 uint64 scaled = StakeConversion.stakeToWeight(newStake, middleware.WEIGHT_SCALE_FACTOR());
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(vid);
                 _pushWeight(vid, uint64(v.sentNonce), scaled);
-                vm.prank(charlie);
-                middleware.completeStakeUpdate(nodeIdsB[i], 0);
+                        middleware.completeStakeUpdate(0);
             }
         }
 
@@ -1691,8 +1682,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
         bytes memory expectedError = abi.encodeWithSelector(
             IAvalancheL1Middleware.AvalancheL1Middleware__ManualEpochUpdateRequired.selector,
-            currentEpochAfterWarp,
-            maxAutoUpdates
+            currentEpochAfterWarp // epochsPending
         );
         vm.expectRevert(expectedError);
         middleware.calcAndCacheNodeStakeForAllOperators();
@@ -1723,8 +1713,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         bytes memory expectedRevertError = abi.encodeWithSelector(
             IAvalancheL1Middleware.AvalancheL1Middleware__ManualEpochUpdateRequired.selector,
-            currentEpochAfterWarp,
-            maxAutoUpdates
+            currentEpochAfterWarp
         );
         vm.expectRevert(expectedRevertError);
         middleware.calcAndCacheNodeStakeForAllOperators();
@@ -2004,7 +1993,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         _pushRegistrationAck(validationID_A1, true);
         vm.prank(operatorA);
-        middleware.completeValidatorRegistration(operatorA, sharedNodeId_X, 0);
+        middleware.completeValidatorRegistration(0);
         
         // Move to next epoch so validator becomes active
         _calcAndWarpOneEpoch();
@@ -2069,7 +2058,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         
         _pushRegistrationAck(validationID_B2, true);
         vm.prank(operatorB);
-        middleware.completeValidatorRegistration(operatorB, sharedNodeId_X, 0);
+        middleware.completeValidatorRegistration(0);
         
         // Move to next epoch so validator becomes active
         _calcAndWarpOneEpoch();
@@ -2281,19 +2270,19 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Complete registrations
         vm.startPrank(alice);
         _pushRegistrationAck(validationID_A, true);
-        middleware.completeValidatorRegistration(alice, nodeId_A, 0);
+        middleware.completeValidatorRegistration(0);
         vm.stopPrank();
         _calcAndWarpOneEpoch();
         
         vm.startPrank(alice);
         _pushRegistrationAck(validationID_B, true);
-        middleware.completeValidatorRegistration(alice, nodeId_B, 0);
+        middleware.completeValidatorRegistration(0);
         vm.stopPrank();
         _calcAndWarpOneEpoch();
         
         vm.startPrank(alice);
         _pushRegistrationAck(validationID_C, true);
-        middleware.completeValidatorRegistration(alice, nodeId_C, 0);
+        middleware.completeValidatorRegistration(0);
         vm.stopPrank();
 
         currentEpoch = _calcAndWarpOneEpoch();
@@ -2396,8 +2385,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
             _pushWeight(validationID, uint64(v.sentNonce), scaled);
         }
-        vm.prank(alice);
-        middleware.completeStakeUpdate(nodeId, 0);
+        middleware.completeStakeUpdate(0);
         
         // NOW the cache should be updated for next epoch
         uint256 confirmedStake = middleware.nodeStakeCache(nextEpoch, validationID);
