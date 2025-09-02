@@ -76,12 +76,13 @@ contract L1Registry is IL1Registry, Ownable {
         address middleware_,
         string calldata metadataURL
     ) external payable notZeroAddress(l1) onlyValidatorManagerOwner(l1) {
-        if (registerFee == 0) {
+        uint256 fee = registerFee;
+        if (fee == 0) {
             if (msg.value > 0) revert L1Registry__UnexpectedEther();
         } else {
-            if (msg.value < registerFee) revert L1Registry__InsufficientFee();
+            if (msg.value < fee) revert L1Registry__InsufficientFee();
 
-            uint256 excess = msg.value - registerFee;
+            uint256 excess = msg.value - fee;
 
             // refund excess first – ensures balance is available
             if (excess > 0) {
@@ -90,8 +91,8 @@ contract L1Registry is IL1Registry, Ownable {
             }
 
             // forward exact fee
-            (bool success, ) = feeCollector.call{value: registerFee}("");
-            if (!success) unclaimedFees += registerFee;
+            (bool success, ) = feeCollector.call{value: fee}("");
+            if (!success) unclaimedFees += fee;
         }
 
         bool registered = l1s.add(l1);
