@@ -127,7 +127,7 @@ contract L1RestakeDelegatorTest is Test {
         );
 
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
-            l1ValidatorManager: address(validatorManagerAddress),
+            balancer: address(validatorManagerAddress),
             operatorRegistry: address(operatorRegistry),
             vaultRegistry: address(vaultFactory),
             operatorL1Optin: address(operatorL1OptInService),

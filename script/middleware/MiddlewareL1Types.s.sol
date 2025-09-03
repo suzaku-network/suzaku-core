@@ -3,7 +3,7 @@ pragma solidity 0.8.25;
 
 struct MiddlewareConfig {
     address middlewareOwnerAddress;
-    address validatorManager;
+    address balancer;
     address operatorRegistry;
     address vaultFactory;
     address operatorL1OptIn;

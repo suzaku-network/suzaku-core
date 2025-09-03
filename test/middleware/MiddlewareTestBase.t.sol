@@ -62,8 +62,12 @@ abstract contract MiddlewareTestBase is Test {
     // Constants
     address constant WARP = 0x0200000000000000000000000000000000000005;
     
-    address internal owner;
-    address internal validatorManagerAddress;
+    address internal owner;  // TODO: Deprecate this
+    address internal protocolOwner;  // Owns factories, registries, collateral
+    address internal l1Owner;  // Owns balancer, middleware, vaultManager, rewards
+    address internal curatorOwner1;  // Owns vault1 and its delegator
+    address internal curatorOwner2;  // Owns vault2 and its delegator
+    address internal curatorOwner3;  // Owns vault3 and its delegator
     address internal alice;
     uint256 internal alicePrivateKey;
     address internal bob;
@@ -111,6 +115,11 @@ abstract contract MiddlewareTestBase is Test {
 
     function setUp() public virtual {
         owner = address(this);
+        protocolOwner = makeAddr("protocolOwner");
+        l1Owner = makeAddr("l1Owner");
+        curatorOwner1 = makeAddr("curatorOwner1");
+        curatorOwner2 = makeAddr("curatorOwner2");
+        curatorOwner3 = makeAddr("curatorOwner3");
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
         (charlie, charliePrivateKey) = makeAddrAndKey("charlie");
@@ -120,14 +129,14 @@ abstract contract MiddlewareTestBase is Test {
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
         feeCollectorAddress = makeAddr("feeCollector");
-        vaultFactory = new VaultFactory(owner);
-        delegatorFactory = new DelegatorFactory(owner);
-        slasherFactory = new SlasherFactory(owner);
+        vaultFactory = new VaultFactory(protocolOwner);
+        delegatorFactory = new DelegatorFactory(protocolOwner);
+        slasherFactory = new SlasherFactory(protocolOwner);
         l1Registry = new L1Registry(
             payable(feeCollectorAddress), // fee collector
             0.01 ether, // initial register fee
             1 ether, // MAX_FEE
-            owner
+            protocolOwner
         );
         operatorRegistry = new OperatorRegistry();
 
@@ -160,9 +169,12 @@ abstract contract MiddlewareTestBase is Test {
             address WARP_MESSENGER_ADDR = WARP;
             vm.etch(WARP_MESSENGER_ADDR, address(messenger).code);
         }
+
         
-        // The "L1 address" the rest of this test suite uses
-        validatorManagerAddress = balancer;
+        // Transfer balancer ownership to l1Owner
+        address currentBalancerOwner = BalancerValidatorManager(balancer).owner();
+        vm.prank(currentBalancerOwner);
+        BalancerValidatorManager(balancer).transferOwnership(l1Owner);
 
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
@@ -178,6 +190,7 @@ abstract contract MiddlewareTestBase is Test {
 
         // Whitelist a vault implementation
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
+        vm.prank(protocolOwner);
         vaultFactory.whitelist(vaultImpl);
 
         // Whitelist L1RestakeDelegator
@@ -191,6 +204,7 @@ abstract contract MiddlewareTestBase is Test {
                 delegatorFactory.totalTypes()
             )
         );
+        vm.prank(protocolOwner);
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
 
         // Create a test collateral token
@@ -207,7 +221,7 @@ abstract contract MiddlewareTestBase is Test {
         uint64 lastVersion = vaultFactory.lastVersion();
         address vaultAddress = vaultFactory.create(
             lastVersion,
-            bob,
+            curatorOwner1,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -216,11 +230,11 @@ abstract contract MiddlewareTestBase is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: bob,
-                    depositWhitelistSetRoleHolder: bob,
-                    depositorWhitelistRoleHolder: bob,
-                    isDepositLimitSetRoleHolder: bob,
-                    depositLimitSetRoleHolder: bob,
+                    defaultAdminRoleHolder: curatorOwner1,
+                    depositWhitelistSetRoleHolder: curatorOwner1,
+                    depositorWhitelistRoleHolder: curatorOwner1,
+                    isDepositLimitSetRoleHolder: curatorOwner1,
+                    depositLimitSetRoleHolder: curatorOwner1,
                     name: "Test",
                     symbol: "TEST"
                 })
@@ -234,7 +248,7 @@ abstract contract MiddlewareTestBase is Test {
         // Deploy vault2 (using same collateral)
         address vault2Address = vaultFactory.create(
             lastVersion,
-            bob,
+            curatorOwner2,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -243,11 +257,11 @@ abstract contract MiddlewareTestBase is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: bob,
-                    depositWhitelistSetRoleHolder: bob,
-                    depositorWhitelistRoleHolder: bob,
-                    isDepositLimitSetRoleHolder: bob,
-                    depositLimitSetRoleHolder: bob,
+                    defaultAdminRoleHolder: curatorOwner2,
+                    depositWhitelistSetRoleHolder: curatorOwner2,
+                    depositorWhitelistRoleHolder: curatorOwner2,
+                    isDepositLimitSetRoleHolder: curatorOwner2,
+                    depositLimitSetRoleHolder: curatorOwner2,
                     name: "Test2",
                     symbol: "TEST2"
                 })
@@ -261,7 +275,7 @@ abstract contract MiddlewareTestBase is Test {
         // Deploy vault3 (using new collateral)
         address vault3Address = vaultFactory.create(
             lastVersion,
-            bob,
+            curatorOwner3,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral2),
@@ -270,11 +284,11 @@ abstract contract MiddlewareTestBase is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: bob,
-                    depositWhitelistSetRoleHolder: bob,
-                    depositorWhitelistRoleHolder: bob,
-                    isDepositLimitSetRoleHolder: bob,
-                    depositLimitSetRoleHolder: bob,
+                    defaultAdminRoleHolder: curatorOwner3,
+                    depositWhitelistSetRoleHolder: curatorOwner3,
+                    depositorWhitelistRoleHolder: curatorOwner3,
+                    isDepositLimitSetRoleHolder: curatorOwner3,
+                    depositLimitSetRoleHolder: curatorOwner3,
                     name: "Test3",
                     symbol: "TEST3"
                 })
@@ -287,9 +301,9 @@ abstract contract MiddlewareTestBase is Test {
 
         // Setup delegator for vault1
         address[] memory l1LimitSetRoleHolders = new address[](1);
-        l1LimitSetRoleHolders[0] = bob;
+        l1LimitSetRoleHolders[0] = curatorOwner1;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
-        operatorL1SharesSetRoleHolders[0] = bob;
+        operatorL1SharesSetRoleHolders[0] = curatorOwner1;
 
         address delegatorAddress = delegatorFactory.create(
             0,
@@ -298,9 +312,9 @@ abstract contract MiddlewareTestBase is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: bob,
+                            defaultAdminRoleHolder: curatorOwner1,
                             hook: address(0),
-                            hookSetRoleHolder: bob
+                            hookSetRoleHolder: curatorOwner1
                         }),
                         l1LimitSetRoleHolders: l1LimitSetRoleHolders,
                         operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
@@ -312,6 +326,11 @@ abstract contract MiddlewareTestBase is Test {
         delegator = L1RestakeDelegator(delegatorAddress);
 
         // Setup delegator for vault2
+        address[] memory l1LimitSetRoleHolders2 = new address[](1);
+        l1LimitSetRoleHolders2[0] = curatorOwner2;
+        address[] memory operatorL1SharesSetRoleHolders2 = new address[](1);
+        operatorL1SharesSetRoleHolders2[0] = curatorOwner2;
+        
         address delegator2Address = delegatorFactory.create(
             0,
             abi.encode(
@@ -319,12 +338,12 @@ abstract contract MiddlewareTestBase is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: bob,
+                            defaultAdminRoleHolder: curatorOwner2,
                             hook: address(0),
-                            hookSetRoleHolder: bob
+                            hookSetRoleHolder: curatorOwner2
                         }),
-                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
-                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders2,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders2
                     })
                 )
             )
@@ -333,6 +352,11 @@ abstract contract MiddlewareTestBase is Test {
         delegator2 = L1RestakeDelegator(delegator2Address);
 
         // Setup delegator for vault3
+        address[] memory l1LimitSetRoleHolders3 = new address[](1);
+        l1LimitSetRoleHolders3[0] = curatorOwner3;
+        address[] memory operatorL1SharesSetRoleHolders3 = new address[](1);
+        operatorL1SharesSetRoleHolders3[0] = curatorOwner3;
+        
         address delegator3Address = delegatorFactory.create(
             0,
             abi.encode(
@@ -340,12 +364,12 @@ abstract contract MiddlewareTestBase is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: bob,
+                            defaultAdminRoleHolder: curatorOwner3,
                             hook: address(0),
-                            hookSetRoleHolder: bob
+                            hookSetRoleHolder: curatorOwner3
                         }),
-                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
-                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders3,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders3
                     })
                 )
             )
@@ -354,20 +378,20 @@ abstract contract MiddlewareTestBase is Test {
         delegator3 = L1RestakeDelegator(delegator3Address);
 
         // Set the delegator in vault1
-        vm.prank(bob);
+        vm.prank(curatorOwner1);
         vault.setDelegator(delegatorAddress);
 
         // Set the delegator in vault2
-        vm.prank(bob);
+        vm.prank(curatorOwner2);
         vault2.setDelegator(delegator2Address);
 
         // Set the delegator in vault3
-        vm.prank(bob);
+        vm.prank(curatorOwner3);
         vault3.setDelegator(delegator3Address);
 
         // Deploy the middleware
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
-            l1ValidatorManager: validatorManagerAddress,
+            balancer: balancer,
             operatorRegistry: address(operatorRegistry),
             vaultRegistry: address(vaultFactory),
             operatorL1Optin: address(operatorL1OptInService),
@@ -378,42 +402,43 @@ abstract contract MiddlewareTestBase is Test {
 
         middleware = new AvalancheL1Middleware(
             middlewareSettings,
-            owner,
+            l1Owner,
             primaryCollateral,
             primaryCollateralMaxStake,
             primaryCollateralMinStake,
             primaryCollateralWeightScaleFactor
         );
 
-        vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware), 24); // 24 epoch delay
+        vaultManager = new MiddlewareVaultManager(address(vaultFactory), l1Owner, address(middleware), 24); // 24 epoch delay
         // middleware.addCollateralClass(2, primaryCollateralMinStake, primaryCollateralMaxStake);
         // middleware.activateSecondaryCollateralClass(0);
 
         // Set the vault manager in the middleware
+        vm.prank(l1Owner);
         middleware.setVaultManager(address(vaultManager));
 
-        middleware.transferOwnership(validatorManagerAddress);
-        vaultManager.transferOwnership(validatorManagerAddress);
+        // Keep middleware and vaultManager owned by the l1Owner
+        // Do NOT transfer ownership to anyone else as per the new architecture
 
         // Setup middleware as a security module on the Balancer
         // Note: The deployment script sets up an initial security module, but we need to add middleware
         {
-            address balOwner = BalancerValidatorManager(balancer).owner();
             uint64 maxWeight = uint64(1_000_000_000); // 1e9 weight cap (>> enough for tests)
-            vm.prank(balOwner);
+            vm.prank(l1Owner);
             BalancerValidatorManager(balancer).setUpSecurityModule(address(middleware), maxWeight);
         }
 
         // The real stack handles ownership during deployment
 
-        // Give validatorManager some ETH to pay the registration fee
-        vm.deal(validatorManagerAddress, 1 ether);
+        // Give l1 owner some ETH to pay the registration fee
+        vm.deal(l1Owner, 1 ether);
 
-        _registerL1(validatorManagerAddress, address(middleware));
+        // Register the balancer as the L1 (not the raw validator manager)
+        _registerL1(balancer, address(middleware));
         collateralClassId = 1;
         maxVaultL1Limit = 3000 ether;
 
-        vm.startPrank(validatorManagerAddress);
+        vm.startPrank(l1Owner);
         vaultManager.registerVault(address(vault), collateralClassId, maxVaultL1Limit);
         vm.stopPrank();
 
@@ -423,9 +448,9 @@ abstract contract MiddlewareTestBase is Test {
         _registerOperator(dave, "dave metadata");
 
         // Opt-in operators for L1
-        _optInOperatorL1(alice, validatorManagerAddress);
-        _optInOperatorL1(charlie, validatorManagerAddress);
-        _optInOperatorL1(dave, validatorManagerAddress);
+        _optInOperatorL1(alice, balancer);
+        _optInOperatorL1(charlie, balancer);
+        _optInOperatorL1(dave, balancer);
 
         // Opt-in operators for vaults
         _optInOperatorVault(alice, address(vault));
@@ -437,14 +462,16 @@ abstract contract MiddlewareTestBase is Test {
         _optInOperatorVault(dave, address(vault3));
 
         // Register operators with middleware
-        vm.startPrank(validatorManagerAddress);
+        vm.startPrank(l1Owner);
         middleware.registerOperator(alice);
         middleware.registerOperator(charlie);
         middleware.registerOperator(dave);
         vm.stopPrank();
 
-        // Grant whitelist deposit role to staker
-        _grantDepositorWhitelistRole(bob, staker);
+        // Grant whitelist deposit role to staker for all vaults
+        _grantDepositorWhitelistRole(curatorOwner1, staker, vault);
+        _grantDepositorWhitelistRole(curatorOwner2, staker, vault2);
+        _grantDepositorWhitelistRole(curatorOwner3, staker, vault3);
 
         uint256 l1Limit = 2500 ether;
 
@@ -456,8 +483,8 @@ abstract contract MiddlewareTestBase is Test {
         (depositedAmount, mintedShares) = vault.deposit(staker, 550_000_000_000_000);
         vm.stopPrank();
 
-        _setL1Limit(bob, validatorManagerAddress, collateralClassId, l1Limit, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, mintedShares, delegator);
+        _setL1Limit(curatorOwner1, balancer, collateralClassId, l1Limit, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, alice, mintedShares, delegator);
 
         // Setup Charlie as operator for both vault1 and vault2
         // First deposit to vault1
@@ -469,7 +496,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Add Charlie's shares from vault1 (existing limit is already set)
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, charlieVault1Shares, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, charlie, charlieVault1Shares, delegator);
 
         // Then deposit to vault2
         uint256 charlieVault2DepositAmount = 220_000_000_000_000;
@@ -480,7 +507,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for Charlie from vault2
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, charlieVault2Shares, delegator2);
+        _setOperatorL1Shares(curatorOwner2, balancer, collateralClassId, charlie, charlieVault2Shares, delegator2);
 
         // Setup Dave as operator for vault2
         uint256 daveVault2DepositAmount = 200_000_000_000_000;
@@ -491,7 +518,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for Dave from vault2
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, dave, daveVault2Shares, delegator2);
+        _setOperatorL1Shares(curatorOwner2, balancer, collateralClassId, dave, daveVault2Shares, delegator2);
 
         // Setup vault3 with new collateral for Alice, Charlie and Dave
         uint256 vault3DepositAmount = 100_000_000_000_000;
@@ -518,9 +545,9 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for all three operators from vault3
-        _setOperatorL1Shares(bob, validatorManagerAddress, 2, alice, aliceVault3MintedShares, delegator3);
-        _setOperatorL1Shares(bob, validatorManagerAddress, 2, charlie, charlieVault3MintedShares, delegator3);
-        _setOperatorL1Shares(bob, validatorManagerAddress, 2, dave, daveVault3MintedShares, delegator3);
+        _setOperatorL1Shares(curatorOwner3, balancer, 2, alice, aliceVault3MintedShares, delegator3);
+        _setOperatorL1Shares(curatorOwner3, balancer, 2, charlie, charlieVault3MintedShares, delegator3);
+        _setOperatorL1Shares(curatorOwner3, balancer, 2, dave, daveVault3MintedShares, delegator3);
 
         // Alice Operator for vault1 has 200_000_000_002_000 deposited
         // Alice Operator for vault3 has 100_000_000_000_000 deposited
@@ -615,16 +642,18 @@ abstract contract MiddlewareTestBase is Test {
     }
 
     function _registerL1(address _l1, address _middleware) internal {
-        // L1Registry expects the call to come from the owner of the validator manager
-        address l1Owner = Ownable(_l1).owner();
-        vm.deal(l1Owner, 1 ether); // Ensure the owner has ETH for registration fee
-        vm.prank(l1Owner);
+        // L1Registry expects the call to come from the owner of the balancer
+        // _l1 should be the balancer address, not the raw validator manager
+        address balancerOwner = Ownable(_l1).owner();
+        vm.deal(balancerOwner, 1 ether); // Ensure the owner has ETH for registration fee
+        vm.prank(balancerOwner);
         l1Registry.registerL1{value: 0.01 ether}(_l1, _middleware, "metadataURL");
     }
 
-    function _grantDepositorWhitelistRole(address user, address account) internal {
+    
+    function _grantDepositorWhitelistRole(address user, address account, VaultTokenized targetVault) internal {
         vm.startPrank(user);
-        VaultTokenized(address(vault)).grantRole(vault.DEPOSITOR_WHITELIST_ROLE(), account);
+        targetVault.grantRole(targetVault.DEPOSITOR_WHITELIST_ROLE(), account);
         vm.stopPrank();
     }
 
@@ -743,7 +772,7 @@ abstract contract MiddlewareTestBase is Test {
     function _syncStakeCache(uint48 epoch) internal {
         uint48 cachedEpoch = middleware.lastGlobalNodeStakeUpdateEpoch();
         if (cachedEpoch < epoch) {
-            vm.prank(validatorManagerAddress);
+            vm.prank(l1Owner);
             middleware.manualProcessNodeStakeCache(epoch - cachedEpoch);
         }
     }
@@ -758,12 +787,25 @@ abstract contract MiddlewareTestBase is Test {
         uint256 l1Limit_,
         L1RestakeDelegator delegator_
     ) internal {
-        vm.startPrank(validatorManagerAddress);
+        vm.startPrank(l1Owner);
         middleware.addCollateralClass(collateralClassId_, minValidatorStake_, 0, address(collateral_));
         middleware.activateSecondaryCollateralClass(collateralClassId_);
         vaultManager.registerVault(address(vault_), collateralClassId_, maxVaultLimit_);
         vm.stopPrank();
-        _setL1Limit(bob, validatorManagerAddress, collateralClassId_, l1Limit_, delegator_);
+        
+        // Determine the correct curator owner based on which delegator is passed
+        address curatorOwner;
+        if (address(delegator_) == address(delegator)) {
+            curatorOwner = curatorOwner1;
+        } else if (address(delegator_) == address(delegator2)) {
+            curatorOwner = curatorOwner2;
+        } else if (address(delegator_) == address(delegator3)) {
+            curatorOwner = curatorOwner3;
+        } else {
+            revert("Unknown delegator");
+        }
+        
+        _setL1Limit(curatorOwner, balancer, collateralClassId_, l1Limit_, delegator_);
     }
 
     function _warpToLastHourOfCurrentEpoch() internal {

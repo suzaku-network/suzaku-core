@@ -653,7 +653,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             if (operatorCollateralClassShare == 0) continue;
 
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                middleware.L1_VALIDATOR_MANAGER(), vaultCollateralClass, operator, epochTs, new bytes(0)
+                middleware.BALANCER(), vaultCollateralClass, operator, epochTs, new bytes(0)
             );
 
             if (vaultStake > 0) {

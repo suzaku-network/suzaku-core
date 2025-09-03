@@ -7,7 +7,7 @@ contract MockAvalancheL1Middleware {
     uint48 public constant EPOCH_DURATION = 4 hours;
     uint48 public constant SLASHING_WINDOW = 5 hours;
     uint48 public constant REMOVAL_DELAY_EPOCHS = 6;
-    address public immutable L1_VALIDATOR_MANAGER;
+    address public immutable BALANCER;
     address public immutable VAULT_MANAGER;
 
     mapping(uint48 => mapping(bytes32 => uint256)) public nodeStake;
@@ -39,7 +39,7 @@ contract MockAvalancheL1Middleware {
         require(operatorCount > 0, "At least one operator required");
         require(operatorCount == nodesPerOperator.length, "Arrays length mismatch");
 
-        L1_VALIDATOR_MANAGER = balancerValidatorManager;
+        BALANCER = balancerValidatorManager;
         VAULT_MANAGER = vaultManager;
 
         // Generate operators

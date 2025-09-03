@@ -42,6 +42,8 @@ contract DeployTestAvalancheL1Middleware is Script {
         address proxyAdminOwnerAddress = vm.addr(proxyAdminOwnerKey);
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
+        // Deploy the ValidatorManager stack (Balancer, SecurityModule, ValidatorManager)
+        // The Balancer will be owned by protocolOwnerAddress
         DeployBalancerValidatorManager deployScript = new DeployBalancerValidatorManager();
         
         (address balancerAddress, address securityModule, address validatorManagerAddress) = deployScript.run(
@@ -60,9 +62,11 @@ contract DeployTestAvalancheL1Middleware is Script {
         OperatorL1OptInService operatorL1OptIn =
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
+        // Deploy the AvalancheL1Middleware with protocolOwnerAddress as owner
+        // The middleware will NOT be transferred to the balancer - it stays owned by EOA
         AvalancheL1Middleware avalancheL1Middleware = new AvalancheL1Middleware(
             AvalancheL1MiddlewareSettings({
-                l1ValidatorManager: balancerAddress,
+                balancer: balancerAddress,
                 operatorRegistry: address(operatorRegistry),
                 vaultRegistry: address(vaultFactory),
                 operatorL1Optin: address(operatorL1OptIn),
@@ -78,7 +82,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         );
 
         MiddlewareVaultManager vaultManager =
-            new MiddlewareVaultManager(address(vaultFactory), validatorManagerAddress, validatorManagerAddress, 24); // 24 epoch delay
+            new MiddlewareVaultManager(address(vaultFactory), protocolOwnerAddress, address(avalancheL1Middleware), 24); // 24 epoch delay
 
         vm.startBroadcast(protocolOwnerKey);
         avalancheL1Middleware.setVaultManager(address(vaultManager));

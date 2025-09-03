@@ -35,10 +35,10 @@ contract L1Registry is IL1Registry, Ownable {
     modifier onlyValidatorManagerOwner(
         address l1
     ) {
-        // Ensure caller owns the validator manager
-        address vmOwner = Ownable(l1).owner();
-        if (vmOwner != msg.sender) {
-            revert L1Registry__NotValidatorManagerOwner(msg.sender, vmOwner);
+        // Ensure caller owns the balancer (which itself owns the validator manager)
+        address balancerOwner = Ownable(l1).owner();
+        if (balancerOwner != msg.sender) {
+            revert L1Registry__NotValidatorManagerOwner(msg.sender, balancerOwner);
         }
         _;
     }
@@ -71,6 +71,10 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     /// @inheritdoc IL1Registry
+    /// @notice Register an L1 (balancer) with its associated middleware and metadata
+    /// @param l1 The balancer address
+    /// @param middleware_ The middleware address for this L1
+    /// @param metadataURL The metadata URL for this L1
     function registerL1(
         address l1,
         address middleware_,
@@ -108,6 +112,9 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     /// @inheritdoc IL1Registry
+    /// @notice Update the middleware for a registered L1
+    /// @param l1 The balancer address (not the raw validator manager)
+    /// @param middleware_ The new middleware address
     function setL1Middleware(
         address l1,
         address middleware_
@@ -118,6 +125,9 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     /// @inheritdoc IL1Registry
+    /// @notice Update the metadata URL for a registered L1
+    /// @param l1 The balancer address (not the raw validator manager)
+    /// @param metadataURL The new metadata URL
     function setMetadataURL(
         address l1,
         string calldata metadataURL

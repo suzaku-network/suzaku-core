@@ -47,7 +47,7 @@ contract UptimeTracker is IUptimeTracker {
     ) {
         middleware = AvalancheL1Middleware(middleware_);
         epochDuration = middleware.EPOCH_DURATION();
-        validatorManager = BalancerValidatorManager(middleware.L1_VALIDATOR_MANAGER());
+        validatorManager = BalancerValidatorManager(middleware.BALANCER());
         uptimeBlockchainID = uptimeBlockchainID_;
     }
 

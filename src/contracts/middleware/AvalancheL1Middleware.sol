@@ -28,7 +28,7 @@ import {StakeConversion} from "./libraries/StakeConversion.sol";
 import {BaseDelegator} from "../../contracts/delegator/BaseDelegator.sol";
 
 struct AvalancheL1MiddlewareSettings {
-    address l1ValidatorManager;
+    address balancer;
     address operatorRegistry;
     address vaultRegistry;
     address operatorL1Optin;
@@ -48,7 +48,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     using EnumerableMap for EnumerableMap.Bytes32ToUintMap;
     using EnumerableSet for EnumerableSet.Bytes32Set;
 
-    address public immutable L1_VALIDATOR_MANAGER;
+    address public immutable BALANCER;
     address public immutable OPERATOR_REGISTRY;
     address public immutable OPERATOR_L1_OPTIN;
     address public immutable PRIMARY_ASSET;
@@ -106,7 +106,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint256 primaryCollateralMinStake,
         uint256 primaryCollateralWeightScaleFactor
     ) CollateralClassRegistry(owner) {
-        if (settings.l1ValidatorManager == address(0)) {
+        if (settings.balancer == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress();
         }
         if (settings.operatorRegistry == address(0)) {
@@ -154,7 +154,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
         START_TIME = Time.timestamp();
         EPOCH_DURATION = settings.epochDuration;
-        L1_VALIDATOR_MANAGER = settings.l1ValidatorManager;
+        BALANCER = settings.balancer;
         OPERATOR_REGISTRY = settings.operatorRegistry;
         OPERATOR_L1_OPTIN = settings.operatorL1Optin;
         SLASHING_WINDOW = settings.slashingWindow;
@@ -162,7 +162,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         UPDATE_WINDOW = settings.stakeUpdateWindow;
         WEIGHT_SCALE_FACTOR = primaryCollateralWeightScaleFactor;
 
-        balancerValidatorManager = IBalancerValidatorManager(settings.l1ValidatorManager);
+        balancerValidatorManager = IBalancerValidatorManager(settings.balancer);
         _addCollateralClass(PRIMARY_ASSET_CLASS, primaryCollateralMinStake, primaryCollateralMaxStake, PRIMARY_ASSET);
     }
 
@@ -308,8 +308,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         if (!IOperatorRegistry(OPERATOR_REGISTRY).isRegistered(operator)) {
             revert AvalancheL1Middleware__OperatorNotRegistered(operator);
         }
-        if (!IOptInService(OPERATOR_L1_OPTIN).isOptedIn(operator, L1_VALIDATOR_MANAGER)) {
-            revert AvalancheL1Middleware__OperatorNotOptedIn(operator, L1_VALIDATOR_MANAGER);
+        if (!IOptInService(OPERATOR_L1_OPTIN).isOptedIn(operator, BALANCER)) {
+            revert AvalancheL1Middleware__OperatorNotOptedIn(operator, BALANCER);
         }
 
         operators.add(operator);
@@ -1066,7 +1066,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             }
 
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                L1_VALIDATOR_MANAGER, collateralClassId, operator, epochStartTs, new bytes(0)
+                BALANCER, collateralClassId, operator, epochStartTs, new bytes(0)
             );
 
             address collateral = IVaultTokenized(vault).collateral();
