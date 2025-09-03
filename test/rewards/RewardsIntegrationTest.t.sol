@@ -115,9 +115,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint96[] memory ids = middleware.getCollateralClassIds();
         for (uint256 i = 0; i < ids.length; ++i) {
             if (ids[i] != 1) {                         // 1 = primary, already done above
-                vm.startPrank(balancer);
                 try middleware.calcAndCacheStakes(epoch, ids[i]) {} catch {}
-                vm.stopPrank();
             }
         }
 
@@ -1028,10 +1026,8 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint96 newCollateralClass = 4;
         
         // Note: In real integration test, we need to add the asset class properly through middleware
-        vm.startPrank(balancer);
         // We would need to add asset class through proper middleware methods
         // For now, we'll just adjust the rewards share
-        vm.stopPrank();
         
         // Re‑balance so that the overall sum stays 100 %
         vm.startPrank(rewardsManager);
@@ -1139,7 +1135,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint256 remainingOperators = operators.length;
         _warpToEpoch(epoch + 3);
         _syncStakeCache(epoch + 3);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         while (remainingOperators > 0) {
             vm.prank(rewardsDistributor);
@@ -1222,7 +1217,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // Earliest legal distribution moment is epoch + DISTRIBUTION_EARLIEST_OFFSET
         _warpToEpoch(epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
         _syncStakeCache(epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(epoch, 10);
@@ -1240,7 +1234,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // Try to distribute before DISTRIBUTION_EARLIEST_OFFSET
         _warpToEpoch(epoch + 1);
         _syncStakeCache(epoch + 1);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         vm.expectRevert(
@@ -1257,7 +1250,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         _warpToEpoch(epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
         _syncStakeCache(epoch + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
 
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         vm.expectRevert(abi.encodeWithSelector(IRewards.EpochNotFunded.selector, epoch));
@@ -1277,7 +1269,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         _syncStakeCache(1 + rewards.FUNDING_DEADLINE_OFFSET() + 3);
 
         // Sequential requirement: distribute epoch 1 first, then epoch 2
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(1, 10);
@@ -1320,7 +1311,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         
         _warpToEpoch(1 + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
         _syncStakeCache(1 + rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(1, 10);
@@ -1440,7 +1430,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // Close funding window and distribute epoch 1 completely
         _warpToEpoch(1 + rewards.FUNDING_DEADLINE_OFFSET() + 3);
         _syncStakeCache(1 + rewards.FUNDING_DEADLINE_OFFSET() + 3);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(1, 10);
@@ -1611,7 +1600,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         _syncStakeCache(epoch + offset);
 
         // Off‑by‑one fixed: call should now succeed.
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(epoch, 10);
@@ -1699,7 +1687,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         _moveToNextEpochAndCalc(1);
         
         // refresh caches to reflect stake = 0
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         // fund & distribute the epoch
@@ -1749,7 +1736,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         
         // after you zero-stake, move one epoch forward so the removal is effective
         _moveToNextEpochAndCalc(1);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         /* ── 1. fund & finish epoch-1 ─────────────────────────────────────────── */
@@ -1820,7 +1806,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         
         // after you zero-stake, move one epoch forward so the removal is effective
         _moveToNextEpochAndCalc(1);
-        vm.prank(balancer);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         /* ── 1. fund & finish epoch-1 ─────────────────────────────────────────── */
