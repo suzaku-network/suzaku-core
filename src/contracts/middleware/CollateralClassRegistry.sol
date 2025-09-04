@@ -4,6 +4,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import {ICollateralClassRegistry} from "../../interfaces/middleware/ICollateralClassRegistry.sol";
 
@@ -15,6 +16,7 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
         EnumerableSet.AddressSet assets;
         uint256 minValidatorStake;
         uint256 maxValidatorStake;
+        uint8   unitDecimals;
     }
 
     EnumerableSet.UintSet internal collateralClassIds;
@@ -100,6 +102,7 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
         CollateralClass storage cls = collateralClasses[collateralClassId];
         cls.minValidatorStake = minValidatorStake;
         cls.maxValidatorStake = maxValidatorStake;
+        cls.unitDecimals = IERC20Metadata(initialAsset).decimals();
 
         emit CollateralClassAdded(collateralClassId, minValidatorStake, maxValidatorStake);
 

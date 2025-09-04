@@ -1049,6 +1049,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         uint256 totalVaults = vaultManager.getVaultCount();
+        // use the class' canonical unit (decimals) for normalization
+        uint8 classDec = collateralClasses[collateralClassId].unitDecimals;
 
         for (uint256 i; i < totalVaults;) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaultManager.getVaultAtWithTimes(i);
@@ -1072,10 +1074,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             address collateral = IVaultTokenized(vault).collateral();
             uint8 dec = IERC20Metadata(collateral).decimals();
 
-            if (dec < 18) {
-                vaultStake *= 10 ** uint256(18 - dec);
-            } else if (dec > 18) {
-                vaultStake /= 10 ** uint256(dec - 18);
+            // normalize per-vault stake into the class unit
+            if (dec < classDec) {
+                vaultStake *= 10 ** uint256(classDec - dec);
+            } else if (dec > classDec) {
+                vaultStake /= 10 ** uint256(dec - classDec);
             }
 
             stake += vaultStake;

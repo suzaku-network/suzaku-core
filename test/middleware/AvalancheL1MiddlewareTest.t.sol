@@ -2543,7 +2543,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint256 stakeA = 10000 * 10**6; // 10,000 TokenA (6 decimals)
         uint256 stakeB = 10 * 10**18; // 10 TokenB (18 decimals)
 
-        uint256 normalised = stakeA * 10**12 + stakeB; 
+        // class canonical unit is 6 decimals (initial asset is 6d), so normalize 18d -> 6d
+        uint256 normalised = stakeA + stakeB / 10**12; 
 
         tokenA1.transfer(staker, stakeA);
         vm.startPrank(staker);
