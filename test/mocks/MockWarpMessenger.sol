@@ -5,7 +5,7 @@ import {
     IWarpMessenger,
     WarpMessage,
     WarpBlockHash
-} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
+} from "../../lib/suzaku-contracts-library/lib/icm-contracts/lib/subnet-evm/contracts/contracts/interfaces/IWarpMessenger.sol";
 
 /// @dev A "mail-slot" messenger: the last message you push is the one the
 ///      contract-under-test will fetch.  The caller always passes index 0.

@@ -35,10 +35,10 @@ contract L1Registry is IL1Registry, Ownable {
     modifier onlyValidatorManagerOwner(
         address l1
     ) {
-        // Ensure caller owns the validator manager
-        address vmOwner = Ownable(l1).owner();
-        if (vmOwner != msg.sender) {
-            revert L1Registry__NotValidatorManagerOwner(msg.sender, vmOwner);
+        // Ensure caller owns the balancer (which itself owns the validator manager)
+        address balancerOwner = Ownable(l1).owner();
+        if (balancerOwner != msg.sender) {
+            revert L1Registry__NotValidatorManagerOwner(msg.sender, balancerOwner);
         }
         _;
     }
@@ -71,17 +71,22 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     /// @inheritdoc IL1Registry
+    /// @notice Register an L1 (balancer) with its associated middleware and metadata
+    /// @param l1 The balancer address
+    /// @param middleware_ The middleware address for this L1
+    /// @param metadataURL The metadata URL for this L1
     function registerL1(
         address l1,
         address middleware_,
         string calldata metadataURL
     ) external payable notZeroAddress(l1) onlyValidatorManagerOwner(l1) {
-        if (registerFee == 0) {
+        uint256 fee = registerFee;
+        if (fee == 0) {
             if (msg.value > 0) revert L1Registry__UnexpectedEther();
         } else {
-            if (msg.value < registerFee) revert L1Registry__InsufficientFee();
+            if (msg.value < fee) revert L1Registry__InsufficientFee();
 
-            uint256 excess = msg.value - registerFee;
+            uint256 excess = msg.value - fee;
 
             // refund excess first – ensures balance is available
             if (excess > 0) {
@@ -90,8 +95,8 @@ contract L1Registry is IL1Registry, Ownable {
             }
 
             // forward exact fee
-            (bool success, ) = feeCollector.call{value: registerFee}("");
-            if (!success) unclaimedFees += registerFee;
+            (bool success, ) = feeCollector.call{value: fee}("");
+            if (!success) unclaimedFees += fee;
         }
 
         bool registered = l1s.add(l1);
@@ -107,6 +112,9 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     /// @inheritdoc IL1Registry
+    /// @notice Update the middleware for a registered L1
+    /// @param l1 The balancer address (not the raw validator manager)
+    /// @param middleware_ The new middleware address
     function setL1Middleware(
         address l1,
         address middleware_
@@ -117,6 +125,9 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     /// @inheritdoc IL1Registry
+    /// @notice Update the metadata URL for a registered L1
+    /// @param l1 The balancer address (not the raw validator manager)
+    /// @param metadataURL The new metadata URL
     function setMetadataURL(
         address l1,
         string calldata metadataURL
@@ -141,12 +152,12 @@ contract L1Registry is IL1Registry, Ownable {
             return false;
         }
 
-        address middleware = middleware[l1];
-        if (middleware == address(0)) {
+        address _middleware = middleware[l1];
+        if (_middleware == address(0)) {
             return false;
         }
 
-        address actualVaultManager = IAvalancheL1Middleware(middleware).getVaultManager();
+        address actualVaultManager = IAvalancheL1Middleware(_middleware).getVaultManager();
 
         if (actualVaultManager != vaultManager_) {
             revert L1Registry__InvalidL1Middleware();

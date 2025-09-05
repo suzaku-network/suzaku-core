@@ -134,18 +134,18 @@ contract RewardsAssetShareTest is Test {
         // Set vault delegation: 300 tokens staked to Operator A
         uint256 epochTs = middleware.getEpochStartTs(epoch);
         MockDelegator(delegator1).setStake(
-            middleware.L1_VALIDATOR_MANAGER(),
+            middleware.BALANCER(),
             1, // asset class
             OPERATOR_A,
             uint48(epochTs),
             300 // stake amount
         );
-        MockDelegator(delegator1).setStake(middleware.L1_VALIDATOR_MANAGER(), 1, OPERATOR_B, uint48(epochTs), 700);
+        MockDelegator(delegator1).setStake(middleware.BALANCER(), 1, OPERATOR_B, uint48(epochTs), 700);
         MockDelegator(delegator2).setStake(
-            middleware.L1_VALIDATOR_MANAGER(), 2, OPERATOR_B, uint48(epochTs), 100
+            middleware.BALANCER(), 2, OPERATOR_B, uint48(epochTs), 100
         );
         MockDelegator(delegator3).setStake(
-            middleware.L1_VALIDATOR_MANAGER(), 3, OPERATOR_B, uint48(epochTs), 100
+            middleware.BALANCER(), 3, OPERATOR_B, uint48(epochTs), 100
         );
 
         // Set rewards for the epoch: 100,000 tokens
@@ -216,7 +216,7 @@ contract RewardsAssetShareTest is Test {
         (address vault, address delegator) = vaultManager.deployAndAddVault(address(0x123), address(0x500));
         vaultManager.setVaultCollateralClass(vault, 1);
         uint256 epochTs = middleware.getEpochStartTs(epoch);
-        MockDelegator(delegator).setStake(middleware.L1_VALIDATOR_MANAGER(), 1, OPERATOR_A, uint48(epochTs), 100);
+        MockDelegator(delegator).setStake(middleware.BALANCER(), 1, OPERATOR_A, uint48(epochTs), 100);
 
         // Set rewards for the epoch
         vm.prank(REWARDS_DISTRIBUTOR);

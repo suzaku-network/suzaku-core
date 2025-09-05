@@ -4,11 +4,13 @@
 pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
+import {ValidatorManager, ValidatorManagerSettings} from "@avalabs/icm-contracts/validator-manager/ValidatorManager.sol";
+import {PoAManager} from "@avalabs/icm-contracts/validator-manager/PoAManager.sol";
+import {IValidatorManagerExternalOwnable} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManagerExternalOwnable.sol";
 import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
-import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
+import {ICMInitializable} from "@avalabs/icm-contracts/utilities/ICMInitializable.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 import {
@@ -27,7 +29,8 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {MiddlewareHelperConfig} from "../../script/middleware/anvil/MiddlewareHelperConfig.s.sol";
-import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
+import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
+import {DeployBalancerValidatorManager} from "lib/suzaku-contracts-library/script/ValidatorManager/DeployBalancerValidatorManager.s.sol";
 
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
@@ -39,9 +42,10 @@ import {
     InitialValidator,
     PChainOwner,
     Validator,
-    ValidatorRegistrationInput,
     ValidatorStatus
-} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
+import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
+import {IWarpMessenger, WarpMessage} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
 
 import {Token} from "../mocks/MockToken.sol";
 import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
@@ -55,8 +59,15 @@ import {StakeConversion} from "../../src/contracts/middleware/libraries/StakeCon
 import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
 
 abstract contract MiddlewareTestBase is Test {
-    address internal owner;
-    address internal validatorManagerAddress;
+    // Constants
+    address constant WARP = 0x0200000000000000000000000000000000000005;
+    
+    address internal owner;  // TODO: Deprecate this
+    address internal protocolOwner;  // Owns factories, registries, collateral
+    address internal l1Owner;  // Owns balancer, middleware, vaultManager, rewards
+    address internal curatorOwner1;  // Owns vault1 and its delegator
+    address internal curatorOwner2;  // Owns vault2 and its delegator
+    address internal curatorOwner3;  // Owns vault3 and its delegator
     address internal alice;
     uint256 internal alicePrivateKey;
     address internal bob;
@@ -95,10 +106,20 @@ abstract contract MiddlewareTestBase is Test {
     MiddlewareVaultManager internal vaultManager;
     Token internal collateral;
     Token internal collateral2; // New collateral token
-    MockBalancerValidatorManager internal mockValidatorManager;
+    // Real ValidatorManager stack addresses
+    address internal balancer;      // BalancerValidatorManager proxy
+    address internal validatorManager;  // ValidatorManager proxy  
+    address internal secModule;     // PoASecurityModule
+    
+
 
     function setUp() public virtual {
         owner = address(this);
+        protocolOwner = makeAddr("protocolOwner");
+        l1Owner = makeAddr("l1Owner");
+        curatorOwner1 = makeAddr("curatorOwner1");
+        curatorOwner2 = makeAddr("curatorOwner2");
+        curatorOwner3 = makeAddr("curatorOwner3");
         (alice, alicePrivateKey) = makeAddrAndKey("alice");
         (bob, bobPrivateKey) = makeAddrAndKey("bob");
         (charlie, charliePrivateKey) = makeAddrAndKey("charlie");
@@ -108,14 +129,14 @@ abstract contract MiddlewareTestBase is Test {
         tokenA = makeAddr("tokenA");
         tokenB = makeAddr("tokenB");
         feeCollectorAddress = makeAddr("feeCollector");
-        vaultFactory = new VaultFactory(owner);
-        delegatorFactory = new DelegatorFactory(owner);
-        slasherFactory = new SlasherFactory(owner);
+        vaultFactory = new VaultFactory(protocolOwner);
+        delegatorFactory = new DelegatorFactory(protocolOwner);
+        slasherFactory = new SlasherFactory(protocolOwner);
         l1Registry = new L1Registry(
             payable(feeCollectorAddress), // fee collector
             0.01 ether, // initial register fee
             1 ether, // MAX_FEE
-            owner
+            protocolOwner
         );
         operatorRegistry = new OperatorRegistry();
 
@@ -132,8 +153,28 @@ abstract contract MiddlewareTestBase is Test {
             uint256 primaryCollateralWeightScaleFactor
         ) = helperConfig.activeNetworkConfig();
 
-        mockValidatorManager = new MockBalancerValidatorManager(owner);
-        validatorManagerAddress = address(mockValidatorManager);
+        // Deploy real ValidatorManager + Balancer + SecurityModule
+        DeployBalancerValidatorManager deployScript = new DeployBalancerValidatorManager();
+        // Balancer requires at least one migrated validator – use two known 20-byte NodeIDs
+        bytes[] memory migrated = new bytes[](2);
+        migrated[0] = hex"2345678123456781234567812345678123456781";
+        migrated[1] = hex"3456781234567812345678123456781234567812";
+        (balancer, secModule, validatorManager) = 
+            deployScript.run(address(0), /* initialSecModMaxWeight */ uint64(18 ether), migrated);
+
+        // AFTER deploy script finishes (it installs its own test messenger internally),
+        // override the canonical warp messenger with our push-style test messenger:
+        {
+            MockWarpMessenger messenger = new MockWarpMessenger();
+            address WARP_MESSENGER_ADDR = WARP;
+            vm.etch(WARP_MESSENGER_ADDR, address(messenger).code);
+        }
+
+        
+        // Transfer balancer ownership to l1Owner
+        address currentBalancerOwner = BalancerValidatorManager(balancer).owner();
+        vm.prank(currentBalancerOwner);
+        BalancerValidatorManager(balancer).transferOwnership(l1Owner);
 
         operatorVaultOptInService = new OperatorVaultOptInService(
             address(operatorRegistry), // whoRegistry
@@ -149,6 +190,7 @@ abstract contract MiddlewareTestBase is Test {
 
         // Whitelist a vault implementation
         address vaultImpl = address(new VaultTokenized(address(vaultFactory)));
+        vm.prank(protocolOwner);
         vaultFactory.whitelist(vaultImpl);
 
         // Whitelist L1RestakeDelegator
@@ -162,6 +204,7 @@ abstract contract MiddlewareTestBase is Test {
                 delegatorFactory.totalTypes()
             )
         );
+        vm.prank(protocolOwner);
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
 
         // Create a test collateral token
@@ -178,7 +221,7 @@ abstract contract MiddlewareTestBase is Test {
         uint64 lastVersion = vaultFactory.lastVersion();
         address vaultAddress = vaultFactory.create(
             lastVersion,
-            bob,
+            curatorOwner1,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -187,11 +230,11 @@ abstract contract MiddlewareTestBase is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: bob,
-                    depositWhitelistSetRoleHolder: bob,
-                    depositorWhitelistRoleHolder: bob,
-                    isDepositLimitSetRoleHolder: bob,
-                    depositLimitSetRoleHolder: bob,
+                    defaultAdminRoleHolder: curatorOwner1,
+                    depositWhitelistSetRoleHolder: curatorOwner1,
+                    depositorWhitelistRoleHolder: curatorOwner1,
+                    isDepositLimitSetRoleHolder: curatorOwner1,
+                    depositLimitSetRoleHolder: curatorOwner1,
                     name: "Test",
                     symbol: "TEST"
                 })
@@ -205,7 +248,7 @@ abstract contract MiddlewareTestBase is Test {
         // Deploy vault2 (using same collateral)
         address vault2Address = vaultFactory.create(
             lastVersion,
-            bob,
+            curatorOwner2,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral),
@@ -214,11 +257,11 @@ abstract contract MiddlewareTestBase is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: bob,
-                    depositWhitelistSetRoleHolder: bob,
-                    depositorWhitelistRoleHolder: bob,
-                    isDepositLimitSetRoleHolder: bob,
-                    depositLimitSetRoleHolder: bob,
+                    defaultAdminRoleHolder: curatorOwner2,
+                    depositWhitelistSetRoleHolder: curatorOwner2,
+                    depositorWhitelistRoleHolder: curatorOwner2,
+                    isDepositLimitSetRoleHolder: curatorOwner2,
+                    depositLimitSetRoleHolder: curatorOwner2,
                     name: "Test2",
                     symbol: "TEST2"
                 })
@@ -232,7 +275,7 @@ abstract contract MiddlewareTestBase is Test {
         // Deploy vault3 (using new collateral)
         address vault3Address = vaultFactory.create(
             lastVersion,
-            bob,
+            curatorOwner3,
             abi.encode(
                 IVaultTokenized.InitParams({
                     collateral: address(collateral2),
@@ -241,11 +284,11 @@ abstract contract MiddlewareTestBase is Test {
                     depositWhitelist: false,
                     isDepositLimit: false,
                     depositLimit: 0,
-                    defaultAdminRoleHolder: bob,
-                    depositWhitelistSetRoleHolder: bob,
-                    depositorWhitelistRoleHolder: bob,
-                    isDepositLimitSetRoleHolder: bob,
-                    depositLimitSetRoleHolder: bob,
+                    defaultAdminRoleHolder: curatorOwner3,
+                    depositWhitelistSetRoleHolder: curatorOwner3,
+                    depositorWhitelistRoleHolder: curatorOwner3,
+                    isDepositLimitSetRoleHolder: curatorOwner3,
+                    depositLimitSetRoleHolder: curatorOwner3,
                     name: "Test3",
                     symbol: "TEST3"
                 })
@@ -258,9 +301,9 @@ abstract contract MiddlewareTestBase is Test {
 
         // Setup delegator for vault1
         address[] memory l1LimitSetRoleHolders = new address[](1);
-        l1LimitSetRoleHolders[0] = bob;
+        l1LimitSetRoleHolders[0] = curatorOwner1;
         address[] memory operatorL1SharesSetRoleHolders = new address[](1);
-        operatorL1SharesSetRoleHolders[0] = bob;
+        operatorL1SharesSetRoleHolders[0] = curatorOwner1;
 
         address delegatorAddress = delegatorFactory.create(
             0,
@@ -269,9 +312,9 @@ abstract contract MiddlewareTestBase is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: bob,
+                            defaultAdminRoleHolder: curatorOwner1,
                             hook: address(0),
-                            hookSetRoleHolder: bob
+                            hookSetRoleHolder: curatorOwner1
                         }),
                         l1LimitSetRoleHolders: l1LimitSetRoleHolders,
                         operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
@@ -283,6 +326,11 @@ abstract contract MiddlewareTestBase is Test {
         delegator = L1RestakeDelegator(delegatorAddress);
 
         // Setup delegator for vault2
+        address[] memory l1LimitSetRoleHolders2 = new address[](1);
+        l1LimitSetRoleHolders2[0] = curatorOwner2;
+        address[] memory operatorL1SharesSetRoleHolders2 = new address[](1);
+        operatorL1SharesSetRoleHolders2[0] = curatorOwner2;
+        
         address delegator2Address = delegatorFactory.create(
             0,
             abi.encode(
@@ -290,12 +338,12 @@ abstract contract MiddlewareTestBase is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: bob,
+                            defaultAdminRoleHolder: curatorOwner2,
                             hook: address(0),
-                            hookSetRoleHolder: bob
+                            hookSetRoleHolder: curatorOwner2
                         }),
-                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
-                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders2,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders2
                     })
                 )
             )
@@ -304,6 +352,11 @@ abstract contract MiddlewareTestBase is Test {
         delegator2 = L1RestakeDelegator(delegator2Address);
 
         // Setup delegator for vault3
+        address[] memory l1LimitSetRoleHolders3 = new address[](1);
+        l1LimitSetRoleHolders3[0] = curatorOwner3;
+        address[] memory operatorL1SharesSetRoleHolders3 = new address[](1);
+        operatorL1SharesSetRoleHolders3[0] = curatorOwner3;
+        
         address delegator3Address = delegatorFactory.create(
             0,
             abi.encode(
@@ -311,12 +364,12 @@ abstract contract MiddlewareTestBase is Test {
                 abi.encode(
                     IL1RestakeDelegator.InitParams({
                         baseParams: IBaseDelegator.BaseParams({
-                            defaultAdminRoleHolder: bob,
+                            defaultAdminRoleHolder: curatorOwner3,
                             hook: address(0),
-                            hookSetRoleHolder: bob
+                            hookSetRoleHolder: curatorOwner3
                         }),
-                        l1LimitSetRoleHolders: l1LimitSetRoleHolders,
-                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                        l1LimitSetRoleHolders: l1LimitSetRoleHolders3,
+                        operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders3
                     })
                 )
             )
@@ -325,20 +378,20 @@ abstract contract MiddlewareTestBase is Test {
         delegator3 = L1RestakeDelegator(delegator3Address);
 
         // Set the delegator in vault1
-        vm.prank(bob);
+        vm.prank(curatorOwner1);
         vault.setDelegator(delegatorAddress);
 
         // Set the delegator in vault2
-        vm.prank(bob);
+        vm.prank(curatorOwner2);
         vault2.setDelegator(delegator2Address);
 
         // Set the delegator in vault3
-        vm.prank(bob);
+        vm.prank(curatorOwner3);
         vault3.setDelegator(delegator3Address);
 
         // Deploy the middleware
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
-            l1ValidatorManager: validatorManagerAddress,
+            balancer: balancer,
             operatorRegistry: address(operatorRegistry),
             vaultRegistry: address(vaultFactory),
             operatorL1Optin: address(operatorL1OptInService),
@@ -349,38 +402,43 @@ abstract contract MiddlewareTestBase is Test {
 
         middleware = new AvalancheL1Middleware(
             middlewareSettings,
-            owner,
+            l1Owner,
             primaryCollateral,
             primaryCollateralMaxStake,
             primaryCollateralMinStake,
             primaryCollateralWeightScaleFactor
         );
 
-        vaultManager = new MiddlewareVaultManager(address(vaultFactory), owner, address(middleware), 24); // 24 epoch delay
+        vaultManager = new MiddlewareVaultManager(address(vaultFactory), l1Owner, address(middleware), 24); // 24 epoch delay
         // middleware.addCollateralClass(2, primaryCollateralMinStake, primaryCollateralMaxStake);
         // middleware.activateSecondaryCollateralClass(0);
 
         // Set the vault manager in the middleware
+        vm.prank(l1Owner);
         middleware.setVaultManager(address(vaultManager));
 
-        middleware.transferOwnership(validatorManagerAddress);
-        vaultManager.transferOwnership(validatorManagerAddress);
+        // Keep middleware and vaultManager owned by the l1Owner
+        // Do NOT transfer ownership to anyone else as per the new architecture
 
-        // middleware = new AvalancheL1Middleware();
-        uint64 maxWeight = 18 ether;
-        mockValidatorManager.setupSecurityModule(address(middleware), maxWeight);
+        // Setup middleware as a security module on the Balancer
+        // Note: The deployment script sets up an initial security module, but we need to add middleware
+        {
+            uint64 maxWeight = uint64(1_000_000_000); // 1e9 weight cap (>> enough for tests)
+            vm.prank(l1Owner);
+            BalancerValidatorManager(balancer).setUpSecurityModule(address(middleware), maxWeight);
+        }
 
-        // Maybe not recomended, but passing the ownership to itself
-        mockValidatorManager.transferOwnership(validatorManagerAddress);
+        // The real stack handles ownership during deployment
 
-        // Give validatorManager some ETH to pay the registration fee
-        vm.deal(validatorManagerAddress, 1 ether);
+        // Give l1 owner some ETH to pay the registration fee
+        vm.deal(l1Owner, 1 ether);
 
-        _registerL1(validatorManagerAddress, address(middleware));
+        // Register the balancer as the L1 (not the raw validator manager)
+        _registerL1(balancer, address(middleware));
         collateralClassId = 1;
         maxVaultL1Limit = 3000 ether;
 
-        vm.startPrank(validatorManagerAddress);
+        vm.startPrank(l1Owner);
         vaultManager.registerVault(address(vault), collateralClassId, maxVaultL1Limit);
         vm.stopPrank();
 
@@ -390,9 +448,9 @@ abstract contract MiddlewareTestBase is Test {
         _registerOperator(dave, "dave metadata");
 
         // Opt-in operators for L1
-        _optInOperatorL1(alice, validatorManagerAddress);
-        _optInOperatorL1(charlie, validatorManagerAddress);
-        _optInOperatorL1(dave, validatorManagerAddress);
+        _optInOperatorL1(alice, balancer);
+        _optInOperatorL1(charlie, balancer);
+        _optInOperatorL1(dave, balancer);
 
         // Opt-in operators for vaults
         _optInOperatorVault(alice, address(vault));
@@ -404,14 +462,16 @@ abstract contract MiddlewareTestBase is Test {
         _optInOperatorVault(dave, address(vault3));
 
         // Register operators with middleware
-        vm.startPrank(validatorManagerAddress);
+        vm.startPrank(l1Owner);
         middleware.registerOperator(alice);
         middleware.registerOperator(charlie);
         middleware.registerOperator(dave);
         vm.stopPrank();
 
-        // Grant whitelist deposit role to staker
-        _grantDepositorWhitelistRole(bob, staker);
+        // Grant whitelist deposit role to staker for all vaults
+        _grantDepositorWhitelistRole(curatorOwner1, staker, vault);
+        _grantDepositorWhitelistRole(curatorOwner2, staker, vault2);
+        _grantDepositorWhitelistRole(curatorOwner3, staker, vault3);
 
         uint256 l1Limit = 2500 ether;
 
@@ -423,8 +483,8 @@ abstract contract MiddlewareTestBase is Test {
         (depositedAmount, mintedShares) = vault.deposit(staker, 550_000_000_000_000);
         vm.stopPrank();
 
-        _setL1Limit(bob, validatorManagerAddress, collateralClassId, l1Limit, delegator);
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, alice, mintedShares, delegator);
+        _setL1Limit(curatorOwner1, balancer, collateralClassId, l1Limit, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, alice, mintedShares, delegator);
 
         // Setup Charlie as operator for both vault1 and vault2
         // First deposit to vault1
@@ -436,7 +496,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Add Charlie's shares from vault1 (existing limit is already set)
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, charlieVault1Shares, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, charlie, charlieVault1Shares, delegator);
 
         // Then deposit to vault2
         uint256 charlieVault2DepositAmount = 220_000_000_000_000;
@@ -447,7 +507,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for Charlie from vault2
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, charlie, charlieVault2Shares, delegator2);
+        _setOperatorL1Shares(curatorOwner2, balancer, collateralClassId, charlie, charlieVault2Shares, delegator2);
 
         // Setup Dave as operator for vault2
         uint256 daveVault2DepositAmount = 200_000_000_000_000;
@@ -458,7 +518,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for Dave from vault2
-        _setOperatorL1Shares(bob, validatorManagerAddress, collateralClassId, dave, daveVault2Shares, delegator2);
+        _setOperatorL1Shares(curatorOwner2, balancer, collateralClassId, dave, daveVault2Shares, delegator2);
 
         // Setup vault3 with new collateral for Alice, Charlie and Dave
         uint256 vault3DepositAmount = 100_000_000_000_000;
@@ -485,9 +545,9 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
 
         // Set L1 shares for all three operators from vault3
-        _setOperatorL1Shares(bob, validatorManagerAddress, 2, alice, aliceVault3MintedShares, delegator3);
-        _setOperatorL1Shares(bob, validatorManagerAddress, 2, charlie, charlieVault3MintedShares, delegator3);
-        _setOperatorL1Shares(bob, validatorManagerAddress, 2, dave, daveVault3MintedShares, delegator3);
+        _setOperatorL1Shares(curatorOwner3, balancer, 2, alice, aliceVault3MintedShares, delegator3);
+        _setOperatorL1Shares(curatorOwner3, balancer, 2, charlie, charlieVault3MintedShares, delegator3);
+        _setOperatorL1Shares(curatorOwner3, balancer, 2, dave, daveVault3MintedShares, delegator3);
 
         // Alice Operator for vault1 has 200_000_000_002_000 deposited
         // Alice Operator for vault3 has 100_000_000_000_000 deposited
@@ -499,9 +559,81 @@ abstract contract MiddlewareTestBase is Test {
     }
 
     
+    /* ---------------------------- tiny helpers ---------------------------- */
+    function _nodeBytes(bytes32 nodeId) internal pure returns (bytes memory) {
+        return abi.encodePacked(uint160(uint256(nodeId))); // 20-byte NodeID encoding
+    }
+
+    function _pOwner1(address who) internal pure returns (PChainOwner memory o) {
+        address[] memory a = new address[](1);
+        a[0] = who;
+        o = PChainOwner({threshold: 1, addresses: a});
+    }
+
+    function _pOwnerEmpty() internal pure returns (PChainOwner memory o) {
+        address[] memory a = new address[](0);
+        o = PChainOwner({threshold: 0, addresses: a});
+    }
+
     ///////////////////////////////
     // INTERNAL HELPERS
     ///////////////////////////////
+
+    function _pushRegistrationAck(bytes32 validationID, bool accepted) internal returns (uint32 idx) {
+        bytes memory payload = abi.encodePacked(
+            ValidatorMessages.CODEC_ID,
+            ValidatorMessages.L1_VALIDATOR_REGISTRATION_MESSAGE_TYPE_ID,
+            validationID,
+            accepted
+        );
+        WarpMessage memory m = WarpMessage({
+            sourceChainID: bytes32(0),            // ok for tests
+            originSenderAddress: address(0),      // ok for tests
+            payload: payload
+        });
+        MockWarpMessenger(WARP).push(m);
+        return 0; // always pass 0 to complete* calls
+    }
+
+    function _pushWeight(bytes32 validationID, uint64 nonce, uint64 weight)
+        internal
+        returns (uint32 idx)
+    {
+        bytes memory payload = abi.encodePacked(
+            ValidatorMessages.CODEC_ID,
+            ValidatorMessages.L1_VALIDATOR_WEIGHT_MESSAGE_TYPE_ID,
+            validationID,
+            nonce,
+            weight
+        );
+        WarpMessage memory m = WarpMessage({
+            sourceChainID: bytes32(0),
+            originSenderAddress: address(0),
+            payload: payload
+        });
+        MockWarpMessenger(WARP).push(m);
+        return 0;
+    }
+
+    function _pushRemovalAck(bytes32 validationID)
+        internal
+        returns (uint32 idx)
+    {
+        // completeValidatorRemoval expects a L1ValidatorRegistrationMessage with registered=false
+        bytes memory payload = abi.encodePacked(
+            ValidatorMessages.CODEC_ID,
+            ValidatorMessages.L1_VALIDATOR_REGISTRATION_MESSAGE_TYPE_ID,
+            validationID,
+            bytes1(0x00) // registered=false for removal
+        );
+        WarpMessage memory m = WarpMessage({
+            sourceChainID: bytes32(0),
+            originSenderAddress: address(0),
+            payload: payload
+        });
+        MockWarpMessenger(WARP).push(m);
+        return 0;
+    }
 
     function _registerOperator(address user, string memory metadataURL) internal {
         vm.startPrank(user);
@@ -510,13 +642,18 @@ abstract contract MiddlewareTestBase is Test {
     }
 
     function _registerL1(address _l1, address _middleware) internal {
-        vm.prank(_l1);
+        // L1Registry expects the call to come from the owner of the balancer
+        // _l1 should be the balancer address, not the raw validator manager
+        address balancerOwner = Ownable(_l1).owner();
+        vm.deal(balancerOwner, 1 ether); // Ensure the owner has ETH for registration fee
+        vm.prank(balancerOwner);
         l1Registry.registerL1{value: 0.01 ether}(_l1, _middleware, "metadataURL");
     }
 
-    function _grantDepositorWhitelistRole(address user, address account) internal {
+    
+    function _grantDepositorWhitelistRole(address user, address account, VaultTokenized targetVault) internal {
         vm.startPrank(user);
-        VaultTokenized(address(vault)).grantRole(vault.DEPOSITOR_WHITELIST_ROLE(), account);
+        targetVault.grantRole(targetVault.DEPOSITOR_WHITELIST_ROLE(), account);
         vm.stopPrank();
     }
 
@@ -604,21 +741,7 @@ abstract contract MiddlewareTestBase is Test {
         vm.stopPrank();
     }
 
-    function _deployValidatorManager(
-        ValidatorManagerSettings memory settings,
-        address proxyAdminOwnerAddress,
-        address protocolOwnerAddress
-    ) private returns (address) {
-        PoAValidatorManager validatorSetManager = new PoAValidatorManager(ICMInitializable.Allowed);
 
-        address proxy = UnsafeUpgrades.deployTransparentProxy(
-            address(validatorSetManager),
-            proxyAdminOwnerAddress,
-            abi.encodeCall(PoAValidatorManager.initialize, (settings, protocolOwnerAddress))
-        );
-
-        return proxy;
-    }
 
     function _moveToNextEpochAndCalc(
         uint256 numberOfEpochs
@@ -649,7 +772,7 @@ abstract contract MiddlewareTestBase is Test {
     function _syncStakeCache(uint48 epoch) internal {
         uint48 cachedEpoch = middleware.lastGlobalNodeStakeUpdateEpoch();
         if (cachedEpoch < epoch) {
-            vm.prank(validatorManagerAddress);
+            vm.prank(l1Owner);
             middleware.manualProcessNodeStakeCache(epoch - cachedEpoch);
         }
     }
@@ -664,12 +787,25 @@ abstract contract MiddlewareTestBase is Test {
         uint256 l1Limit_,
         L1RestakeDelegator delegator_
     ) internal {
-        vm.startPrank(validatorManagerAddress);
+        vm.startPrank(l1Owner);
         middleware.addCollateralClass(collateralClassId_, minValidatorStake_, 0, address(collateral_));
         middleware.activateSecondaryCollateralClass(collateralClassId_);
         vaultManager.registerVault(address(vault_), collateralClassId_, maxVaultLimit_);
         vm.stopPrank();
-        _setL1Limit(bob, validatorManagerAddress, collateralClassId_, l1Limit_, delegator_);
+        
+        // Determine the correct curator owner based on which delegator is passed
+        address curatorOwner;
+        if (address(delegator_) == address(delegator)) {
+            curatorOwner = curatorOwner1;
+        } else if (address(delegator_) == address(delegator2)) {
+            curatorOwner = curatorOwner2;
+        } else if (address(delegator_) == address(delegator3)) {
+            curatorOwner = curatorOwner3;
+        } else {
+            revert("Unknown delegator");
+        }
+        
+        _setL1Limit(curatorOwner, balancer, collateralClassId_, l1Limit_, delegator_);
     }
 
     function _warpToLastHourOfCurrentEpoch() internal {
@@ -706,6 +842,11 @@ abstract contract MiddlewareTestBase is Test {
         return _calcAndWarpOneEpoch(1);
     }
 
+    // Storage arrays to avoid stack depth issues
+    bytes32[] private _tempNodeIds;
+    bytes32[] private _tempValidationIDs;
+    uint256[] private _tempNodeWeights;
+
     function _createAndConfirmNodes(
         address operator,
         uint256 nodeCount,
@@ -713,81 +854,112 @@ abstract contract MiddlewareTestBase is Test {
         bool confirmImmediately,
         uint256 minMultiplier
     ) internal returns (bytes32[] memory nodeIds, bytes32[] memory validationIDs, uint256[] memory nodeWeights) {
-        // Create temporary arrays with maximum size
-        bytes32[] memory tempNodeIds = new bytes32[](nodeCount);
-        bytes32[] memory tempValidationIDs = new bytes32[](nodeCount);
-        uint256[] memory tempNodeWeights = new uint256[](nodeCount);
+        // Clear storage arrays from any previous use
+        delete _tempNodeIds;
+        delete _tempValidationIDs;
+        delete _tempNodeWeights;
         
-        uint256 actualNodeCount = 0; // Track actual successful registrations
-
-        for (uint256 i = 0; i < nodeCount; i++) {
-            bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
-            middleware.calcAndCacheNodeStakeForAllOperators();
-            uint256 free = middleware.getOperatorAvailableStake(operator);
-            (uint256 minStake, ) = middleware.getClassStakingRequirements(1);   // PRIMARY_ASSET_CLASS == 1
-    
-            // uint256 stakeForThisNode = (stake_ != 0) ? stake_
-            //                       : (free > maxStake
-            //                            ? maxStake
-            //                            : free);
-    
-            uint256 stakeForThisNode = (stake_ != 0)
-                ? stake_
-                : minStake * minMultiplier;
-
-            if (free < stakeForThisNode) {
-                // accept *any* stake‑deficiency revert
-                vm.expectRevert();          //  ❚❚ removed selector filter
-                vm.prank(operator);
-                middleware.addNode(
-                    nodeId,
-                    hex"ABABABAB",
-                    uint64(block.timestamp + 2 days),
-                    PChainOwner({threshold: 1, addresses: new address[](0)}),
-                    PChainOwner({threshold: 1, addresses: new address[](0)}),
-                    stakeForThisNode    
-                );
-                break;
-            }
-
-            vm.prank(operator);
-            middleware.addNode(
-                nodeId,
-                hex"ABABABAB",
-                uint64(block.timestamp + 2 days),
-                PChainOwner({threshold: 1, addresses: new address[](0)}),
-                PChainOwner({threshold: 1, addresses: new address[](0)}),
-                stakeForThisNode                 // ← explicit max or caller‑provided
-            );
-            
-            // Store the successful registration
-            tempNodeIds[actualNodeCount] = nodeId;
-            uint32 msgIdx = mockValidatorManager.nextMessageIndex() - 1;
-
-            if (confirmImmediately) {
-                vm.prank(operator);
-                middleware.completeValidatorRegistration(operator, nodeId, msgIdx);
-            }
-            
-            tempValidationIDs[actualNodeCount] = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeId))));
-            uint48 epoch = middleware.getCurrentEpoch();
-            tempNodeWeights[actualNodeCount] = middleware.nodeStakeCache(epoch, tempValidationIDs[actualNodeCount]);
-            assertGt(tempNodeWeights[actualNodeCount], 0, "Node weight must be positive");
-            
-            actualNodeCount++;
-        }
+        uint256 actualNodeCount = _registerNodes(operator, nodeCount, stake_, confirmImmediately, minMultiplier);
         
-        // Create properly sized result arrays
+        // Copy from storage to memory for return
         nodeIds = new bytes32[](actualNodeCount);
         validationIDs = new bytes32[](actualNodeCount);
         nodeWeights = new uint256[](actualNodeCount);
         
-        // Copy the successful registrations to result arrays
         for (uint256 i = 0; i < actualNodeCount; i++) {
-            nodeIds[i] = tempNodeIds[i];
-            validationIDs[i] = tempValidationIDs[i];
-            nodeWeights[i] = tempNodeWeights[i];
+            nodeIds[i] = _tempNodeIds[i];
+            validationIDs[i] = _tempValidationIDs[i];
+            nodeWeights[i] = _tempNodeWeights[i];
         }
+        
+        // Clear storage arrays to save gas
+        delete _tempNodeIds;
+        delete _tempValidationIDs;
+        delete _tempNodeWeights;
+    }
+    
+    function _registerNodes(
+        address operator,
+        uint256 nodeCount,
+        uint256 stake_,
+        bool confirmImmediately,
+        uint256 minMultiplier
+    ) private returns (uint256 actualNodeCount) {
+        for (uint256 i = 0; i < nodeCount; i++) {
+            bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
+            uint256 stakeAmount = _calculateStakeAmount(stake_, minMultiplier);
+            
+            if (!_tryRegisterNode(operator, nodeId, stakeAmount)) {
+                break;
+            }
+            
+            _tempNodeIds.push(nodeId);
+            
+            bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+            _tempValidationIDs.push(validationID);
+            
+            if (confirmImmediately) {
+                _completeNodeRegistration(validationID, actualNodeCount, nodeCount);
+            }
+            
+            uint256 weight = middleware.nodeStakeCache(middleware.getCurrentEpoch(), validationID);
+            assertGt(weight, 0, "Node weight must be positive");
+            _tempNodeWeights.push(weight);
+            
+            actualNodeCount++;
+        }
+    }
+    
+    function _calculateStakeAmount(
+        uint256 stake_,
+        uint256 minMultiplier
+    ) internal returns (uint256) {
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        (uint256 minStake, ) = middleware.getClassStakingRequirements(1); // PRIMARY_ASSET_CLASS == 1
+        
+        return (stake_ != 0) ? stake_ : minStake * minMultiplier;
+    }
+    
+    function _tryRegisterNode(
+        address operator,
+        bytes32 nodeId,
+        uint256 stakeAmount
+    ) internal returns (bool success) {
+        uint256 free = middleware.getOperatorAvailableStake(operator);
+        
+        if (free < stakeAmount) {
+            // accept *any* stake‑deficiency revert
+            vm.expectRevert(); // removed selector filter
+            vm.prank(operator);
+            middleware.addNode(
+                nodeId,
+                new bytes(48), // 48-byte BLS
+                _pOwner1(operator),
+                _pOwner1(operator),
+                stakeAmount
+            );
+            return false;
+        }
+        
+        vm.prank(operator);
+        middleware.addNode(
+            nodeId,
+            new bytes(48), // 48-byte BLS
+            _pOwner1(operator),
+            _pOwner1(operator),
+            stakeAmount
+        );
+        return true;
+    }
+    
+    function _completeNodeRegistration(
+        bytes32 validationID,
+        uint256 currentCount,
+        uint256 totalCount
+    ) internal {
+        uint32 msgIdx = _pushRegistrationAck(validationID, true);
+        middleware.completeValidatorRegistration(msgIdx); // permissionless
+        if (currentCount + 1 < totalCount) _calcAndWarpOneEpoch();
     }
 
     function _stakeOrRemoveNodes(
@@ -800,7 +972,7 @@ abstract contract MiddlewareTestBase is Test {
         uint48 epoch = middleware.getCurrentEpoch();
 
         for (uint256 i = 0; i < nodeIds.length; i++) {
-            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
+            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeIds[i]));
             uint256 currentStake = middleware.getNodeStake(epoch, valID);
             if (currentStake == 0) {
                 continue;
@@ -809,6 +981,10 @@ abstract contract MiddlewareTestBase is Test {
             if (doRemove) {
                 vm.prank(operator);
                 middleware.removeNode(nodeIds[i]);
+
+                // finalize removal with a proper removal-ack message
+                uint32 rmIdx = _pushRemovalAck(valID);      // our messenger always returns last msg on index 0
+                middleware.completeValidatorRemoval(rmIdx);  // rmIdx == 0 with our messenger
                 continue;
             }
             bool stakeDown = ((stakeDeltaMask >> i) & 0x01) == 1;
@@ -828,9 +1004,19 @@ abstract contract MiddlewareTestBase is Test {
                 vm.prank(operator);
                 middleware.initializeValidatorStakeUpdate(nodeIds[i], newStake);
 
-                uint32 stakeMsgIdx = mockValidatorManager.nextMessageIndex() - 1;
-                vm.prank(operator);
-                middleware.completeStakeUpdate(nodeIds[i], stakeMsgIdx);
+                // Get validation ID and compute the scaled weight
+                bytes32 validationIdForUpdate = IBalancerValidatorManager(balancer).getNodeValidationID(
+                    abi.encodePacked(uint160(uint256(nodeIds[i])))
+                );
+                uint64 scaledWeight = StakeConversion.stakeToWeight(newStake, middleware.WEIGHT_SCALE_FACTOR());
+                
+                // Get current nonce from validator
+                Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationIdForUpdate);
+                uint64 nextNonce = uint64(v.sentNonce);
+                
+                // Push weight update in the warp messenger
+                uint32 stakeMsgIdx = _pushWeight(validationIdForUpdate, nextNonce, scaledWeight);
+                middleware.completeStakeUpdate(stakeMsgIdx); // permissionless
             }
         }
     }
@@ -839,7 +1025,7 @@ abstract contract MiddlewareTestBase is Test {
         uint48 epoch = middleware.getCurrentEpoch();
         uint256 sumStakes;
         for (uint256 i = 0; i < nodeIds.length; i++) {
-            bytes32 valID = mockValidatorManager.registeredValidators(abi.encodePacked(uint160(uint256(nodeIds[i]))));
+            bytes32 valID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeIds[i]));
             sumStakes += middleware.getNodeStake(epoch, valID);
         }
         uint256 operatorUsed = middleware.getOperatorUsedStakeCached(operator);

@@ -5,10 +5,10 @@ pragma solidity 0.8.25;
 
 import {Test, console2} from "forge-std/Test.sol";
 
-import {ValidatorManagerSettings} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
-import {PoAValidatorManager} from "@avalabs/teleporter/validator-manager/PoAValidatorManager.sol";
+import {ValidatorManager, ValidatorManagerSettings} from "@avalabs/icm-contracts/validator-manager/ValidatorManager.sol";
+import {PoAManager} from "@avalabs/icm-contracts/validator-manager/PoAManager.sol";
 import {UnsafeUpgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
-import {ICMInitializable} from "@avalabs/teleporter/utilities/ICMInitializable.sol";
+import {ICMInitializable} from "@avalabs/icm-contracts/utilities/ICMInitializable.sol";
 
 import {VaultFactory} from "../../src/contracts/VaultFactory.sol";
 import {DelegatorFactory} from "../../src/contracts/DelegatorFactory.sol";
@@ -104,7 +104,8 @@ contract L1RestakeDelegatorTest is Test {
         address protocolOwnerAddress = vm.addr(protocolOwnerKey);
 
         ValidatorManagerSettings memory validatorSettings = ValidatorManagerSettings({
-            l1ID: l1ID,
+            admin: protocolOwnerAddress,
+            subnetID: l1ID,
             churnPeriodSeconds: churnPeriodSeconds,
             maximumChurnPercentage: maximumChurnPercentage
         });
@@ -126,7 +127,7 @@ contract L1RestakeDelegatorTest is Test {
         );
 
         AvalancheL1MiddlewareSettings memory middlewareSettings = AvalancheL1MiddlewareSettings({
-            l1ValidatorManager: address(validatorManagerAddress),
+            balancer: address(validatorManagerAddress),
             operatorRegistry: address(operatorRegistry),
             vaultRegistry: address(vaultFactory),
             operatorL1Optin: address(operatorL1OptInService),
@@ -1133,14 +1134,20 @@ contract L1RestakeDelegatorTest is Test {
         address proxyAdminOwnerAddress,
         address protocolOwnerAddress
     ) private returns (address) {
-        PoAValidatorManager validatorSetManager = new PoAValidatorManager(ICMInitializable.Allowed);
-
+        // Deploy ValidatorManager (upgradeable)
+        address validatorManager = address(new ValidatorManager(ICMInitializable.Allowed));
+        
+        // Deploy as proxy and initialize
         address proxy = UnsafeUpgrades.deployTransparentProxy(
-            address(validatorSetManager),
+            validatorManager,
             proxyAdminOwnerAddress,
-            abi.encodeCall(PoAValidatorManager.initialize, (settings, protocolOwnerAddress))
+            abi.encodeCall(ValidatorManager.initialize, (settings))
         );
 
+        // If you need PoA control, deploy a PoAManager here:
+        // PoAManager poaManager = new PoAManager(protocolOwnerAddress, IValidatorManagerExternalOwnable(proxy));
+        // Then transfer ownership: ValidatorManager(proxy).transferOwnership(address(poaManager));
+        
         return proxy;
     }
 }

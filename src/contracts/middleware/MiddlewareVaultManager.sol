@@ -162,7 +162,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
             );
         }
         address delegator = IVaultTokenized(vault).delegator();
-        BaseDelegator(delegator).setMaxL1Limit(middleware.L1_VALIDATOR_MANAGER(), collateralClassId, amount);
+        BaseDelegator(delegator).setMaxL1Limit(middleware.BALANCER(), collateralClassId, amount);
     }
 
     function slashVault() external pure {

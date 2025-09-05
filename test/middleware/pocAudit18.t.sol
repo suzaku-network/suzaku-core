@@ -10,9 +10,10 @@ import {Rewards} from "src/contracts/rewards/Rewards.sol";
 import {MockUptimeTracker} from "../mocks/MockUptimeTracker.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {VaultTokenized} from "src/contracts/vault/VaultTokenized.sol";
-import {PChainOwner} from "@avalabs/teleporter/validator-manager/interfaces/IValidatorManager.sol";
+import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {console2} from "forge-std/console2.sol";
 import {IAvalancheL1Middleware} from "src/interfaces/middleware/IAvalancheL1Middleware.sol";
+import {IBalancerValidatorManager} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
 contract PoCMissingLockingRewards is MiddlewareTestBase {
     // helpers & globals
@@ -38,29 +39,63 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
         // snapshot for later
         // --- STEP 2: create up-to-stake-limit nodes for Alice ---------------
         console2.log("Creating up-to-stake-limit nodes for Alice");
-        uint256 stake1 = 200_000_000_002_000;
 
-        // ── first node: should succeed ──────────────────────────────
-        _createAndConfirmNodes(alice, 1, stake1, true, 2);
+        // Size stake from *current* availability so the scenario is deterministic
+        (uint256 minStake, ) = middleware.getClassStakingRequirements(1);
+        uint256 avail = middleware.getOperatorAvailableStake(alice);
+        uint256 scale = middleware.WEIGHT_SCALE_FACTOR();
+        console2.log("Alice available stake at start:", avail);
+        require(avail >= 2 * minStake, "not enough available stake for scenario");
 
-        // ── second node: still enough free stake → succeeds ─────────
-        _createAndConfirmNodes(alice, 1, stake1, true, 2);
+        // Choose stake1 so that 2 nodes fit but a 3rd does not.
+        // Using ~50% of availability makes 3 * stake1 > avail hold in practice.
+        uint256 stake1 = avail / 2;
+        // down-round to the weight unit
+        stake1 = stake1 - (stake1 % scale);
+        if (stake1 < minStake) stake1 = minStake;
 
-        // ── third & fourth nodes: MUST revert (not enough free stake) ─
-        _createAndConfirmNodes(alice, 1, stake1, true, 2);
-        
+        console2.log("Per-node target stake:", stake1);
+
+        // --- first node (add + confirm)
+        bytes32 n1 = keccak256(abi.encodePacked("alice-n1", block.timestamp));
+        vm.prank(alice);
+        middleware.addNode(n1, new bytes(48), _pOwner1(alice), _pOwner1(alice), stake1);
+        bytes32 v1 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(n1));
+        _pushRegistrationAck(v1, true);
+        middleware.completeValidatorRegistration(0);
+
+        // --- second node (add + confirm)
+        bytes32 n2 = keccak256(abi.encodePacked("alice-n2", block.timestamp));
+        vm.prank(alice);
+        middleware.addNode(n2, new bytes(48), _pOwner1(alice), _pOwner1(alice), stake1);
+        bytes32 v2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(n2));
+        _pushRegistrationAck(v2, true);
+        middleware.completeValidatorRegistration(0);
+
+        // Sanity: two should fit, three should not (in terms of initial availability)
+        assertTrue(2 * stake1 <= avail && 3 * stake1 > avail, "bad stake sizing");
+
+        // --- third node: MUST revert (insufficient free stake with locking in place)
+        bytes32 n3 = keccak256(abi.encodePacked("alice-n3", block.timestamp));
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
+        vm.prank(alice);
+        middleware.addNode(n3, new bytes(48), _pOwner1(alice), _pOwner1(alice), stake1);
+
+        // --- fourth node: also revert for completeness
+        bytes32 n4 = keccak256(abi.encodePacked("alice-n4", block.timestamp));
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
+        vm.prank(alice);
+        middleware.addNode(n4, new bytes(48), _pOwner1(alice), _pOwner1(alice), stake1);
+
         // Charlie behaves honestly – one node, fully staked
         console2.log("Creating 1 node for Charlie with the full stake");
         uint256 stake2 = 150_000_000_000_000;
         _createAndConfirmNodes(charlie, 1, stake2, true, 1);
 
-        // --- STEP 3: Remove Alice's unbacked nodes at the earliest possible moment------
-        console2.log("Removing Alice's unbacked nodes at the earliest possible moment");
-        uint48 nextEpoch = middleware.getCurrentEpoch() + 1;
-        uint256 afterUpdateWindow =
-            middleware.getEpochStartTs(nextEpoch) + middleware.UPDATE_WINDOW() + 1;
-        vm.warp(afterUpdateWindow);
-        middleware.forceUpdateNodes(alice, type(uint256).max);
+        // --- STEP 3: schedule rebalancing in the allowed window -------------
+        console2.log("Scheduling rebalancing in the allowed window");
+        _warpToLastHourOfCurrentEpoch();
+        middleware.forceUpdateNodes(alice, 0);
 
         // --- STEP 4: advance to the rewards epoch ---------------------------
         console2.log("Advancing and caching stakes");

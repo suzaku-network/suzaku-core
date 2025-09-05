@@ -66,7 +66,7 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
 
         // 7. Distribute rewards ---------------------------------------------
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
-        rewards.distributeRewards(epoch, uint48(operators.length));
+        rewards.distributeRewards(epoch - 1, type(uint48).max);
         console2.log("Rewards distributed");
 
         // 8. Sum all shares and show bug (>10 000 bp) ------------------------

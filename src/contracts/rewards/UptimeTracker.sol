@@ -7,7 +7,7 @@ import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 import {IUptimeTracker, LastUptimeCheckpoint} from "../../interfaces/rewards/IUptimeTracker.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
-import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IValidatorManager.sol";
+import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
 import {
     IWarpMessenger, WarpMessage
@@ -47,7 +47,7 @@ contract UptimeTracker is IUptimeTracker {
     ) {
         middleware = AvalancheL1Middleware(middleware_);
         epochDuration = middleware.EPOCH_DURATION();
-        validatorManager = BalancerValidatorManager(middleware.L1_VALIDATOR_MANAGER());
+        validatorManager = BalancerValidatorManager(middleware.BALANCER());
         uptimeBlockchainID = uptimeBlockchainID_;
     }
 
@@ -80,7 +80,7 @@ contract UptimeTracker is IUptimeTracker {
             // Get validator details
             Validator memory validator = validatorManager.getValidator(validationID);
             validatorLastUptimeCheckpoint[validationID] =
-                LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startedAt});
+                LastUptimeCheckpoint({remainingUptime: 0, attributedUptime: 0, timestamp: validator.startTime});
 
             // Refresh the reference to the updated struct
             lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
@@ -96,6 +96,11 @@ contract UptimeTracker is IUptimeTracker {
 
         // Calculate the recorded uptime since the last checkpoint
         uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
+
+        // Check if current epoch is before the validator's start epoch
+        if (currentEpoch < lastUptimeEpoch) {
+            revert UptimeBeforeStart(validationID, lastUptimeEpoch, currentEpoch);
+        }
 
         // Determine how many full epochs have passed - optimized calculation
         uint256 elapsedEpochs = currentEpoch - lastUptimeEpoch;
@@ -157,7 +162,7 @@ contract UptimeTracker is IUptimeTracker {
         uint256 sumValidatorsUptime = 0;
         
         for (uint256 i = 0; i < numberOfValidators; i++) {
-            bytes32 validationID = validatorManager.registeredValidators(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
+            bytes32 validationID = validatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
             if (isValidatorUptimeSet[epoch][validationID] == false) {
                 revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, validationID);
             }
