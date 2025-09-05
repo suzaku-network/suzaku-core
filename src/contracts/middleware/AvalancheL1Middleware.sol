@@ -593,8 +593,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         _initializeValidatorStakeUpdate(msg.sender, validationID, stakeAmount);
     }
 
-
-
+    /**
+     * @inheritdoc IAvalancheL1Middleware
+     */
     function completeValidatorRemoval(
         uint32 messageIndex
     ) external {
@@ -602,8 +603,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         _completeValidatorRemoval(messageIndex);
     }
 
-    // --- Permissionless completes (messageIndex-only) ---
-
+    /**
+     * @inheritdoc IAvalancheL1Middleware
+     */
     function completeValidatorRegistration(uint32 messageIndex) external {
         _updateGlobalNodeStakeOncePerEpoch();
 
@@ -616,6 +618,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         // No local cache change needed on registration; stake was staged in addNode().
     }
 
+    /**
+     * @inheritdoc IAvalancheL1Middleware
+     */
     function completeStakeUpdate(uint32 messageIndex) external {
         _updateGlobalNodeStakeOncePerEpoch();
 
