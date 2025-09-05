@@ -40,6 +40,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__VaultManagerAlreadySet(address vaultManager);
     error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
     error AvalancheL1Middleware__UnexpectedWeightUpdate(bytes32 validationID);
+    error AvalancheL1Middleware__MessageNotForThisModule(bytes32 validationID, address ownerModule);
     // Events
     /**
      * @notice Emitted when a node is added
@@ -195,19 +196,16 @@ interface IAvalancheL1Middleware {
     function initializeValidatorStakeUpdate(bytes32 nodeId, uint256 stakeAmount) external;
 
     /**
-     * @notice Finalize a pending validator registration
-     * @param operator The operator address
-     * @param nodeId The node ID
+     * @notice Finalize a pending validator registration (permissionless)
      * @param messageIndex The message index
      */
-    function completeValidatorRegistration(address operator, bytes32 nodeId, uint32 messageIndex) external;
+    function completeValidatorRegistration(uint32 messageIndex) external;
 
     /**
-     * @notice Finalize a pending stake update
-     * @param nodeId The node ID
+     * @notice Finalize a pending stake update (permissionless)
      * @param messageIndex The message index
      */
-    function completeStakeUpdate(bytes32 nodeId, uint32 messageIndex) external;
+    function completeStakeUpdate(uint32 messageIndex) external;
 
     /**
      * @notice Finalize a pending validator removal

@@ -367,7 +367,7 @@ contract RewardsTest is Test {
             // Set vault delegations proportional to operator's stake
             for (uint256 j = 0; j < delegators.length; j++) {
                 delegators[j].setStake(
-                    middleware.L1_VALIDATOR_MANAGER(),
+                    middleware.BALANCER(),
                     uint96(j + 1), // asset class
                     operator,
                     uint48(timestamp),
@@ -512,7 +512,7 @@ contract RewardsTest is Test {
             // Set vault delegations
             for (uint256 j = 0; j < delegators.length; j++) {
                 delegators[j].setStake(
-                    middleware.L1_VALIDATOR_MANAGER(), uint96(j + 1), operator, uint48(timestamp), operatorStake
+                    middleware.BALANCER(), uint96(j + 1), operator, uint48(timestamp), operatorStake
                 );
             }
 
@@ -598,7 +598,7 @@ contract RewardsTest is Test {
     ) internal {
         for (uint256 j = 0; j < delegators.length; j++) {
             delegators[j].setStake(
-            middleware.L1_VALIDATOR_MANAGER(),
+            middleware.BALANCER(),
             uint96(j + 1),
             operator,
             uint48(timestamp),

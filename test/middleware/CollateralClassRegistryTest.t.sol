@@ -9,6 +9,7 @@ import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {CollateralClassRegistry} from "../../src/contracts/middleware/CollateralClassRegistry.sol";
 import {ICollateralClassRegistry} from "../../src/interfaces/middleware/ICollateralClassRegistry.sol";
 import {MockCollateralClassRegistry} from "../mocks/MockCollateralClassRegistry.sol";
+import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
 
 contract CollateralClassRegistryTest is Test {
     MockCollateralClassRegistry collateralClassRegistry;
@@ -24,9 +25,9 @@ contract CollateralClassRegistryTest is Test {
         owner = address(this);
         alice = makeAddr("alice");
         bob = makeAddr("bob");
-        tokenA = makeAddr("tokenA");
-        tokenB = makeAddr("tokenB");
-        tokenC = makeAddr("tokenC");
+        tokenA = address(new ERC20WithDecimals("tokenA", "tA", 18));
+        tokenB = address(new ERC20WithDecimals("tokenB", "tB", 18));
+        tokenC = address(new ERC20WithDecimals("tokenC", "tC", 18));
 
         // Deploy the new child CollateralClassRegistry
         collateralClassRegistry = new MockCollateralClassRegistry(owner);
@@ -157,7 +158,7 @@ contract CollateralClassRegistryTest is Test {
 
     function test__addCollateralClassAndCheckStakes() public {
         // Add new class #3
-        collateralClassRegistry.addCollateralClass(3, 123, 456, address(tokenC));
+        collateralClassRegistry.addCollateralClass(3, 123, 456, tokenC);
 
         (uint256 primaryCollateralMinStake, uint256 primaryCollateralMaxStake) = collateralClassRegistry.getClassStakingRequirements(3);
         assertEq(primaryCollateralMinStake, 123, "Expected primaryCollateralMinStake = 123 for class 3");
@@ -181,16 +182,17 @@ contract CollateralClassRegistryTest is Test {
     }
 
     function test_RevertOnRemoveNonexistentAsset() public {
-        collateralClassRegistry.addAssetToClass(1, alice);
-        // Try remove bob from class 1
+        // use a real ERC20 as the added asset
+        collateralClassRegistry.addAssetToClass(1, tokenB);
+        // try removing a different (non-added) ERC20
         vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__AssetNotFound.selector);
-        collateralClassRegistry.removeAssetFromClass(1, bob);
+        collateralClassRegistry.removeAssetFromClass(1, tokenC);
     }
 
     function test_RevertOnAddDuplicateAsset() public {
-        collateralClassRegistry.addAssetToClass(1, alice);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
         vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__AssetAlreadyRegistered.selector);
-        collateralClassRegistry.addAssetToClass(1, alice);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
     }
 
     function test_RevertOnGetMinStakeForNonExistentClass() public {

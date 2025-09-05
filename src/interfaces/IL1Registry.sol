@@ -24,10 +24,10 @@ interface IL1Registry {
 
     /**
      * @notice Register an Avalanche L1
-     * @dev l1 must be the manager of the Avalanche L1
+     * @dev l1 must be the balancer of the Avalanche L1
      * @dev msg.sender must be a SecurityModule of the l1
      * @dev middleware must be a SecurityModule of the Avalanche L1
-     * @param l1 The Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be The Balancer.
      * @param middleware The middleware of the Avalanche L1
      * @param metadataURL The metadata URL of the Avalanche L1
      */
@@ -42,7 +42,7 @@ interface IL1Registry {
 
     /**
      * @notice Check if an address is registered as an L1
-     * @param l1 The Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be the Balancer.
      * @return True if the address is registered as an L1, false otherwise
      */
     function isRegistered(
@@ -51,7 +51,7 @@ interface IL1Registry {
 
     /**
      * @notice Check if an address is registered as an L1 and if the Middleware is correct
-     * @param l1 The Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be the Balancer.
      * @param l1middleware_ The middleware to check
      * @return True if the address is registered as an L1 and the middleware is correct, false otherwise
      */
@@ -84,14 +84,14 @@ interface IL1Registry {
 
     /**
      * @notice Set the middleware of an L1
-     * @param l1 The Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be the Balancer.
      * @param middleware_ The new middleware
      */
     function setL1Middleware(address l1, address middleware_) external;
 
     /**
      * @notice Set the metadata URL of an L1
-     * @param l1 The Avalanche L1. Should be The ValidatorManager.
+     * @param l1 The Avalanche L1. Should be the Balancer.
      * @param metadataURL The new metadata URL
      */
     function setMetadataURL(address l1, string calldata metadataURL) external;

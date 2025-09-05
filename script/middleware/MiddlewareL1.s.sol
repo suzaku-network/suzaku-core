@@ -12,7 +12,7 @@ import {MiddlewareConfig} from "./MiddlewareL1Types.s.sol";
 
 /**
  * @dev Deploy only AvalancheL1Middleware + MiddlewareVaultManager.
- * @dev All other addresses (validatorManager, operatorRegistry, vaultFactory, operatorL1OptIn) must be passed in from JSON.
+ * @dev All other addresses (balancer, operatorRegistry, vaultFactory, operatorL1OptIn) must be passed in from JSON.
  */
 contract DeployTestAvalancheL1Middleware is Script {
     function executeMiddlewareL1Deployment(
@@ -23,7 +23,7 @@ contract DeployTestAvalancheL1Middleware is Script {
         // Deploy the AvalancheL1Middleware
         AvalancheL1Middleware middleware = new AvalancheL1Middleware(
             AvalancheL1MiddlewareSettings({
-                l1ValidatorManager: middlewareConfig.validatorManager,
+                balancer: middlewareConfig.balancer,
                 operatorRegistry: middlewareConfig.operatorRegistry,
                 vaultRegistry: middlewareConfig.vaultFactory,
                 operatorL1Optin: middlewareConfig.operatorL1OptIn,
@@ -57,7 +57,7 @@ contract DeployTestAvalancheL1Middleware is Script {
 
         console2.log("AvalancheL1Middleware deployed at:", middlewareL1);
         console2.log("MiddlewareVaultManager deployed at:", vaultManager);
-        console2.log("Using validatorManager at:", middlewareConfig.validatorManager);
+        console2.log("Using balancer at:", middlewareConfig.balancer);
         console2.log("Using operatorRegistry at:", middlewareConfig.operatorRegistry);
         console2.log("Using vaultFactory at:", middlewareConfig.vaultFactory);
         console2.log("Using operatorL1OptIn at:", middlewareConfig.operatorL1OptIn);
