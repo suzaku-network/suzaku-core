@@ -111,6 +111,14 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
 
     function _addAssetToClass(uint256 collateralClassId, address asset) internal {
         CollateralClass storage cls = collateralClasses[collateralClassId];
+        // All assets in a class must share the same decimals
+        uint8 dec = IERC20Metadata(asset).decimals();
+        if (cls.assets.length() == 0) {
+            // safety: first asset defines the unit (already set in _addCollateralClass)
+            cls.unitDecimals = dec;
+        } else if (dec != cls.unitDecimals) {
+            revert CollateralClassRegistry__AssetDecimalsMismatch(cls.unitDecimals, dec);
+        }
 
         bool added = cls.assets.add(asset);
         if (!added) {

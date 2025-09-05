@@ -2409,8 +2409,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     function test_operatorStakeWithoutNormalization() public {
         uint48 epoch = 1;
         // Deploy tokens with different decimals
-        ERC20WithDecimals tokenA1 = new ERC20WithDecimals("TokenA", "TKA", 6); // e.g., USDC
-        ERC20WithDecimals tokenB1 = new ERC20WithDecimals("TokenB", "TKB", 18); // e.g., DAI
+        ERC20WithDecimals tokenA1 = new ERC20WithDecimals("TokenA", "TKA", 6);
+        ERC20WithDecimals tokenB1 = new ERC20WithDecimals("TokenB", "TKB", 6);
 
         // Deploy vaults and associate with asset class 1
         vm.startPrank(protocolOwner);
@@ -2537,14 +2537,14 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         //_optInOperatorL1(alice, balancer);
 
         _setL1Limit(curatorOwner2, balancer, 2, 10000 * 10**6, _delegator2);
-        _setL1Limit(curatorOwner3, balancer, 2, 10 * 10**18, _delegator3);
+        _setL1Limit(curatorOwner3, balancer, 2, 10 * 10**6, _delegator3);
 
         // Define stakes without normalization
-        uint256 stakeA = 10000 * 10**6; // 10,000 TokenA (6 decimals)
-        uint256 stakeB = 10 * 10**18; // 10 TokenB (18 decimals)
+        uint256 stakeA = 10000 * 10**6; // 10,000 (6 decimals)
+        uint256 stakeB = 10 * 10**6;    // 10 (6 decimals)
 
-        // class canonical unit is 6 decimals (initial asset is 6d), so normalize 18d -> 6d
-        uint256 normalised = stakeA + stakeB / 10**12; 
+        // same unit (6d) → direct sum
+        uint256 normalised = stakeA + stakeB; 
 
         tokenA1.transfer(staker, stakeA);
         vm.startPrank(staker);
@@ -2561,7 +2561,8 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.warp((epoch + 3) * middleware.EPOCH_DURATION());
 
         assertEq(middleware.getOperatorStake(alice, 2, 2), normalised);
-        assertNotEq(middleware.getOperatorStake(alice, 2, 2), stakeA + stakeB);
+        // With same decimals (6), no normalization occurs, so they're equal
+        assertEq(middleware.getOperatorStake(alice, 2, 2), stakeA + stakeB);
     }
 
         function test_vaultManager_UpdateVaultMaxL1Limit_NoRevert() public {

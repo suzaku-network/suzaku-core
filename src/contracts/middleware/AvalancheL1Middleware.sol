@@ -222,8 +222,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         emit VaultManagerUpdated(address(vaultManager), vaultManager_);
     }
 
-
-
     /**
      * @inheritdoc IAvalancheL1Middleware
      */
@@ -874,8 +872,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         }
     }
 
-
-
     /**
      * @notice Completes a validator's removal.
      * @param messageIndex The message index from the BalancerValidatorManager (used for ordering/verification)
@@ -885,8 +881,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     ) internal {
         balancerValidatorManager.completeValidatorRemoval(messageIndex);
     }
-
-
 
     /**
      * @notice Sets the stake of a validator and updates the operator's locked stake accordingly.
@@ -1107,8 +1101,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         return operatorNodesArray[operator].length;
     }
 
-
-
     /**
      * @inheritdoc IAvalancheL1Middleware
      */
@@ -1186,8 +1178,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     function getVaultManager() external view returns (address) {
         return address(vaultManager);
     }
-
-
 
     /**
      * @inheritdoc IAvalancheL1Middleware

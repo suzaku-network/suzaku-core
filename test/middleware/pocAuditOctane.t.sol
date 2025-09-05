@@ -18,6 +18,7 @@ import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
 
 import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
+import {ICollateralClassRegistry} from "../../src/interfaces/middleware/ICollateralClassRegistry.sol";
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 
 // Additional imports needed for standalone test
@@ -561,5 +562,472 @@ contract pocAuditOctane is Test {
             1 ether // use minimum primary stake
         );
         // Revert proves min-secondary is now properly enforced.
+    }
+
+    /// Primary = 18d (from setUp). Adding a 6d asset to primary class must revert.
+    function test_Primary18_AddSecondAsset6Decimals_Revert() public {
+        ERC20WithDecimals six = new ERC20WithDecimals("SIX", "SIX", 6);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICollateralClassRegistry.CollateralClassRegistry__AssetDecimalsMismatch.selector,
+                uint8(18),
+                uint8(6)
+            )
+        );
+        vm.prank(l1Owner);
+        middleware.addAssetToClass(1, address(six));
+    }
+
+    /// Spin up a new middleware with 6d primary; same‑dec asset is allowed, different‑dec (8d) must revert.
+    function test_Primary6_AddSecondAsset8Decimals_Revert_SameDecPass() public {
+        ERC20WithDecimals token6 = new ERC20WithDecimals("USDC6", "U6", 6);
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+        uint256 minStake = 1_000_000; // 1e6
+        uint256 maxStake = 1_000_000_000_000_000;
+        uint256 scale    = 1_000_000;
+
+        AvalancheL1Middleware mw6 = new AvalancheL1Middleware(
+            settings, l1Owner, address(token6), maxStake, minStake, scale
+        );
+        MiddlewareVaultManager vm6 = new MiddlewareVaultManager(address(vaultFactory), l1Owner, address(mw6), 24);
+        vm.prank(l1Owner);
+        mw6.setVaultManager(address(vm6));
+
+        // same‑dec (6) → ok
+        ERC20WithDecimals another6 = new ERC20WithDecimals("MOCK6", "M6", 6);
+        vm.prank(l1Owner);
+        mw6.addAssetToClass(1, address(another6));
+
+        // different‑dec (8) → revert
+        ERC20WithDecimals tok8 = new ERC20WithDecimals("TOK8","T8",8);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICollateralClassRegistry.CollateralClassRegistry__AssetDecimalsMismatch.selector,
+                uint8(6),
+                uint8(8)
+            )
+        );
+        vm.prank(l1Owner);
+        mw6.addAssetToClass(1, address(tok8));
+    }
+
+    /// Secondary class with 8 decimals: adding another 8d asset is OK; adding 6d must revert.
+    function test_Secondary8_AddSameDecPass_DiffDecRevert() public {
+        ERC20WithDecimals a8 = new ERC20WithDecimals("A8","A8",8);
+        ERC20WithDecimals b8 = new ERC20WithDecimals("B8","B8",8);
+        ERC20WithDecimals c6 = new ERC20WithDecimals("C6","C6",6);
+        uint96 sec = 88;
+
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(sec, 0, 0, address(a8));
+        middleware.activateSecondaryCollateralClass(sec);
+
+        // same dec ok
+        middleware.addAssetToClass(sec, address(b8));
+
+        // different dec revert
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                ICollateralClassRegistry.CollateralClassRegistry__AssetDecimalsMismatch.selector,
+                uint8(8),
+                uint8(6)
+            )
+        );
+        middleware.addAssetToClass(sec, address(c6));
+        vm.stopPrank();
+    }
+
+    /// Secondary in-use protections: cannot deactivate class or remove asset while a vault uses it.
+    function test_Secondary8_InUse_DeactivateOrRemove_Revert() public {
+        ERC20WithDecimals t8 = new ERC20WithDecimals("T8","T8",8);
+        uint96 sec = 77;
+
+        // create class + activate
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(sec, 0, 0, address(t8));
+        middleware.activateSecondaryCollateralClass(sec);
+        vm.stopPrank();
+
+        // register a vault for that class
+        address vAddr = vaultFactory.create(
+            vaultFactory.lastVersion(),
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(t8),
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "SEC8",
+                    symbol: "S8"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized v = VaultTokenized(vAddr);
+
+        address dAddr = delegatorFactory.create(
+            0,
+            abi.encode(
+                vAddr,
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: _one(bob),
+                        operatorL1SharesSetRoleHolders: _one(bob)
+                    })
+                )
+            )
+        );
+        vm.prank(bob);
+        v.setDelegator(dAddr);
+
+        vm.prank(l1Owner);
+        vaultManager.registerVault(vAddr, sec, 1_000 * 10**8);
+
+        // cannot deactivate while in use
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__AssetStillInUse.selector, sec)
+        );
+        vm.prank(l1Owner);
+        middleware.deactivateSecondaryCollateralClass(sec);
+
+        // cannot remove the only asset while in use
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__AssetStillInUse.selector, sec)
+        );
+        vm.prank(l1Owner);
+        middleware.removeAssetFromClass(sec, address(t8));
+    }
+
+    /// Helper for delegator role arrays
+    function _one(address a) internal pure returns (address[] memory arr) {
+        arr = new address[](1);
+        arr[0] = a;
+    }
+
+    /// POC variant: secondary = 8 decimals. Min per-node enforced during addNode.
+    function test_POC_MinSecondaryBypass_8Decimals() public {
+        // Ensure primary stake for alice (same as POC_6d but with current middleware/primary 18d)
+        address primaryToken = middleware.PRIMARY_ASSET();
+
+        // primary vault + delegator + deposit 2e18 assigned to alice
+        address pVaultAddr = vaultFactory.create(
+            vaultFactory.lastVersion(),
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: primaryToken,
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "PRIM",
+                    symbol: "P"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized pVault = VaultTokenized(pVaultAddr);
+
+        address pDelAddr = delegatorFactory.create(
+            0,
+            abi.encode(
+                pVaultAddr,
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: _one(bob),
+                        operatorL1SharesSetRoleHolders: _one(bob)
+                    })
+                )
+            )
+        );
+        L1RestakeDelegator pDel = L1RestakeDelegator(pDelAddr);
+        vm.prank(bob);
+        pVault.setDelegator(pDelAddr);
+
+        _optInOperatorVault(alice, pVaultAddr);
+        vm.prank(l1Owner);
+        vaultManager.registerVault(pVaultAddr, 1, 1_000 ether);
+
+        Token(primaryToken).transfer(staker, 2 ether);
+        vm.startPrank(staker);
+        Token(primaryToken).approve(pVaultAddr, 2 ether);
+        ( , uint256 pShares) = pVault.deposit(staker, 2 ether);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        pDel.setL1Limit(balancer, 1, 1_000 ether);
+        pDel.setOperatorL1Shares(balancer, 1, alice, pShares);
+        vm.stopPrank();
+
+        // secondary 8d
+        ERC20WithDecimals t8 = new ERC20WithDecimals("USDT8", "U8", 8);
+        uint96 sec = 66;
+
+        // class with min per-node = 100e8
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(sec, 100 * 10**8, 0, address(t8));
+        middleware.activateSecondaryCollateralClass(sec);
+        vm.stopPrank();
+
+        // vault + delegator for secondary
+        address sVaultAddr = vaultFactory.create(
+            vaultFactory.lastVersion(),
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(t8),
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "SEC8",
+                    symbol: "S8"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized sVault = VaultTokenized(sVaultAddr);
+
+        address sDelAddr = delegatorFactory.create(
+            0,
+            abi.encode(
+                sVaultAddr,
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: _one(bob),
+                        operatorL1SharesSetRoleHolders: _one(bob)
+                    })
+                )
+            )
+        );
+        L1RestakeDelegator sDel = L1RestakeDelegator(sDelAddr);
+        vm.prank(bob);
+        sVault.setDelegator(sDelAddr);
+
+        _optInOperatorVault(alice, sVaultAddr);
+        vm.prank(l1Owner);
+        vaultManager.registerVault(sVaultAddr, sec, 10_000 * 10**8);
+
+        // Give only 50e8 (insufficient vs 100e8/node)
+        uint256 dep = 50 * 10**8;
+        t8.transfer(staker, dep);
+        vm.startPrank(staker);
+        t8.approve(sVaultAddr, dep);
+        ( , uint256 sShares) = sVault.deposit(staker, dep);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        sDel.setL1Limit(balancer, sec, 1_000 * 10**8);
+        sDel.setOperatorL1Shares(balancer, sec, alice, sShares);
+        vm.stopPrank();
+
+        // Advance to next epoch for accounting
+        {
+            uint48 nextEpoch = middleware.getCurrentEpoch() + 1;
+            vm.warp(middleware.getEpochStartTs(nextEpoch) + 1);
+        }
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        // Sanity checks
+        uint48 e = middleware.getCurrentEpoch();
+        assertEq(middleware.getOperatorStake(alice, e, sec), 50 * 10**8, "secondary stake is 50e8");
+        assertGe(middleware.getOperatorStake(alice, e, 1), 1 ether, "primary enough");
+
+        // Adding a node should fail due to min secondary per-node
+        bytes32 nodeId = keccak256("sec8-bypass");
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
+        vm.prank(alice);
+        middleware.addNode(
+            nodeId,
+            new bytes(48),
+            _pOwner1(alice),
+            _pOwner1(alice),
+            1 ether
+        );
+    }
+
+    /// Aggregation across two 8‑dec secondary vaults (same class): sums exactly in class unit.
+    function test_Secondary8_TwoVaults_Aggregation() public {
+        ERC20WithDecimals a8 = new ERC20WithDecimals("A8","A8",8);
+        ERC20WithDecimals b8 = new ERC20WithDecimals("B8","B8",8);
+        uint96 sec = 99;
+
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(sec, 0, 0, address(a8));
+        middleware.activateSecondaryCollateralClass(sec);
+        middleware.addAssetToClass(sec, address(b8));
+        vm.stopPrank();
+
+        // Vault A
+        address vA = vaultFactory.create(
+            vaultFactory.lastVersion(),
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(a8),
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "A8V",
+                    symbol: "A8V"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized VA = VaultTokenized(vA);
+        address dA = delegatorFactory.create(
+            0,
+            abi.encode(
+                vA,
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: _one(bob),
+                        operatorL1SharesSetRoleHolders: _one(bob)
+                    })
+                )
+            )
+        );
+        vm.prank(bob); VA.setDelegator(dA);
+        _optInOperatorVault(alice, vA);
+        vm.prank(l1Owner); vaultManager.registerVault(vA, sec, 10_000 * 10**8);
+
+        // Vault B
+        address vB = vaultFactory.create(
+            vaultFactory.lastVersion(),
+            bob,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: address(b8),
+                    burner: address(0xdEaD),
+                    epochDuration: 8 hours,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: bob,
+                    depositWhitelistSetRoleHolder: bob,
+                    depositorWhitelistRoleHolder: bob,
+                    isDepositLimitSetRoleHolder: bob,
+                    depositLimitSetRoleHolder: bob,
+                    name: "B8V",
+                    symbol: "B8V"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized VB = VaultTokenized(vB);
+        address dB = delegatorFactory.create(
+            0,
+            abi.encode(
+                vB,
+                abi.encode(
+                    IL1RestakeDelegator.InitParams({
+                        baseParams: IBaseDelegator.BaseParams({
+                            defaultAdminRoleHolder: bob,
+                            hook: address(0),
+                            hookSetRoleHolder: bob
+                        }),
+                        l1LimitSetRoleHolders: _one(bob),
+                        operatorL1SharesSetRoleHolders: _one(bob)
+                    })
+                )
+            )
+        );
+        vm.prank(bob); VB.setDelegator(dB);
+        _optInOperatorVault(alice, vB);
+        vm.prank(l1Owner); vaultManager.registerVault(vB, sec, 10_000 * 10**8);
+
+        // Deposits: 60e8 + 40e8
+        uint256 depA = 60 * 10**8;
+        uint256 depB = 40 * 10**8;
+
+        a8.transfer(staker, depA);
+        vm.startPrank(staker);
+        a8.approve(vA, depA);
+        ( , uint256 shA) = VA.deposit(staker, depA);
+        vm.stopPrank();
+
+        b8.transfer(staker, depB);
+        vm.startPrank(staker);
+        b8.approve(vB, depB);
+        ( , uint256 shB) = VB.deposit(staker, depB);
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        L1RestakeDelegator(dA).setL1Limit(balancer, sec, 10_000 * 10**8);
+        L1RestakeDelegator(dA).setOperatorL1Shares(balancer, sec, alice, shA);
+        L1RestakeDelegator(dB).setL1Limit(balancer, sec, 10_000 * 10**8);
+        L1RestakeDelegator(dB).setOperatorL1Shares(balancer, sec, alice, shB);
+        vm.stopPrank();
+
+        // next epoch + cache
+        {
+            uint48 nextEpoch = middleware.getCurrentEpoch() + 1;
+            vm.warp(middleware.getEpochStartTs(nextEpoch) + 1);
+        }
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint48 e = middleware.getCurrentEpoch();
+        assertEq(middleware.getOperatorStake(alice, e, sec), (depA + depB), "sum in class unit (8d)");
     }
 }

@@ -182,16 +182,17 @@ contract CollateralClassRegistryTest is Test {
     }
 
     function test_RevertOnRemoveNonexistentAsset() public {
-        collateralClassRegistry.addAssetToClass(1, alice);
-        // Try remove bob from class 1
+        // use a real ERC20 as the added asset
+        collateralClassRegistry.addAssetToClass(1, tokenB);
+        // try removing a different (non-added) ERC20
         vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__AssetNotFound.selector);
-        collateralClassRegistry.removeAssetFromClass(1, bob);
+        collateralClassRegistry.removeAssetFromClass(1, tokenC);
     }
 
     function test_RevertOnAddDuplicateAsset() public {
-        collateralClassRegistry.addAssetToClass(1, alice);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
         vm.expectRevert(ICollateralClassRegistry.CollateralClassRegistry__AssetAlreadyRegistered.selector);
-        collateralClassRegistry.addAssetToClass(1, alice);
+        collateralClassRegistry.addAssetToClass(1, tokenB);
     }
 
     function test_RevertOnGetMinStakeForNonExistentClass() public {
