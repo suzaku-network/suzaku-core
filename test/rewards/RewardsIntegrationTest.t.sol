@@ -1109,6 +1109,92 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         assertEq(rewards.getRewardsAmountPerTokenFromEpoch(5, address(token1)), (rewardsAmount - Math.mulDiv(rewardsAmount, 1000, 10000)) * 2);
     }
 
+    /// With fix: vShare(pre-curator) equals the operator's beneficiary budget for PRIMARY.
+    function test_Primary_VaultSplit_EqualsOperatorBudget() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+
+        // Route 100% of rewards to PRIMARY, silence others to avoid cross-class noise
+        vm.startPrank(rewardsManager);
+        rewards.setRewardsShareForCollateralClass(2, 0);
+        rewards.setRewardsShareForCollateralClass(3, 0);
+        rewards.setRewardsShareForCollateralClass(1, 10_000);
+        vm.stopPrank();
+
+        // Ensure used << delegated for Alice; zero out others so only Alice contributes
+        _setupRealStakes(epoch, 4 hours);
+        uptime.setOperatorUptimePerEpoch(epoch, charlie, 0);
+        uptime.setOperatorUptimePerEpoch(epoch, dave, 0);
+
+        // Fund and distribute
+        token.mint(rewardsDistributor, 100_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+        _moveToNextEpochAndCalc(3);
+        address[] memory ops = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(ops.length));
+
+        // Operator Alice beneficiary budget (PRIMARY)
+        uint256 aliceBenef = rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, alice, 1);
+
+        // Aggregate pre-curator vault share for PRIMARY: vaultShare + curatorShare(owner)
+        uint256 vPre = 0;
+        address[] memory vs = vaultManager.getVaults(epoch);
+        for (uint256 i = 0; i < vs.length; i++) {
+            if (vaultManager.getVaultCollateralClass(vs[i]) != 1) continue;
+            vPre += rewards.vaultShares(epoch, vs[i]);
+            vPre += rewards.curatorShares(epoch, VaultTokenized(vs[i]).owner());
+        }
+
+        // After the fix, the split matches the operator budget
+        assertEq(vPre, aliceBenef, "vault pre-curator share should equal operator budget");
+    }
+
+    /// With fix, PRIMARY total vault+curator equals sum of operator beneficiary budgets.
+    function test_Primary_GlobalVaultPlusCurator_eq_BeneficiarySum() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+
+        vm.startPrank(rewardsManager);
+        rewards.setRewardsShareForCollateralClass(2, 0);
+        rewards.setRewardsShareForCollateralClass(3, 0);
+        rewards.setRewardsShareForCollateralClass(1, 10_000);
+        vm.stopPrank();
+
+        _setupRealStakes(epoch, 4 hours); // mixed delegated >> used across ops
+
+        token.mint(rewardsDistributor, 100_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+        _moveToNextEpochAndCalc(3);
+        address[] memory ops = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(ops.length));
+
+        // Sum operator beneficiary budgets (PRIMARY)
+        uint256 beneSum = 0;
+        for (uint256 i = 0; i < ops.length; i++) {
+            beneSum += rewards.operatorBeneficiariesSharesPerCollateralClass(epoch, ops[i], 1);
+        }
+
+        // Sum PRIMARY vault pre-curator = Σ(vaultShares + curatorShares(owner))
+        uint256 preSum = 0;
+        address[] memory vs = vaultManager.getVaults(epoch);
+        for (uint256 i = 0; i < vs.length; i++) {
+            if (vaultManager.getVaultCollateralClass(vs[i]) != 1) continue;
+            preSum += rewards.vaultShares(epoch, vs[i]);
+            preSum += rewards.curatorShares(epoch, VaultTokenized(vs[i]).owner());
+        }
+
+        // After fix: preSum == beneSum.
+        assertEq(preSum, beneSum, "PRIMARY vault+curator must equal sum of operator beneficiary budgets");
+    }
+
     function test_distributeRewards_claimFee(uint256 uptimeValue) public {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
