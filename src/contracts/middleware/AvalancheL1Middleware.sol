@@ -7,6 +7,7 @@ import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {IERC165} from "@openzeppelin/contracts@5.0.2/utils/introspection/IERC165.sol";
 
 import {
     Validator,
@@ -15,6 +16,8 @@ import {
 } from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {IBalancerValidatorManager} from
     "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
+import {ISecurityModule} from
+    "@suzaku/contracts-library/interfaces/ValidatorManager/ISecurityModule.sol";
 
 import {IOperatorRegistry} from "../../interfaces/IOperatorRegistry.sol";
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
@@ -41,7 +44,7 @@ struct AvalancheL1MiddlewareSettings {
  * @title AvalancheL1Middleware
  * @notice Manages operator registration, vault registration, stake accounting, and slashing for Avalanche L1
  */
-contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistry {
+contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistry, ISecurityModule {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using EnumerableSet for EnumerableSet.UintSet;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
@@ -594,39 +597,39 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     }
 
     /**
-     * @inheritdoc IAvalancheL1Middleware
+     * @inheritdoc ISecurityModule
      */
     function completeValidatorRemoval(
         uint32 messageIndex
-    ) external {
+    ) external returns (bytes32 validationID) {
         _updateGlobalNodeStakeOncePerEpoch();
-        balancerValidatorManager.completeValidatorRemoval(messageIndex);
+        validationID = balancerValidatorManager.completeValidatorRemoval(messageIndex);
     }
 
     /**
-     * @inheritdoc IAvalancheL1Middleware
+     * @inheritdoc ISecurityModule
      */
-    function completeValidatorRegistration(uint32 messageIndex) external {
+    function completeValidatorRegistration(uint32 messageIndex)
+        external
+        returns (bytes32 validationID)
+    {
         _updateGlobalNodeStakeOncePerEpoch();
-        balancerValidatorManager.completeValidatorRegistration(messageIndex);
+        validationID = balancerValidatorManager.completeValidatorRegistration(messageIndex);
     }
 
     /**
-     * @inheritdoc IAvalancheL1Middleware
+     * @inheritdoc ISecurityModule
      */
-    function completeStakeUpdate(uint32 messageIndex) external {
+    function completeValidatorWeightUpdate(uint32 messageIndex)
+        external
+        returns (bytes32 vid, uint64 nonce)
+    {
         _updateGlobalNodeStakeOncePerEpoch();
 
-        (bytes32 vid, /*nonce*/) = balancerValidatorManager.completeValidatorWeightUpdate(messageIndex);
-
-        // Enforce ownership. If not from this module, revert so the middleware's update rolls back.
-        address owner = balancerValidatorManager.getValidatorSecurityModule(vid);
-        if (owner != address(this)) {
-            revert AvalancheL1Middleware__MessageNotForThisModule(vid, owner);
-        }
+        (vid, nonce) = balancerValidatorManager.completeValidatorWeightUpdate(messageIndex);
 
         address operator = validationIdToOperator[vid];
-        if (operator == address(0)) return; // not ours / unknown locally
+        if (operator == address(0)) return (vid, nonce); // not ours / unknown locally
 
         uint48 currentEpoch = getCurrentEpoch();
         uint256 newStake = _pendingStake[vid];
@@ -1300,5 +1303,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
     function _vid(bytes32 nodeId) private view returns (bytes32) {
         return balancerValidatorManager.getNodeValidationID(_nodeKey(nodeId));
+    }
+
+    // ERC-165
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == type(ISecurityModule).interfaceId
+            || interfaceId == type(IERC165).interfaceId;
     }
 }
