@@ -147,6 +147,7 @@ contract L1RestakeDelegatorTest is Test {
 
         vm.startPrank(owner); // the test contract is the current owner
         middleware.transferOwnership(alice);
+        middleware.grantRole(middleware.DEFAULT_ADMIN_ROLE(), alice);
         vm.stopPrank();
 
         vm.startPrank(alice);

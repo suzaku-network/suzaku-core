@@ -24,7 +24,7 @@ import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
 import {IOptInService} from "../../interfaces/service/IOptInService.sol";
 
-import {CollateralClassRegistry} from "./CollateralClassRegistry.sol";
+import {CollateralClassRegistry, AccessControl} from "./CollateralClassRegistry.sol";
 import {MiddlewareVaultManager} from "./MiddlewareVaultManager.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
 import {StakeConversion} from "./libraries/StakeConversion.sol";
@@ -65,6 +65,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     uint96 public constant PRIMARY_ASSET_CLASS = 1;
     uint48 public constant MAX_AUTO_EPOCH_UPDATES = 1;
     uint48 public constant REMOVAL_DELAY_EPOCHS = 6;
+    bytes32 public constant OPERATORS_MANAGER_ROLE = keccak256("OPERATORS_MANAGER_ROLE");
     MiddlewareVaultManager private vaultManager;
     EnumerableMap.AddressToUintMap private operators;
     EnumerableSet.UintSet private secondaryCollateralClasses;
@@ -167,6 +168,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
         balancerValidatorManager = IBalancerValidatorManager(settings.balancer);
         _addCollateralClass(PRIMARY_ASSET_CLASS, primaryCollateralMinStake, primaryCollateralMaxStake, PRIMARY_ASSET);
+
+        _grantRole(OPERATORS_MANAGER_ROLE, owner);
     }
 
     /**
@@ -213,7 +216,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
     function setVaultManager(
         address vaultManager_
-    ) external onlyOwner {
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (vaultManagerSet) {
             revert AvalancheL1Middleware__VaultManagerAlreadySet(address(vaultManager));
         }
@@ -232,7 +235,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function activateSecondaryCollateralClass(
         uint256 collateralClassId
-    ) external onlyOwner {
+    ) external onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (!collateralClassIds.contains(collateralClassId)) {
             revert CollateralClassRegistry__CollateralClassNotFound();
@@ -251,7 +254,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function deactivateSecondaryCollateralClass(
         uint256 collateralClassId
-    ) external onlyOwner {
+    ) external onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (_isUsedCollateralClass(collateralClassId)) {
             revert AvalancheL1Middleware__AssetStillInUse(collateralClassId);
@@ -270,7 +273,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     function removeAssetFromClass(
         uint256 collateralClassId,
         address asset
-    ) public override onlyOwner {
+    ) public override onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (collateralClassId == 1 && asset == PRIMARY_ASSET) {
             revert CollateralClassRegistry__AssetIsPrimaryCollateralClass(collateralClassId);
@@ -289,7 +292,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function removeCollateralClass(
         uint256 collateralClassId
-    ) public override onlyOwner {
+    ) public override onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (secondaryCollateralClasses.contains(collateralClassId)) {
             revert AvalancheL1Middleware__ActiveSecondaryCollateralClass(collateralClassId);
@@ -303,7 +306,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function registerOperator(
         address operator
-    ) external onlyOwner {
+    ) external onlyRole(OPERATORS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (operators.contains(operator)) {
             revert AvalancheL1Middleware__OperatorAlreadyRegistered(operator);
@@ -324,7 +327,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function disableOperator(
         address operator
-    ) external onlyOwner {
+    ) external onlyRole(OPERATORS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (operatorNodesArray[operator].length > 0) {
             revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
@@ -337,7 +340,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function enableOperator(
         address operator
-    ) external onlyOwner {
+    ) external onlyRole(OPERATORS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         operators.enable(operator);
     }
@@ -347,7 +350,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function removeOperator(
         address operator
-    ) external onlyOwner {
+    ) external onlyRole(OPERATORS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
         if (operatorNodesArray[operator].length > 0) {
             revert AvalancheL1Middleware__OperatorHasActiveNodes(operator, operatorNodesArray[operator].length);
@@ -659,7 +662,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         address, /* operator */
         uint256, /* amount */
         uint96 collateralClassId
-    ) external onlyOwner {
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _updateStakeCache(epoch, collateralClassId);
         _updateGlobalNodeStakeOncePerEpoch();
         revert AvalancheL1Middleware__NotImplemented();
@@ -1306,8 +1309,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     }
 
     // ERC-165
-    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view virtual override(AccessControl, IERC165) returns (bool) {
         return interfaceId == type(ISecurityModule).interfaceId
-            || interfaceId == type(IERC165).interfaceId;
+            || interfaceId == type(IERC165).interfaceId
+            || super.supportsInterface(interfaceId);
     }
 }

@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: Copyright 2024 ADDPHO
 
-pragma solidity ^0.8.0;
+pragma solidity 0.8.25;
 
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import {ICollateralClassRegistry} from "../../interfaces/middleware/ICollateralClassRegistry.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
-abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
+abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable, AccessControl {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
+
+    bytes32 public constant COLLATERAL_CLASS_MANAGER_ROLE = keccak256("COLLATERAL_CLASS_MANAGER_ROLE");
 
     struct CollateralClass {
         EnumerableSet.AddressSet assets;
@@ -24,7 +27,10 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
 
     constructor(
         address initialOwner
-    ) Ownable(initialOwner) {}
+    ) Ownable(initialOwner) {
+        _grantRole(DEFAULT_ADMIN_ROLE, initialOwner);
+        _grantRole(COLLATERAL_CLASS_MANAGER_ROLE, initialOwner);
+    }
 
     /// @inheritdoc ICollateralClassRegistry
     function addCollateralClass(
@@ -32,12 +38,12 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
         uint256 minValidatorStake,
         uint256 maxValidatorStake,
         address initialAsset
-    ) external onlyOwner {
+    ) external onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _addCollateralClass(collateralClassId, minValidatorStake, maxValidatorStake, initialAsset);
     }
 
     /// @inheritdoc ICollateralClassRegistry
-    function addAssetToClass(uint256 collateralClassId, address asset) external onlyOwner {
+    function addAssetToClass(uint256 collateralClassId, address asset) external onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         if (!collateralClassIds.contains(collateralClassId)) {
             revert CollateralClassRegistry__CollateralClassNotFound();
         }
@@ -49,14 +55,14 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable {
     }
 
     /// @inheritdoc ICollateralClassRegistry
-    function removeAssetFromClass(uint256 collateralClassId, address asset) public virtual onlyOwner {
+    function removeAssetFromClass(uint256 collateralClassId, address asset) public virtual onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _removeAssetFromClass(collateralClassId, asset);
     }
 
     /// @inheritdoc ICollateralClassRegistry
     function removeCollateralClass(
         uint256 collateralClassId
-    ) public virtual onlyOwner {
+    ) public virtual onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _removeCollateralClass(collateralClassId);
     }
 
