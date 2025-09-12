@@ -154,7 +154,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable, AccessContr
      * @param collateralClassId The asset class ID
      * @param amount The new maximum stake
      */
-    function _setVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 amount) internal onlyRole(VAULTS_MANAGER_ROLE) {
+    function _setVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 amount) internal {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
