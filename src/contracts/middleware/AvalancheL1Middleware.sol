@@ -341,6 +341,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         address operator
     ) external onlyRole(OPERATORS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
+        
+        // Must be an existing entry (not removed)
+        if (!operators.contains(operator)) {
+            revert AvalancheL1Middleware__OperatorNotRegistered(operator);
+        }
 
         if (!IOptInService(OPERATOR_L1_OPTIN).isOptedIn(operator, BALANCER)) {
             revert AvalancheL1Middleware__OperatorNotOptedIn(operator, BALANCER);
@@ -1119,7 +1124,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     function getActiveNodesForEpoch(
         address operator,
         uint48 epoch
-    ) external view returns (bytes32[] memory activeNodeIds) {
+    ) public view returns (bytes32[] memory activeNodeIds) {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         // Gather all nodes from the never-removed set
@@ -1200,7 +1205,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint96 collateralClass
     ) external view returns (uint256) {
         if (collateralClass == PRIMARY_ASSET_CLASS) {
-            bytes32[] memory nodesArr = this.getActiveNodesForEpoch(operator, epoch);
+            bytes32[] memory nodesArr = getActiveNodesForEpoch(operator, epoch);
             uint256 operatorStake = 0;
 
             for (uint256 i = 0; i < nodesArr.length; i++) {

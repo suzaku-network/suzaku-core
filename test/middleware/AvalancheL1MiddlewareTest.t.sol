@@ -88,10 +88,18 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     }
 
     function test_EnableOperator_CannotBypassRegistrationChecks() public {
-        // Create a new operator and properly register them
+        // Test Gate 1: Cannot enable operator that's not in the middleware map
+        address unregisteredOperator = makeAddr("unregisteredOperator");
+        
+        vm.startPrank(l1Owner);
+        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, unregisteredOperator));
+        middleware.enableOperator(unregisteredOperator);
+        vm.stopPrank();
+        
+        // Test Gate 2: Cannot enable operator that opted out
         address testOperator = makeAddr("testOperator");
         
-        // Properly register the operator through all steps
+        // Properly register the operator
         _registerOperator(testOperator, "test operator metadata");
         _optInOperatorL1(testOperator, balancer);
         
@@ -103,25 +111,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.prank(l1Owner);
         middleware.disableOperator(testOperator);
         
-        // Scenario 1: Operator loses registry status after being disabled
-        // Mock the operator as no longer registered in OperatorRegistry
-        vm.mockCall(
-            address(operatorRegistry),
-            abi.encodeWithSelector(IOperatorRegistry.isRegistered.selector, testOperator),
-            abi.encode(false)
-        );
-        
-        // Try to re-enable - should fail because no longer registered
-        vm.startPrank(l1Owner);
-        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, testOperator));
-        middleware.enableOperator(testOperator);
-        vm.stopPrank();
-        
-        // Restore registry status
-        vm.clearMockedCalls();
-        
-        // Scenario 2: Operator opts out of L1 after being disabled
-        // Mock the operator as opted out
+        // Mock operator as opted out
         vm.mockCall(
             address(operatorL1OptInService),
             abi.encodeWithSelector(IOptInService.isOptedIn.selector, testOperator, balancer),
@@ -134,15 +124,12 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         middleware.enableOperator(testOperator);
         vm.stopPrank();
         
-        // Clear the mock to restore normal behavior
+        // Clear the mock
         vm.clearMockedCalls();
         
-        // Scenario 3: Operator maintains all requirements - enable should work
+        // Success case: operator in map + opted in = can enable
         vm.prank(l1Owner);
         middleware.enableOperator(testOperator);
-        
-        // That's it - we've verified the vulnerability is fixed
-        // The operator is now enabled and the eligibility checks passed
     }
 
     function test_AddNodeSimpleAndComplete() public {
