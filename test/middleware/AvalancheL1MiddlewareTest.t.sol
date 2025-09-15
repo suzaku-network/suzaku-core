@@ -53,6 +53,7 @@ import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDele
 import {IAvalancheL1Middleware} from "../../src/interfaces/middleware/IAvalancheL1Middleware.sol";
 import {StakeConversion} from "../../src/contracts/middleware/libraries/StakeConversion.sol";
 import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
+import {IOptInService} from "../../src/interfaces/service/IOptInService.sol";
 
 contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
@@ -84,6 +85,51 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Add a node
         _createAndConfirmNodes(alice, 1, 0, true, 2);
+    }
+
+    function test_EnableOperator_CannotBypassRegistrationChecks() public {
+        // Test Gate 1: Cannot enable operator that's not in the middleware map
+        address unregisteredOperator = makeAddr("unregisteredOperator");
+        
+        vm.startPrank(l1Owner);
+        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, unregisteredOperator));
+        middleware.enableOperator(unregisteredOperator);
+        vm.stopPrank();
+        
+        // Test Gate 2: Cannot enable operator that opted out
+        address testOperator = makeAddr("testOperator");
+        
+        // Properly register the operator
+        _registerOperator(testOperator, "test operator metadata");
+        _optInOperatorL1(testOperator, balancer);
+        
+        // Register with middleware
+        vm.prank(l1Owner);
+        middleware.registerOperator(testOperator);
+        
+        // Disable the operator
+        vm.prank(l1Owner);
+        middleware.disableOperator(testOperator);
+        
+        // Mock operator as opted out
+        vm.mockCall(
+            address(operatorL1OptInService),
+            abi.encodeWithSelector(IOptInService.isOptedIn.selector, testOperator, balancer),
+            abi.encode(false)
+        );
+        
+        // Try to re-enable - should fail because no longer opted in
+        vm.startPrank(l1Owner);
+        vm.expectRevert(abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotOptedIn.selector, testOperator, balancer));
+        middleware.enableOperator(testOperator);
+        vm.stopPrank();
+        
+        // Clear the mock
+        vm.clearMockedCalls();
+        
+        // Success case: operator in map + opted in = can enable
+        vm.prank(l1Owner);
+        middleware.enableOperator(testOperator);
     }
 
     function test_AddNodeSimpleAndComplete() public {

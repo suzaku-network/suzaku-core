@@ -403,10 +403,6 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
         if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
 
-        // Keep pool consistent for later user claims
-        uint256 remaining = totalRewardsForEpoch - undistributedRewards;
-        rewardsAmountPerTokenFromEpoch[epoch].set(rewardsToken, remaining);
-
         // mark as swept *before* transfer - prevents second sweep
         _undistributedClaimed[epoch][rewardsToken] = true;
 

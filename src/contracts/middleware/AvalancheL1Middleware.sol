@@ -6,7 +6,6 @@ pragma solidity 0.8.25;
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC165} from "@openzeppelin/contracts@5.0.2/utils/introspection/IERC165.sol";
 
 import {
@@ -342,6 +341,16 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         address operator
     ) external onlyRole(OPERATORS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
+        
+        // Must be an existing entry (not removed)
+        if (!operators.contains(operator)) {
+            revert AvalancheL1Middleware__OperatorNotRegistered(operator);
+        }
+
+        if (!IOptInService(OPERATOR_L1_OPTIN).isOptedIn(operator, BALANCER)) {
+            revert AvalancheL1Middleware__OperatorNotOptedIn(operator, BALANCER);
+        }
+        
         operators.enable(operator);
     }
 
@@ -1040,8 +1049,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         uint256 totalVaults = vaultManager.getVaultCount();
-        // use the class' canonical unit (decimals) for normalization
-        uint8 classDec = collateralClasses[collateralClassId].unitDecimals;
 
         for (uint256 i; i < totalVaults;) {
             (address vault, uint48 enabledTime, uint48 disabledTime) = vaultManager.getVaultAtWithTimes(i);
@@ -1061,16 +1068,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
                 BALANCER, collateralClassId, operator, epochStartTs, new bytes(0)
             );
-
-            address collateral = IVaultTokenized(vault).collateral();
-            uint8 dec = IERC20Metadata(collateral).decimals();
-
-            // normalize per-vault stake into the class unit
-            if (dec < classDec) {
-                vaultStake *= 10 ** uint256(classDec - dec);
-            } else if (dec > classDec) {
-                vaultStake /= 10 ** uint256(dec - classDec);
-            }
 
             stake += vaultStake;
             unchecked { ++i; }
@@ -1127,7 +1124,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     function getActiveNodesForEpoch(
         address operator,
         uint48 epoch
-    ) external view returns (bytes32[] memory activeNodeIds) {
+    ) public view returns (bytes32[] memory activeNodeIds) {
         uint48 epochStartTs = getEpochStartTs(epoch);
 
         // Gather all nodes from the never-removed set
@@ -1208,7 +1205,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint96 collateralClass
     ) external view returns (uint256) {
         if (collateralClass == PRIMARY_ASSET_CLASS) {
-            bytes32[] memory nodesArr = this.getActiveNodesForEpoch(operator, epoch);
+            bytes32[] memory nodesArr = getActiveNodesForEpoch(operator, epoch);
             uint256 operatorStake = 0;
 
             for (uint256 i = 0; i < nodesArr.length; i++) {
