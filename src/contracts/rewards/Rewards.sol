@@ -394,8 +394,12 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         }
 
         // Calculate and transfer undistributed rewards
+        // Clamp to prevent underflow if any overshoot ever occurs.
+        uint256 usedShares = totalDistributedShares > BASIS_POINTS_DENOMINATOR
+            ? BASIS_POINTS_DENOMINATOR
+            : totalDistributedShares;
         uint256 undistributedRewards =
-            totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, totalDistributedShares, BASIS_POINTS_DENOMINATOR);
+            totalRewardsForEpoch - Math.mulDiv(totalRewardsForEpoch, usedShares, BASIS_POINTS_DENOMINATOR);
 
         if (undistributedRewards == 0) revert NoRewardsToClaim(msg.sender);
 
@@ -657,8 +661,7 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             );
 
             if (vaultStake > 0) {
-                uint256 operatorActiveStake =
-                    middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, vaultCollateralClass);
+                uint256 operatorActiveStake = _totalDelegatedToOperator(epoch, vaultCollateralClass, operator);
                 if (operatorActiveStake == 0) continue;
                 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
@@ -671,6 +674,31 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
 
                 vaultShares[epoch][vault] += vaultShare - curatorShare;
             }
+        }
+    }
+
+    /**
+     * @dev Calculates the total delegated stake to an operator for a specific collateral class
+     * @param epoch The epoch to calculate for
+     * @param collateralClass The collateral class to calculate for
+     * @param operator The operator to calculate for
+     * @return sum The total delegated stake
+     */
+    function _totalDelegatedToOperator(
+        uint48 epoch,
+        uint96 collateralClass,
+        address operator
+    ) internal view returns (uint256 sum) {
+        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
+        uint48 epochTs = middleware.getEpochStartTs(epoch);
+        address balancer = middleware.BALANCER();
+        
+        for (uint256 i = 0; i < vaults.length; i++) {
+            address vault = vaults[i];
+            if (middlewareVaultManager.getVaultCollateralClass(vault) != collateralClass) continue;
+            
+            address delegator = IVaultTokenized(vault).delegator();
+            sum += BaseDelegator(delegator).stakeAt(balancer, collateralClass, operator, epochTs, new bytes(0));
         }
     }
 
