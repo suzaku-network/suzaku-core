@@ -1,97 +1,183 @@
-# Rewards System
+**Rewards System:**
+Per‑epoch rewards are split by collateral‑class weights, operator uptime, and stake routing through vaults. Funding deposits tokens and sets `funded`. Distribution runs in batches per operator and locks the epoch with `distributionComplete`. Claims only walk completed epochs and advance a per‑token pointer. Leftovers from rounding or unused share get swept after a grace period.
 
-The rewards system manages the distribution of staking rewards to operators, stakers, curators, and protocol owners based on validator performance and stake amounts.
+---
 
-## Overview
+## Lifecycle
 
-The system tracks and distributes rewards for each epoch, taking into account:
+* **Fund**
 
-- Operator uptime and performance
-- Staked amounts across different asset classes
-- Fee structures for different participants
+  * `setRewardsAmountForEpochs(start, n, token, amtPerEpoch)`
+  * Transfers `n * amtPerEpoch` in. Takes protocol fee upfront.
 
-## Key Components
+    * `protocolRewards[token] += total * protocolFee / 10_000`
+    * Per‑epoch pool = `amtPerEpoch * (1 - protocolFee/10_000)`
+  * Marks each target epoch `funded = true`.
+  * Cannot call if distribution for `start` already began.
 
-### Roles
+* **Distribute**
 
-- **Admin**: Can configure fees, rewards amounts, and claim undistributed rewards
-- **Protocol Owner**: Receives protocol fees
-- **Operators**: Run validators and receive operator fees
-- **Curators**: Vault owners who receive curator fees
-- **Stakers**: Users who stake tokens in vaults
+  * `distributeRewards(epoch, batchSize)` by `REWARDS_DISTRIBUTOR_ROLE`.
+  * Time gates:
 
-### Fee Structure
+    * Earliest distribution: `currentEpoch >= epoch + 2`.
+    * If `currentEpoch <= epoch + 4` and epoch **not** funded **and** there are operators → revert `EpochNotFunded`.
+    * Past the funding window (`currentEpoch > epoch + 4`): allowed even if unfunded.
+  * Sequential: must finish `epoch-1` before `epoch`.
+  * Batches over operators. On completion: `distributionBatches[epoch].isComplete = true` and `epochStatus[epoch].distributionComplete = true`.
 
-- Protocol Fee
-- Operator Fee
-- Curator Fee
+* **Claim**
 
-All fees are configured in basis points (1/10000)
+  * Once per epoch **per reward token** per claimer type.
+  * Iterate from `lastEpochClaimedX[claimer][token] + 1` forward:
 
-## Typical Epoch Workflow
+    * Stop at first epoch where `distributionComplete == false`.
+    * Sum rewards for each settled epoch.
+    * Always advance pointer to the last settled epoch visited.
+    * If sum == 0 and pointer moved → emit `ZeroRewardsClaim` and return.
+  * Functions:
 
-1. **Uptime Tracking**
+    * `claimRewards(token, recipient)` for stakers.
+    * `claimOperatorFee(token, recipient)` for operators.
+    * `claimCuratorFee(token, recipient)` for curators.
+    * `claimProtocolFee(token, recipient)` for protocol owner (aggregated bucket, no epochs).
 
-   - Validator uptime is recorded throughout the epoch
-   - Operator uptime is computed as average of their validators
-   - Minimum required uptime threshold must be met
+* **Sweep leftovers**
 
-2. **Rewards Distribution**
+  * `claimUndistributedRewards(epoch, token, recipient)` by distributor.
+  * Allowed when `distributionComplete` and `currentEpoch >= epoch + 2 + 1`.
+  * Computes:
 
-   - Admin sets rewards amount for epochs using setRewardsAmountForEpochs()
-   - Distribution happens in batches via distributeRewards()
-   - System calculates shares for:
-     - Operators based on stake and uptime
-     - Vaults based on delegated stake
-     - Curators based on vault ownership
+    * `usedShares = min(ΣoperatorShares + ΣvaultShares + ΣcuratorShares, 10_000)`
+    * `undistributed = epochPool * (1 - usedShares/10_000)`
+  * Transfers `undistributed` and shrinks the epoch pool so users can still claim the remaining part. One‑time per `(epoch, token)`.
 
-3. **Claims Process**
+---
 
-   - Stakers: claimRewards()
-   - Operators: claimOperatorFee()
-   - Curators: claimCuratorFee()
-   - Protocol Owner: claimProtocolFee()
+## Share math (basis points, all floors via `mulDiv`)
 
-4. **Undistributed Rewards**
+* **Uptime source**
+   * From `UptimeTracker`. For epoch `e`, `operatorUptimePerEpoch[e][op]` is the arithmetic mean of the uptimes of all active validators for `op` in `e`.
+   * Units: seconds.
+   * Guard: if `operatorUptimePerEpoch[e][op] < minRequiredUptime` then `rawShare = 0` for all classes for that operator in `e`. 
 
-   - After 2 epochs, admin can claim undistributed rewards
-   - Uses claimUndistributedRewards()
+* **Per operator, per class**
 
-## Share Calculation
+  * `uptimeFracBp = uptimeSecs * 10_000 / epochDuration`
+  * `rawShare = classShareBp * (operatorUsedStake / totalStakeInClass) * uptimeFracBp / 10_000`
+  * `operatorFeeShare = rawShare * operatorFee / 10_000`
+  * `beneficiaryBudget[op][class] = rawShare - operatorFeeShare`
+  * Store:
 
-1. **Operator Shares**
+    * `operatorShares[epoch][op] += operatorFeeShare`
+    * `operatorBeneficiariesSharesPerCollateralClass[epoch][op][class] = beneficiaryBudget`
 
-   - Based on total stake across asset classes
-   - Weighted by uptime performance
-   - Adjusted by operator fee percentage
+* **Split beneficiary budget to vaults (per operator, class)**
 
-2. **Vault Shares**
+  * For each vault `v` in `class`:
 
-   - Proportional to stake delegated to operators
-   - Weighted by asset class rewards share
-   - Reduced by curator fee
+    * `vaultStakeToOp = stakeAt(v→delegator, class, op, epochStart)`
+    * `opActiveStakeInClass = Σ vaultStakeToOp over all vaults in class`
+    * `vaultSharePreCurator = beneficiaryBudget * (vaultStakeToOp / opActiveStakeInClass)`
+    * `curatorCut = vaultSharePreCurator * curatorFee / 10_000`
+    * Store:
 
-3. **Curator Shares**
-   - Percentage of vault shares based on curator fee
-   - Tracked per vault owner
+      * `vaultShares[epoch][v] += vaultSharePreCurator - curatorCut`
+      * `curatorShares[epoch][owner(v)] += curatorCut`
 
-## Important Notes
+* **Token payouts from an epoch pool `R`**
 
-- Claims can only be made for completed epochs
-- Uptime must be above minimum threshold for rewards
-- Fees cannot exceed 100% in total
-- Undistributed rewards have 2 epoch waiting period
-- Each participant can only claim once per epoch
+  * Operator `op`: `R * operatorShares[epoch][op] / 10_000`
+  * Curator `c`: `R * curatorShares[epoch][c] / 10_000`
+  * Staker `s` in vault `v`:
 
-## Error Handling
+    * `tokensForVault = R * vaultShares[epoch][v] / 10_000`
+    * `sReward = tokensForVault * activeSharesOfAt(s, epochStart) / activeSharesAt(epochStart)`
 
-The system includes comprehensive error checking for:
+---
 
-- Invalid recipients
-- Double claims
-- Incomplete distributions
-- Zero rewards scenarios
-- Invalid fee configurations
-- Missing uptime data
+## Time windows
 
-This rewards system provides a flexible and secure way to distribute staking rewards while ensuring proper incentive alignment between all participants.
+```
+                   ← past                                  now →
+…  N-5  N-4  N-3  N-2  N-1   N   N+1  N+2  N+3  currentEpoch
+      └──── funding window ────┘
+                    └─ earliest distribution for N is when currentEpoch ≥ N+2
+sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplete
+```
+
+* Unfunded epochs:
+
+  * Inside window and operators exist → cannot distribute.
+  * Outside window → can distribute to advance sequence, pays 0.
+
+---
+
+## Storage per epoch
+
+* `epochStatus`: `{ funded, distributionComplete }`
+* `distributionBatches`: `{ lastProcessedOperator, isComplete }`
+* Shares:
+
+  * `operatorShares`, `vaultShares`, `curatorShares`
+  * `operatorBeneficiariesSharesPerCollateralClass`
+* Pools:
+
+  * `rewardsAmountPerTokenFromEpoch[epoch][token]`
+* Claim pointers (per token):
+
+  * `lastEpochClaimedStaker`, `…Curator`, `…Operator`
+* Sweep guard: `_undistributedClaimed[epoch][token]`
+* Curator index: `_epochCurators[epoch]` (unique set)
+
+---
+
+## Roles
+
+* `DEFAULT_ADMIN_ROLE`: can assign manager, protocol owner.
+* `REWARDS_MANAGER_ROLE`: set class weights, fees, min uptime, add distributor.
+* `REWARDS_DISTRIBUTOR_ROLE`: fund epochs, run distribution, sweep leftovers.
+* `PROTOCOL_OWNER_ROLE`: claim protocol fee.
+
+---
+
+## Admin knobs and guards
+
+* Class weights: sum ≤ `10_000`. Per‑class `setRewardsShareForCollateralClass`.
+* Fees: `protocolFee + operatorFee + curatorFee ≤ 10_000`. Update singly or `updateAllFees`.
+* Min uptime: `≤ epochDuration`.
+* Reentrancy: all external mutating flows are `nonReentrant`.
+* Sequential enforcement: cannot distribute `epoch+1` before `epoch` completes.
+
+---
+
+## Edge cases covered
+
+* New or empty class: `totalStake == 0` → skipped, no div‑0.
+* Zero‑uptime or zero‑stake operator: share = 0.
+* Multiple reward tokens in same epoch: independent pointers and pools.
+* No operators: inside window, unfunded epoch does not revert funding check; distribution completes with no shares.
+* Vault removal and class changes: reads historical snapshots via `active*At` and `stakeAt`.
+
+---
+
+## Quick API reference
+
+* `setRewardsAmountForEpochs(start, n, token, amtPerEpoch)` → fund and mark epochs.
+* `distributeRewards(epoch, batchSize)` → compute shares, mark complete when done.
+* `claimRewards(token, to)` → staker claim.
+* `claimOperatorFee(token, to)` → operator claim.
+* `claimCuratorFee(token, to)` → curator claim.
+* `claimProtocolFee(token, to)` → protocol owner claim.
+* `claimUndistributedRewards(epoch, token, to)` → sweep post‑grace.
+* `setRewardsShareForCollateralClass(classId, bp)`, `setMinRequiredUptime(x)`.
+* `updateProtocolFee/OperatorFee/CuratorFee`, `updateAllFees`.
+* `setRewardsDistributorRole(addr)`, `setRewardsManagerRole(addr)`, `setProtocolOwner(addr)`.
+
+---
+
+## Invariants
+
+* `Σshares(epoch) ≤ 10_000 bp` across operators + vaults + curators.
+* Over time: `paidToClaimants(epoch,token) + swept(epoch,token) == rewardsAmountPerTokenFromEpoch[epoch][token]`.
+* Claim pointers only advance over `distributionComplete` epochs, so early claims never skip future rewards.
