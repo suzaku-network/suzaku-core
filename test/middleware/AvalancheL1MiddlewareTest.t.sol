@@ -256,7 +256,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(vId);
             _pushWeight(vId, uint64(v.sentNonce), scaled);
         }
-        middleware.completeStakeUpdate(0);
+        middleware.completeValidatorWeightUpdate(0);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         updatedNodeWeight = middleware.nodeStakeCache(epoch, validationID);
@@ -295,7 +295,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(vId);
             _pushWeight(vId, uint64(v.sentNonce), scaled);
         }
-        middleware.completeStakeUpdate(0);
+        middleware.completeValidatorWeightUpdate(0);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
         epoch = _calcAndWarpOneEpoch();
@@ -695,7 +695,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Try to complete stake update before ack - should revert
         vm.prank(alice);
         vm.expectRevert();
-        middleware.completeStakeUpdate(0);
+        middleware.completeValidatorWeightUpdate(0);
         
         // First complete the stake update, then remove the node
         {
@@ -703,7 +703,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
             _pushWeight(validationID, uint64(v.sentNonce), scaled);
         }
-        middleware.completeStakeUpdate(0);
+        middleware.completeValidatorWeightUpdate(0);
         
         // Verify update was processed and no longer pending
         bool stillPending = IBalancerValidatorManager(balancer).isValidatorPendingWeightUpdate(validationID);
@@ -1054,7 +1054,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(vid);
                 _pushWeight(vid, uint64(v.sentNonce), scaled);
                 vm.prank(alice);
-                middleware.completeStakeUpdate(0);
+                middleware.completeValidatorWeightUpdate(0);
             }
         }
 
@@ -1253,7 +1253,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(vid);
                 _pushWeight(vid, uint64(v.sentNonce), scaled);
                 vm.prank(alice);
-                middleware.completeStakeUpdate(0);
+                middleware.completeValidatorWeightUpdate(0);
             }
         }
 
@@ -1292,7 +1292,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
                 uint64 scaled = StakeConversion.stakeToWeight(newStake, middleware.WEIGHT_SCALE_FACTOR());
                 Validator memory v = IBalancerValidatorManager(balancer).getValidator(vid);
                 _pushWeight(vid, uint64(v.sentNonce), scaled);
-                        middleware.completeStakeUpdate(0);
+                        middleware.completeValidatorWeightUpdate(0);
             }
         }
 
@@ -2385,7 +2385,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
             _pushWeight(validationID, uint64(v.sentNonce), scaled);
         }
-        middleware.completeStakeUpdate(0);
+        middleware.completeValidatorWeightUpdate(0);
         
         // NOW the cache should be updated for next epoch
         uint256 confirmedStake = middleware.nodeStakeCache(nextEpoch, validationID);

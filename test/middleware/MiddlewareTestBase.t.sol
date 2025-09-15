@@ -1016,7 +1016,7 @@ abstract contract MiddlewareTestBase is Test {
                 
                 // Push weight update in the warp messenger
                 uint32 stakeMsgIdx = _pushWeight(validationIdForUpdate, nextNonce, scaledWeight);
-                middleware.completeStakeUpdate(stakeMsgIdx); // permissionless
+                middleware.completeValidatorWeightUpdate(stakeMsgIdx); // permissionless
             }
         }
     }

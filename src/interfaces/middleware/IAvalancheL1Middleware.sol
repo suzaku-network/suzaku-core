@@ -195,25 +195,6 @@ interface IAvalancheL1Middleware {
      */
     function initializeValidatorStakeUpdate(bytes32 nodeId, uint256 stakeAmount) external;
 
-    /**
-     * @notice Finalize a pending validator registration (permissionless)
-     * @param messageIndex The message index
-     */
-    function completeValidatorRegistration(uint32 messageIndex) external;
-
-    /**
-     * @notice Finalize a pending stake update (permissionless)
-     * @param messageIndex The message index
-     */
-    function completeStakeUpdate(uint32 messageIndex) external;
-
-    /**
-     * @notice Finalize a pending validator removal
-     * @param messageIndex The message index
-     */
-    function completeValidatorRemoval(
-        uint32 messageIndex
-    ) external;
 
     /**
      * @notice Slashes an operator's stake
