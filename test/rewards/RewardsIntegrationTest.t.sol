@@ -475,14 +475,9 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint256 undistributedAmount = balAfter - balBefore;
         assertGt(undistributedAmount, 0, "Protocol pool should receive undistributed rewards");
 
-        // Verify rewards amount was reduced by undistributed amount (maintaining accounting invariant)
+        // Base must not mutate; claims use shares against original R to avoid double-scaling
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(token));
-        uint256 expectedRemaining = rewardsAmountBefore - undistributedAmount;
-        assertEq(rewardsAmountAfter, expectedRemaining, "Rewards amount should be reduced by swept amount");
-        assertGt(rewardsAmountAfter, 0, "Some rewards should remain claimable by users");
-        
-        // Verify accounting invariant: remaining + swept = original
-        assertEq(rewardsAmountAfter + undistributedAmount, rewardsAmountBefore, "Accounting invariant should hold");
+        assertEq(rewardsAmountAfter, rewardsAmountBefore, "epoch base must remain unchanged after sweep");
     }
 
     function test_claimUndistributedRewards_revert_InvalidRecipient() public {
@@ -518,18 +513,25 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
 
-        // Complete distribution with partial uptime to ensure there are undistributed rewards
-        test_distributeRewards(3.9 hours);
-
-        // Try to claim before grace period has passed
-        // We need to be at least at epoch + DISTRIBUTION_EARLIEST_OFFSET + CLAIM_GRACE_PERIOD_EPOCHS
-        // but we're only moving 1 epoch forward
-        _moveToNextEpochAndCalc(1);
-
-        uint256 balBefore = token.balanceOf(rewardsDistributor);
+        // Setup and fund the epoch
+        _setupRealStakes(epoch, 3.9 hours);
         vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), 100_000 ether);
+        
+        // Warp to exactly epoch + DISTRIBUTION_EARLIEST_OFFSET (which is 2)
+        // This is the earliest we can distribute
+        _moveToNextEpochAndCalc(rewards.DISTRIBUTION_EARLIEST_OFFSET());
+        
+        // Distribute rewards
+        address[] memory ops = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(ops.length));
+        
+        // We're still at epoch + 2, need to be at epoch + 3 to sweep
+        // So sweep should revert with EpochStillClaimable
+        vm.prank(rewardsDistributor);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.EpochStillClaimable.selector, epoch));
         rewards.claimUndistributedRewards(epoch, address(token), rewardsDistributor);
-        assertGt(token.balanceOf(rewardsDistributor), balBefore, "claim should succeed and credit recipient");
     }
 
     function test_claimUndistributedRewards_revert_NoUndistributedRewards() public {
@@ -593,10 +595,9 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.prank(rewardsDistributor);
         rewards.claimUndistributedRewards(epoch, address(token), rewardsDistributor);
 
-        // Verify remaining rewards are still available
+        // Base must not mutate; users still claim their shares
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(token));
-        assertGt(rewardsAmountAfter, 0, "Should have remaining rewards for users");
-        assertLt(rewardsAmountAfter, rewardsAmountBefore, "Should have reduced rewards after undistributed claim");
+        assertEq(rewardsAmountAfter, rewardsAmountBefore, "base unchanged; users still claim their shares");
 
         // User should still be able to claim their allocated rewards
         vm.prank(staker);

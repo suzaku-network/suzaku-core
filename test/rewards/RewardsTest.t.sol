@@ -765,14 +765,9 @@ contract RewardsTest is Test {
         uint256 undistributedAmount = recipientBalanceAfter - recipientBalanceBefore;
         assertGt(undistributedAmount, 0, "Should receive undistributed rewards");
 
-        // Verify rewards amount was reduced by undistributed amount (maintaining accounting invariant)
+        // Base must not mutate; claims use shares against original R to avoid double-scaling
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
-        uint256 expectedRemaining = rewardsAmountBefore - undistributedAmount;
-        assertEq(rewardsAmountAfter, expectedRemaining, "Rewards amount should be reduced by swept amount");
-        assertGt(rewardsAmountAfter, 0, "Some rewards should remain claimable by users");
-        
-        // Verify accounting invariant: remaining + swept = original
-        assertEq(rewardsAmountAfter + undistributedAmount, rewardsAmountBefore, "Accounting invariant should hold");
+        assertEq(rewardsAmountAfter, rewardsAmountBefore, "epoch base must remain unchanged after sweep");
     }
 
     function test_claimUndistributedRewards_revert_InvalidRecipient() public {
@@ -870,10 +865,9 @@ contract RewardsTest is Test {
         vm.prank(REWARDS_DISTRIBUTOR_ROLE);
         rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_DISTRIBUTOR_ROLE);
 
-        // Verify remaining rewards are still available
+        // Base must not mutate; users still claim their shares
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
-        assertGt(rewardsAmountAfter, 0, "Should have remaining rewards for users");
-        assertLt(rewardsAmountAfter, rewardsAmountBefore, "Should have reduced rewards after undistributed claim");
+        assertEq(rewardsAmountAfter, rewardsAmountBefore, "base unchanged; users still claim their shares");
 
         // User should still be able to claim their allocated rewards
         vm.prank(staker);
@@ -881,6 +875,63 @@ contract RewardsTest is Test {
 
         uint256 stakerBalanceAfter = rewardsToken.balanceOf(staker);
         assertGt(stakerBalanceAfter, stakerBalanceBefore, "Staker should receive their allocated rewards");
+    }
+
+    function test_UndistributedSweep_DoubleScaling_Underpays() public {
+        uint48 epoch = 1;
+        address staker = makeAddr("Staker");
+        
+        // Setup staker balance
+        address vault = vaultManager.getVaults(epoch)[0];
+        MockVault(vault).setActiveBalance(staker, 250_000 * 1e18);
+        uint256 epochTs = middleware.getEpochStartTs(epoch);
+        MockVault(vault).setTotalActiveShares(uint48(epochTs), 1_000_000 * 1e18);
+        
+        // Distribute with partial uptime to create undistributed rewards
+        test_distributeRewards(3.8 hours);
+        
+        // Sanity check: vault should have received shares
+        assertGt(rewards.vaultShares(epoch, vault), 0, "sanity: vault received a share");
+        
+        // Warp past grace period
+        vm.warp(block.timestamp + 3 * middleware.EPOCH_DURATION());
+        
+        // Record state before sweep
+        uint256 stakerBalanceBefore = rewardsToken.balanceOf(staker);
+        uint256 rewardsPoolBefore = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
+        
+        // Calculate expected rewards for staker based on actual shares (not balances)
+        uint256 vaultShare = rewards.vaultShares(epoch, vault);
+        uint256 stakerShares = MockVault(vault).activeSharesOfAt(staker, uint48(epochTs), new bytes(0));
+        uint256 totalShares = MockVault(vault).activeSharesAt(uint48(epochTs), new bytes(0));
+        uint256 expectedStakerRewards = Math.mulDiv(
+            Math.mulDiv(rewardsPoolBefore, vaultShare, rewards.BASIS_POINTS_DENOMINATOR()),
+            stakerShares,
+            totalShares
+        );
+        
+        // Sweep undistributed rewards
+        vm.prank(REWARDS_DISTRIBUTOR_ROLE);
+        rewards.claimUndistributedRewards(epoch, address(rewardsToken), REWARDS_DISTRIBUTOR_ROLE);
+        
+        // After fix: pool base should remain unchanged
+        uint256 rewardsPoolAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(rewardsToken));
+        assertEq(rewardsPoolAfter, rewardsPoolBefore, "Pool base must remain unchanged after sweep");
+        
+        // Staker claims their rewards
+        vm.prank(staker);
+        rewards.claimRewards(address(rewardsToken), staker);
+        
+        uint256 stakerBalanceAfter = rewardsToken.balanceOf(staker);
+        uint256 actualStakerRewards = stakerBalanceAfter - stakerBalanceBefore;
+        
+        // With fix: staker should receive expected amount (within rounding tolerance)
+        assertApproxEqAbs(
+            actualStakerRewards,
+            expectedStakerRewards,
+            1e15, // 0.001 token tolerance for rounding
+            "Staker should receive correct rewards after undistributed sweep"
+        );
     }
 
     function test_claimRewardsForOtherParties() public {
