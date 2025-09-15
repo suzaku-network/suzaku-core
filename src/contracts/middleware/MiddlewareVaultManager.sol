@@ -6,6 +6,7 @@ pragma solidity 0.8.25;
 import {Time} from "@openzeppelin/contracts/utils/types/Time.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableMap} from "@openzeppelin/contracts/utils/structs/EnumerableMap.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 import {IMiddlewareVaultManager} from "../../interfaces/middleware/IMiddlewareVaultManager.sol";
 import {IAvalancheL1Middleware} from "../../interfaces/middleware/IAvalancheL1Middleware.sol";
@@ -19,9 +20,11 @@ import {IVetoSlasher} from "../../interfaces/slasher/IVetoSlasher.sol";
 import {MapWithTimeData} from "./libraries/MapWithTimeData.sol";
 import {AvalancheL1Middleware} from "./AvalancheL1Middleware.sol";
 
-contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
+contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable, AccessControl {
     using EnumerableMap for EnumerableMap.AddressToUintMap;
     using MapWithTimeData for EnumerableMap.AddressToUintMap;
+
+    bytes32 public constant VAULTS_MANAGER_ROLE = keccak256("VAULTS_MANAGER_ROLE");
 
     mapping(address => uint96) public vaultToCollateralClass;
     EnumerableMap.AddressToUintMap private vaults;
@@ -49,6 +52,9 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
         VAULT_REGISTRY = vaultRegistry;
         middleware = AvalancheL1Middleware(payable(middlewareAddress));
         VAULT_REMOVAL_EPOCH_DELAY = vaultRemovalEpochDelay_;
+
+        _grantRole(DEFAULT_ADMIN_ROLE, owner);
+        _grantRole(VAULTS_MANAGER_ROLE, owner);
     }
 
     /**
@@ -57,7 +63,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      * @param collateralClassId The asset class ID for that vault
      * @param vaultMaxL1Limit The maximum stake allowed for this vault
      */
-    function registerVault(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+    function registerVault(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyRole(VAULTS_MANAGER_ROLE) {
         if (vaultMaxL1Limit == 0) {
             revert MiddlewareVaultManager__ZeroVaultMaxL1Limit();
         }
@@ -87,7 +93,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      * @param collateralClassId The asset class ID
      * @param vaultMaxL1Limit The new maximum stake
      */
-    function updateVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyOwner {
+    function updateVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 vaultMaxL1Limit) external onlyRole(VAULTS_MANAGER_ROLE) {
         if (!vaults.contains(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
@@ -120,7 +126,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      */
     function removeVault(
         address vault
-    ) external onlyOwner {
+    ) external onlyRole(VAULTS_MANAGER_ROLE) {
         if (!vaults.contains(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
@@ -148,7 +154,7 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable {
      * @param collateralClassId The asset class ID
      * @param amount The new maximum stake
      */
-    function _setVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 amount) internal onlyOwner {
+    function _setVaultMaxL1Limit(address vault, uint96 collateralClassId, uint256 amount) internal {
         if (!IRegistry(VAULT_REGISTRY).isEntity(vault)) {
             revert MiddlewareVaultManager__NotVault(vault);
         }
