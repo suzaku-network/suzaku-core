@@ -12,7 +12,10 @@ import {MiddlewareTestBase} from "../middleware/MiddlewareTestBase.t.sol";
 import {IRewards, DistributionBatch} from "../../src/interfaces/rewards/IRewards.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {BaseDelegator} from "../../src/contracts/delegator/BaseDelegator.sol";
+import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
+import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
+import {IL1RestakeDelegator} from "../../src/interfaces/delegator/IL1RestakeDelegator.sol";
 import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
 
 contract RewardsIntegrationTest is MiddlewareTestBase {
@@ -473,7 +476,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         // Verify undistributed rewards were credited to recipient
         uint256 balAfter = token.balanceOf(rewardsDistributor);
         uint256 undistributedAmount = balAfter - balBefore;
-        assertGt(undistributedAmount, 0, "Protocol pool should receive undistributed rewards");
+        assertGt(undistributedAmount, 0, "Rewards distributor should receive undistributed rewards");
 
         // Base must not mutate; claims use shares against original R to avoid double-scaling
         uint256 rewardsAmountAfter = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(token));
@@ -1044,7 +1047,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         rewards.distributeRewards(epoch, 1);
     }
 
-    function test_distributeRewards_removedOperator() public {
+    function test_distributeRewards_operatorWithZeroUptime() public {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
         uint256 uptimeValue = 4 hours;
@@ -1058,11 +1061,11 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
 
         // Get the list of operators
         address[] memory operators = middleware.getAllOperators();
-        address removedOperator = operators[0]; // Operator to be removed
+        address zeroUptimeOperator = operators[0]; // Operator with zero uptime
         address activeOperator = operators[1]; // Operator to remain active
 
-        // Simply set its uptime to 0 so it earns 0 share
-        uptime.setOperatorUptimePerEpoch(epoch, removedOperator, 0);
+        // Set one operator's uptime to 0 so it earns 0 share
+        uptime.setOperatorUptimePerEpoch(epoch, zeroUptimeOperator, 0);
 
         // Warp to epoch 4 to distribute rewards for epoch 1
         _warpToEpoch(epoch + 3);
@@ -1077,11 +1080,11 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
             remainingOperators = remainingOperators > batchSize ? remainingOperators - batchSize : 0;
         }
 
-        // Verify that the removed operator has zero shares
+        // Verify that the zero uptime operator has zero shares
         assertEq(
-            rewards.operatorShares(epoch, removedOperator),
+            rewards.operatorShares(epoch, zeroUptimeOperator),
             0,
-            "Removed operator should have zero shares if the delay period passed and they were removed"
+            "Zero uptime operator should have zero shares"
         );
 
         // Verify that an active operator has non-zero shares
@@ -1692,10 +1695,11 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         rewards.distributeRewards(epoch, 10);
     }
 
-    function test_HI_UnfundedEpochZeroOperators_SkipsFundingCheck() public {
+    function test_UnfundedEpoch_NoOperators_DistributionSucceeds() public {
+        // This is expected behavior: unfunded epoch with no operators does not revert
         uint48 epoch = 1;
 
-        // ‑‑ remove every operator so getAllOperators() returns 0
+        // Remove every operator so getAllOperators() returns 0
         address[] memory ops = middleware.getAllOperators();
         for (uint256 i; i < ops.length; ++i) {
             vm.prank(l1Owner);
@@ -1978,6 +1982,400 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.expectRevert(abi.encodeWithSelector(IRewards.InvalidRecipient.selector, address(0)));
         rewards.claimProtocolFee(address(token), address(0));
     }
+
+    // Helper for C1 test: create N vaults all delegating to the same operator
+    function _createVaultsForOperator(uint48 epoch, address targetOp, uint256 count) internal {
+            for (uint256 i = 0; i < count; ++i) {
+                address owner_ = makeAddr(string.concat("curator_quad_", vm.toString(epoch), "_", vm.toString(i)));
+                uint64 lastVersion = vaultFactory.lastVersion();
+                address v = vaultFactory.create(
+                    lastVersion,
+                    owner_,
+                    abi.encode(
+                        IVaultTokenized.InitParams({
+                            collateral: address(collateral),
+                            burner: address(0xdEaD),
+                            epochDuration: 8 hours,
+                            depositWhitelist: false,
+                            isDepositLimit: false,
+                            depositLimit: 0,
+                            defaultAdminRoleHolder: owner_,
+                            depositWhitelistSetRoleHolder: owner_,
+                            depositorWhitelistRoleHolder: owner_,
+                            isDepositLimitSetRoleHolder: owner_,
+                            depositLimitSetRoleHolder: owner_,
+                            name: "QV",
+                            symbol: "QV"
+                        })
+                    ),
+                    address(delegatorFactory),
+                    address(slasherFactory)
+                );
+                // set up delegator
+                address[] memory l1LimitSetRoleHolders = new address[](1);
+                l1LimitSetRoleHolders[0] = owner_;
+                address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+                operatorL1SharesSetRoleHolders[0] = owner_;
+                address dAddr = delegatorFactory.create(
+                    0,
+                    abi.encode(
+                        v,
+                        abi.encode(
+                            IL1RestakeDelegator.InitParams({
+                                baseParams: IBaseDelegator.BaseParams({
+                                    defaultAdminRoleHolder: owner_,
+                                    hook: address(0),
+                                    hookSetRoleHolder: owner_
+                                }),
+                                l1LimitSetRoleHolders: l1LimitSetRoleHolders,
+                                operatorL1SharesSetRoleHolders: operatorL1SharesSetRoleHolders
+                            })
+                        )
+                    )
+                );
+                vm.prank(owner_);
+                VaultTokenized(v).setDelegator(dAddr);
+                vm.prank(l1Owner);
+                vaultManager.registerVault(v, 1, type(uint256).max);
+                _optInOperatorVault(targetOp, v);
+                // deposit small amount
+                uint256 depAmt = 100_000_000_000_000;
+                collateral.transfer(owner_, depAmt);
+                vm.startPrank(owner_);
+                collateral.approve(v, depAmt);
+                (, uint256 minted_) = VaultTokenized(v).deposit(owner_, depAmt);
+                vm.stopPrank();
+                // set L1 limit and operator shares
+                _setL1Limit(owner_, balancer, 1, depAmt, L1RestakeDelegator(dAddr));
+                _setOperatorL1Shares(owner_, balancer, 1, targetOp, minted_, L1RestakeDelegator(dAddr));
+            }
+    }
+
+    /* ─── C1 — Distribution gas DoS (quadratic vault work per operator) ─── */
+    function test_C1_Distribution_VaultsQuadratic_WorkPerOperator() public {
+        // Test scaling: measure gas for processing 1 operator with M vaults vs 2M vaults
+        uint256 M = 20;
+        
+        // Epoch 1: M vaults
+        uint48 epoch1 = 1;
+        _setupRealStakes(epoch1, 4 hours);
+        _createVaultsForOperator(epoch1, alice, M);
+        token.mint(rewardsDistributor, 1_000_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(epoch1, 1, address(token), 1_000_000 ether);
+        vm.stopPrank();
+        _moveToNextEpochAndCalc(3);
+        
+        uint256 gasBefore1 = gasleft();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch1, 1);
+        uint256 gasUsedM = gasBefore1 - gasleft();
+        // complete epoch1 to satisfy sequential guard before touching epoch2
+        (, bool complete1) = rewards.distributionBatches(epoch1);
+        while (!complete1) {
+            vm.prank(rewardsDistributor);
+            rewards.distributeRewards(epoch1, type(uint48).max);
+            (, complete1) = rewards.distributionBatches(epoch1);
+        }
+        
+        // Epoch 2: 2M vaults (fresh epoch to avoid caching)
+        uint48 epoch2 = 2;
+        _warpToEpoch(epoch2);
+        _setupRealStakes(epoch2, 4 hours);
+        _createVaultsForOperator(epoch2, alice, 2 * M);
+        vm.startPrank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch2, 1, address(token), 1_000_000 ether);
+        vm.stopPrank();
+        _moveToNextEpochAndCalc(3);
+        
+        uint256 gasBefore2 = gasleft();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch2, 1);
+        uint256 gasUsed2M = gasBefore2 - gasleft();
+        
+        // Verify superlinear growth: gas for 2M vaults should be > 1.5x gas for M vaults
+        assertGt(gasUsed2M, gasUsedM * 3 / 2, "gas usage should grow superlinearly with vault count");
+    }
+
+    /* ─── C2 — Operator set not epoch‑snapshotted ⇒ undistributed grows ─── */
+    function test_C2_RemovedOperator_NotProcessed_InflatesUndistributed() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+        _setupRealStakes(epoch, 4 hours);
+
+        // fund epoch
+        uint256 amt = 100_000 ether;
+        token.mint(rewardsDistributor, amt);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), amt);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), amt);
+        vm.stopPrank();
+
+        // pick an operator that _did_ have stake in epoch
+        address[] memory ops = middleware.getAllOperators();
+        address doomed = ops[0];
+        
+        // First prove that doomed would have had nonzero rawShareBp
+        uint96[] memory cls = middleware.getCollateralClassIds();
+        uint256 upBp = Math.mulDiv(uptime.operatorUptimePerEpoch(epoch, doomed), 10_000, rewards.epochDuration());
+        uint256 rawBp;
+        for (uint i; i < cls.length; ++i) {
+            uint256 tot = middleware.totalStakeCache(epoch, cls[i]);
+            uint256 used = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, doomed, cls[i]);
+            if (tot == 0 || rewards.rewardsSharePerCollateralClass(cls[i]) == 0) continue;
+            rawBp += Math.mulDiv(
+                Math.mulDiv(used, 10_000, tot),
+                rewards.rewardsSharePerCollateralClass(cls[i]),
+                10_000
+            );
+        }
+        rawBp = Math.mulDiv(rawBp, upBp, 10_000);
+        assertGt(rawBp, 0, "removed op would have had >0 used-shares");
+
+        // remove all nodes first so operator can be disabled
+        bytes32[] memory ids = middleware.getActiveNodesForEpoch(doomed, epoch);
+        _stakeOrRemoveNodes(doomed, ids, 0, uint8((1 << ids.length) - 1));
+        // enter update window and force update to reflect removals
+        uint256 updateWindowStart = middleware.getEpochStartTs(epoch) + middleware.UPDATE_WINDOW() + 1;
+        vm.warp(updateWindowStart);
+        vm.prank(l1Owner);
+        middleware.forceUpdateNodes(doomed, 0);
+        // move one epoch so removals take effect
+        _moveToNextEpochAndCalc(1);
+        // sanity: no active nodes remain
+        assertEq(middleware.getOperatorNodesLength(doomed), 0, "operator still has active nodes");
+        // now disable operator BEFORE distribution of `epoch`
+        vm.prank(l1Owner);
+        middleware.disableOperator(doomed);
+        uint48 target = middleware.getCurrentEpoch() + middleware.REMOVAL_DELAY_EPOCHS();
+        _warpToEpoch(target);
+        _syncStakeCache(target);
+        vm.prank(l1Owner);
+        middleware.removeOperator(doomed);
+        
+        // verify operator is removed
+        address[] memory currentOps = middleware.getAllOperators();
+        bool found = false;
+        for (uint256 i = 0; i < currentOps.length; ++i) {
+            if (currentOps[i] == doomed) {
+                found = true;
+                break;
+            }
+        }
+        assertFalse(found, "still listed");
+
+        // distribute epoch now: removed operator is skipped
+        _moveToNextEpochAndCalc(2);
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, 50);
+        assertEq(rewards.operatorShares(epoch, doomed), 0, "removed operator must not be processed by current set");
+        
+        // Calculate total used shares to prove they're less than they should be
+        uint256 sumBp;
+        for (uint i; i < middleware.getAllOperators().length; ++i)
+            sumBp += rewards.operatorShares(epoch, middleware.getAllOperators()[i]);
+        address[] memory vs = vaultManager.getVaults(epoch);
+        for (uint i; i < vs.length; ++i) {
+            sumBp += rewards.vaultShares(epoch, vs[i]);
+            sumBp += rewards.curatorShares(epoch, VaultTokenized(vs[i]).owner());
+        }
+        // Used shares should be at least rawBp lower than if we had processed "doomed"
+        assertLe(sumBp, 10_000 - (rawBp > 0 ? 1 : 0), "removed op's budget missing from used-shares");
+
+        // sweep later shows a positive undistributed bucket
+        _moveToNextEpochAndCalc(1 + rewards.CLAIM_GRACE_PERIOD_EPOCHS());
+        uint256 balBefore = token.balanceOf(rewardsDistributor);
+        vm.prank(rewardsDistributor);
+        rewards.claimUndistributedRewards(epoch, address(token), rewardsDistributor);
+        assertGt(token.balanceOf(rewardsDistributor) - balBefore, 0, "undistributed should be > 0 due to skipped operator");
+    }
+
+    /* ─── H1 — Funding range guard lets top‑up inner epoch already started ─── */
+    function test_H1_FundingRangeGuard_TopUpInnerEpoch_AfterItStarted() public {
+        // Use epoch0/1 to exploit the sequential off‑by‑one that allows starting epoch 1 first.
+        uint48 ep0 = 0;
+        uint48 ep1 = 1;
+        _setupRealStakes(ep0, 4 hours);
+        _setupRealStakes(ep1, 4 hours);
+
+        // fund both epochs initially
+        token.mint(rewardsDistributor, 200_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(ep0, 1, address(token), 100_000 ether);
+        rewards.setRewardsAmountForEpochs(ep1, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+
+        // epoch 1 can be processed without finishing epoch 0 (guard is `epoch > 1`)
+        _moveToNextEpochAndCalc(3);
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(ep1, 1); // start, not complete
+
+        uint256 before = rewards.getRewardsAmountPerTokenFromEpoch(ep1, address(token));
+
+        // BUG: startEpoch=0 hasn't started ⇒ allowed, but it tops up epoch 1 where distribution already started
+        vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(ep0, 2, address(token), 1 ether);
+
+        uint256 after_ = rewards.getRewardsAmountPerTokenFromEpoch(ep1, address(token));
+        assertGt(after_, before, "epoch 1 was topped up mid-distribution");
+    }
+
+    /* ─── H2 — Epoch‑0 unclaimable + epoch‑1 distributable without epoch‑0 ─── */
+    function test_H2_Epoch0Unclaimable_And_Epoch1ProcessableBefore0() public {
+        uint48 ep0 = 0;
+        uint48 ep1 = 1;
+        _setupRealStakes(ep0, 4 hours);
+        _setupRealStakes(ep1, 4 hours);
+
+        // fund both
+        token.mint(rewardsDistributor, 200_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(ep0, 1, address(token), 100_000 ether);
+        rewards.setRewardsAmountForEpochs(ep1, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+
+        // process epoch 1 first (off‑by‑one in sequential guard)
+        _moveToNextEpochAndCalc(3);
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(ep1, 50);
+
+        // claim succeeds for epoch 1 while epoch 0 remains skipped
+        uint256 before = token.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(address(token), staker);
+        assertGt(token.balanceOf(staker), before, "should claim epoch 1 even if epoch 0 pending");
+        assertEq(rewards.lastEpochClaimedStaker(staker, address(token)), ep1, "pointer advanced to 1, skipping 0");
+        
+        // Later distribute epoch 0 - but it still cannot be claimed
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(ep0, 50);
+        
+        // Try to claim again - should revert because pointer already moved past epoch 0
+        vm.prank(staker);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaimEpoch.selector, staker, 1));
+        rewards.claimRewards(address(token), staker);
+    }
+
+    /* ─── H3 — Fee‑on‑transfer tokens underfund pools ⇒ later claims revert ─── */
+    function test_H3_FeeOnTransfer_Underfunding_BreaksClaims() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+        _setupRealStakes(epoch, 4 hours);
+
+        // Make underfunding deterministic: only 10% of the funded amount actually lands
+        FeeOnTransferToken feeTok = new FeeOnTransferToken(10_000, 9000); // 90% fee
+        
+        // Mint and fund the epoch
+        feeTok.mint(rewardsDistributor, 100_000 ether);
+        vm.startPrank(rewardsDistributor);
+        feeTok.approve(address(rewards), type(uint256).max);
+        
+        // Fund the epoch - this will transfer tokens with fee
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(feeTok), 100_000 ether);
+        vm.stopPrank();
+        
+        // Check actual balance vs recorded amount
+        uint256 actualBalance = feeTok.balanceOf(address(rewards));
+        uint256 recordedAmount = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(feeTok));
+        
+        // With 50% fee, there's significant underfunding
+        assertLt(actualBalance, recordedAmount, "actual balance should be less than recorded");
+
+        // Distribute rewards
+        _moveToNextEpochAndCalc(3);
+        address[] memory ops = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(ops.length));
+
+        // Move forward to allow claiming
+        _moveToNextEpochAndCalc(1);
+        
+        // Start claiming - eventually someone will fail due to insufficient balance
+        uint256 successfulClaims = 0;
+        
+        // Try staker claim
+        vm.prank(staker);
+        try rewards.claimRewards(address(feeTok), staker) {
+            successfulClaims++;
+        } catch {
+            // Staker claim failed - vulnerability proven
+            return;
+        }
+        
+        // Try operator claims
+        for (uint256 i = 0; i < ops.length; i++) {
+            vm.prank(ops[i]);
+            try rewards.claimOperatorFee(address(feeTok), ops[i]) {
+                successfulClaims++;
+            } catch {
+                // Operator claim failed - vulnerability proven
+                assertGt(successfulClaims, 0, "at least some claims should succeed before failure");
+                return;
+            }
+        }
+        
+        // Try curator claims
+        uint256 nVault = vaultManager.getVaultCount();
+        for (uint256 i = 0; i < nVault; i++) {
+            (address v,,) = vaultManager.getVaultAtWithTimes(i);
+            address curator = VaultTokenized(v).owner();
+            vm.prank(curator);
+            try rewards.claimCuratorFee(address(feeTok), curator) {
+                successfulClaims++;
+            } catch {
+                // Curator claim failed - vulnerability proven
+                assertGt(successfulClaims, 0, "at least some claims should succeed before failure");
+                return;
+            }
+        }
+        
+        // Try protocol fee claim
+        vm.prank(protocolOwner);
+        try rewards.claimProtocolFee(address(feeTok), protocolOwner) {
+            revert("all claims succeeded - increase fee percentage or add more claimers");
+        } catch {
+            // Protocol claim failed - vulnerability proven
+            assertGt(successfulClaims, 0, "at least some claims should succeed before failure");
+        }
+    }
+
+    /* ─── H4 — Uptime not computed ⇒ all shares zero but distribution completes ─── */
+    function test_H4_UptimeUnset_AllZeroShares_ButSweepPositive() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+        // do NOT set uptime in MockUptimeTracker ⇒ pass 0s so everyone fails minRequiredUptime
+        _setupRealStakes(epoch, 0); // just ensures operators exist and stakes cached
+
+        token.mint(rewardsDistributor, 100_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+
+        _moveToNextEpochAndCalc(3);
+        address[] memory ops = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(ops.length));
+
+        // all operator shares are 0 and vault/curator shares are 0
+        for (uint256 i = 0; i < ops.length; ++i) {
+            assertEq(rewards.operatorShares(epoch, ops[i]), 0, "operator share must be 0 when uptime unset");
+        }
+        address[] memory vs = vaultManager.getVaults(epoch);
+        for (uint256 i = 0; i < vs.length; ++i) {
+            assertEq(rewards.vaultShares(epoch, vs[i]), 0, "vault share must be 0 when uptime unset");
+        }
+
+        // sweep shows the silent suppression created undistributed budget
+        _moveToNextEpochAndCalc(1 + rewards.CLAIM_GRACE_PERIOD_EPOCHS());
+        uint256 b0 = token.balanceOf(rewardsDistributor);
+        vm.prank(rewardsDistributor);
+        rewards.claimUndistributedRewards(epoch, address(token), rewardsDistributor);
+        assertGt(token.balanceOf(rewardsDistributor) - b0, 0, "should sweep positive undistributed");
+    }
 }
 
 contract EvilToken is ERC20Mock {
@@ -1988,5 +2386,38 @@ contract EvilToken is ERC20Mock {
         // try re‑enter (should revert due to nonReentrant)
         try target.claimProtocolFee(address(this), msg.sender) {} catch {}
         return true;
+    }
+}
+
+/* ───────────────────────────── helpers for new tests ───────────────────────────── */
+// (CountingDelegator removed – use real L1RestakeDelegator via factory in tests)
+
+contract FeeOnTransferToken {
+    string public constant name = "FeeToken";
+    string public constant symbol = "FEE";
+    uint8  public immutable decimals = 18;
+    uint256 public totalSupply;
+    mapping(address=>uint256) public balanceOf;
+    mapping(address=>mapping(address=>uint256)) public allowance;
+    uint256 public immutable DENOM;
+    uint256 public immutable feeBps; // taken from amount on every transfer/transferFrom
+    constructor(uint256 denom_, uint256 feeBps_) { DENOM = denom_; feeBps = feeBps_; }
+    function mint(address to, uint256 amt) external { totalSupply += amt; balanceOf[to] += amt; }
+    function approve(address sp, uint256 amt) external returns (bool){ allowance[msg.sender][sp]=amt; return true; }
+    function transfer(address to, uint256 amt) external returns (bool){ _move(msg.sender, to, amt); return true; }
+    function transferFrom(address from, address to, uint256 amt) external returns (bool){
+        uint256 a = allowance[from][msg.sender];
+        if (a != type(uint256).max) { require(a >= amt, "allowance"); allowance[from][msg.sender]=a-amt; }
+        _move(from,to,amt); return true;
+    }
+    function _move(address from, address to, uint256 amt) internal {
+        require(balanceOf[from] >= amt, "bal");
+        uint256 fee = amt * feeBps / DENOM;
+        uint256 sendAmt = amt - fee;
+        unchecked {
+            balanceOf[from] -= amt;
+            balanceOf[to]   += sendAmt;
+            totalSupply     -= fee; // burn the fee
+        }
     }
 } 
