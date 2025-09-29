@@ -15,7 +15,7 @@ import {console2} from "forge-std/console2.sol";
 import {IAvalancheL1Middleware} from "src/interfaces/middleware/IAvalancheL1Middleware.sol";
 import {IBalancerValidatorManager} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
-contract PoCMissingLockingRewards is MiddlewareTestBase {
+contract AvalancheL1MiddlewareStakeLockingTest is MiddlewareTestBase {
     // helpers & globals
     MockUptimeTracker internal uptimeTracker;
     // Simulates uptime records
@@ -27,7 +27,7 @@ contract PoCMissingLockingRewards is MiddlewareTestBase {
     address internal REWARDS_DISTRIBUTOR_ROLE = makeAddr("REWARDS_DISTRIBUTOR_ROLE");
 
     // Main exploit routine ----------------------------------------------------
-    function test_PoCRewardsManipulated() public {
+    function test_StakeLockingRewardsManipulation() public {
         _setupRewards();
         // 1. deploy & fund rewards system
         address[] memory operators = middleware.getAllOperators();

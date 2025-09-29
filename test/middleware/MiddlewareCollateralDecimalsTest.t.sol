@@ -35,7 +35,7 @@ import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/I
 import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
 import {Token} from "../mocks/Token.sol";
 
-contract pocAuditOctane is Test {
+contract MiddlewareCollateralDecimalsTest is Test {
     // Constants
     address constant WARP = 0x0200000000000000000000000000000000000005;
     

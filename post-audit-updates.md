@@ -4,8 +4,8 @@ Analysis of changes from Cyfrin Audit to current implementation in `src/` (exclu
 
 **Commit Range:**
 - **From:** [`7381169`](https://github.com/suzaku-network/suzaku-core/commit/7381169) (Cyfrin Audit baseline)
-- **To:** [`51e1f99f`](https://github.com/suzaku-network/suzaku-core/commit/51e1f99f) (Current implementation)
-- **View Full Diff:** [`7381169...51e1f99f`](https://github.com/suzaku-network/suzaku-core/compare/7381169...51e1f99f)
+- **To:** [`837da30`](https://github.com/suzaku-network/suzaku-core/commit/837da30) (Current implementation)
+- **View Full Diff:** [`7381169...837da30`](https://github.com/suzaku-network/suzaku-core/compare/7381169...837da30)
 
 ## Index
 
@@ -22,24 +22,24 @@ Analysis of changes from Cyfrin Audit to current implementation in `src/` (exclu
 
 ## Key & Breaking Changes
 
-1. **Version alignment** - Middleware targets Balancer v2.1.0 and Validator Manager v2.1.0 and its ISecurityModule interface adoption
+1. **Version alignment** - Middleware targets `BalancerValidatorManager` v2 upgraded to support [Validator Manager v2.1.0](https://github.com/ava-labs/icm-contracts/tree/validator-manager-v2.1.0) and introducing [ISecurityModule](https://github.com/suzaku-network/suzaku-contracts-library/blob/main/src/interfaces/ValidatorManager/ISecurityModule.sol) interface adoption
 2. **Asset → Collateral naming** - All external calls must update references
 3. **Role-based access control** - Replaced `onlyOwner` with AccessControl roles (must grant before use)
-4. **Validator API changes** - New `initiate*` methods and permissionless `complete*` functions
-5. **Complete functions are now permissionless** - Anyone can call them (returns validation IDs)
+4. **Validator API changes** - New `initiate*` methods
+5. **`complete*` functions are now permissionless** - Anyone can call them (returns validation IDs)
 6. **Validator registration API changed** - Direct parameters instead of struct input
 7. **Node ID → Validation ID** - Lookup via `getNodeValidationID` instead of `registeredValidators`
-8. **ERC20 decimals validation** - All assets in collateral class must have same decimals
+8. **ERC20 decimals validation** - All assets in a collateral class must have the same number of decimals
 9. **Vault share calculation** - Now based on actual delegations not cached stakes
 10. **Rewards distribution** - New safeguards: underflow protection, funding checks, middleware epoch sources
-11. **Registry changes** - L1Registry tracks balancers (not raw validator managers)
-12. **Private mappings** - `validationIdToOperator` and `operatorStakeCache` now private
-13. **Test architecture** - Real deployments replace mocks, multi-actor role model
+11. **Registry changes** - L1Registry tracks `BalancerValidatorManager`s (not raw `ValidatorManager`s)
+12. **Private mappings** - `validationIdToOperator` and `operatorStakeCache` are now private
+13. **Test architecture** - Real deployments replace mocks with a multi-actors / roles model
 
 ## AvalancheL1Middleware.sol Changes
 
 **Architecture & Interface Changes:**
-- Middleware now targets Balancer v2.1.0 and Validator Manager v2.1.0. Updates include the `initiate*/complete*` API set, `getNodeValidationID(...)`, and `Validator.{startTime,endTime}`.
+- Middleware now targets BalancerValidatorManager v0.1.0 upgraded to support Validator Manager v2.1.0. Updates include the `initiate*/complete*` API set, `getNodeValidationID(...)`, and `Validator.{startTime,endTime}`.
 - Now implements `ISecurityModule` interface and adds ERC-165 `supportsInterface` override.
 - Complete functions (`completeValidatorRegistration`, `completeValidatorRemoval`, `completeValidatorWeightUpdate`) are permissionless and return values per `ISecurityModule`.
 - Added `AccessControl` inheritance (via `CollateralClassRegistry`).
@@ -184,7 +184,11 @@ Major refactor to move from mock-heavy unit tests to realistic integration tests
   - Imports migrated `@avalabs/teleporter` → `@avalabs/icm-contracts` with real interfaces (`IACP99Manager`, etc.).
   - New end-to-end suites:
     - `RewardsIntegrationTest.t.sol` (~2.4k LOC): multi-collateral, delegation, distribution.
-    - `pocAuditOctane.t.sol` (~1.0k LOC): complete system bring-up using production scripts.
+    - `MiddlewareCollateralDecimalsTest.t.sol` (~1.0k LOC): complete system bring-up using production scripts, testing collateral decimals handling scenarios.
+  - Audit-specific test suites (addressing identified vulnerabilities):
+    - `AvalancheL1MiddlewareStakeLockingTest.t.sol`: tests stake-locking mechanisms in `addNode()` to prevent rewards manipulation.
+    - `AvalancheL1MiddlewareNodeRemovalTest.t.sol`: tests proper node removal to prevent phantom/irremovable nodes.
+    - `RewardsSharesOverflowTest.t.sol`: tests correct sum-of-shares calculation to prevent overflow issues.
   - Deployment scripts provision Balancer/Validator Manager v2.1.0 to match middleware APIs.
 
 - **Mocks cleanup**:
