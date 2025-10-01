@@ -70,21 +70,27 @@ contract LSTHelper is ReentrancyGuard {
         if (user == address(0)) revert LSTHelper__InvalidUser(user);
         if (amount == 0) revert LSTHelper__InvalidAmount(amount);
 
-        // --- Step 1: Pull underlying tokens from msg.sender into proxy ---
+        // --- Step 1: Measure balance before the transfer ---
+        uint256 balanceBefore = IERC20(underlying).balanceOf(address(this));
+
+        // --- Step 2: Pull underlying tokens from msg.sender into proxy ---
         IERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
 
-        // --- Step 2: Approve collateral contract to pull underlying from proxy ---
-        IERC20(underlying).forceApprove(collateral, amount);
+        // --- Step 3: Calculate the actual amount received ---
+        uint256 actualAmount = IERC20(underlying).balanceOf(address(this)) - balanceBefore;
 
-        // --- Step 3: Deposit underlying into collateral, minting collateral tokens to proxy ---
-        uint256 collateralAmount = IDefaultCollateral(collateral).deposit(address(this), amount);
-        if (collateralAmount == 0) revert LSTHelper__ZeroCollateralMint(amount, collateral);
+        // --- Step 4: Approve collateral contract to pull the actual amount from proxy ---
+        IERC20(underlying).forceApprove(collateral, actualAmount);
+
+        // --- Step 5: Deposit actual amount into collateral, minting collateral tokens to proxy ---
+        uint256 collateralAmount = IDefaultCollateral(collateral).deposit(address(this), actualAmount);
+        if (collateralAmount == 0) revert LSTHelper__ZeroCollateralMint(actualAmount, collateral);
         IERC20(underlying).forceApprove(collateral, 0);
 
-        // --- Step 4: Approve vault to pull collateral tokens from proxy ---
+        // --- Step 6: Approve vault to pull collateral tokens from proxy ---
         IERC20(collateral).forceApprove(vault, collateralAmount);
 
-        // --- Step 5: Deposit collateral into vault on behalf of the receiver (`user`) ---
+        // --- Step 7: Deposit collateral into vault on behalf of the receiver (`user`) ---
         IVaultTokenized(vault).deposit(user, collateralAmount);
         IERC20(collateral).forceApprove(vault, 0);
     }
