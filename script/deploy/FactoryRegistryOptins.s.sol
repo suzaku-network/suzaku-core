@@ -13,7 +13,7 @@ import {L1Registry} from "../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
 import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
-import {LSTHelper} from "../../src/contracts/LSTHelper.sol";
+import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
 
 contract DeployFactoriesRegistriesOptIns is Script {
     using stdJson for string;
@@ -36,7 +36,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
             address operatorRegistryAddr,
             address operatorVaultOptInServiceAddr,
             address operatorL1OptInServiceAddr,
-            address lstHelperAddr
+            address vaultHelperAddr
         )
     {
         vm.startBroadcast();
@@ -59,8 +59,8 @@ contract DeployFactoriesRegistriesOptIns is Script {
         OperatorL1OptInService operatorL1OptInService =
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
-        // Deploy LSTHelper
-        LSTHelper lstHelper = new LSTHelper(address(vaultFactory));
+        // Deploy VaultHelper
+        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory));
 
         vm.stopBroadcast();
 
@@ -72,7 +72,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
         operatorRegistryAddr = address(operatorRegistry);
         operatorVaultOptInServiceAddr = address(operatorVaultOptInService);
         operatorL1OptInServiceAddr = address(operatorL1OptInService);
-        lstHelperAddr = address(lstHelper);
+        vaultHelperAddr = address(vaultHelper);
 
         return (
             vaultFactoryAddr,
@@ -82,7 +82,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
             operatorRegistryAddr,
             operatorVaultOptInServiceAddr,
             operatorL1OptInServiceAddr,
-            lstHelperAddr
+            vaultHelperAddr
         );
     }
 }

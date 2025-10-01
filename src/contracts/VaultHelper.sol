@@ -22,7 +22,7 @@ struct PendingWithdraw {
     uint256 epoch;
 }
 
-contract LSTHelper is ReentrancyGuard {
+contract VaultHelper is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     uint256 constant BASIS_POINTS_DENOMINATOR = 10_000;
@@ -30,18 +30,18 @@ contract LSTHelper is ReentrancyGuard {
     IRegistry public immutable VAULT_FACTORY;
 
     constructor(address vaultFactory_) {
-        if (vaultFactory_ == address(0)) revert LSTHelper__ZeroAddress("vaultFactory");
+        if (vaultFactory_ == address(0)) revert VaultHelper__ZeroAddress("vaultFactory");
         VAULT_FACTORY = IRegistry(vaultFactory_);
     }
 
     // Custom errors
-    error LSTHelper__InvalidUser(address user);
-    error LSTHelper__InvalidAmount(uint256 amount);
-    error LSTHelper__ZeroAddress(string param);
-    error LSTHelper__ZeroCollateralMint(uint256 depositAmount, address collateral);
-    error LSTHelper__InvalidVaultShare(uint256 share);
-    error LSTHelper__InvalidVault(address vault);
-    error LSTHelper__InvalidRange();
+    error VaultHelper__InvalidUser(address user);
+    error VaultHelper__InvalidAmount(uint256 amount);
+    error VaultHelper__ZeroAddress(string param);
+    error VaultHelper__ZeroCollateralMint(uint256 depositAmount, address collateral);
+    error VaultHelper__InvalidVaultShare(uint256 share);
+    error VaultHelper__InvalidVault(address vault);
+    error VaultHelper__InvalidRange();
 
     // -------------------------------
     // Proxy function
@@ -49,7 +49,7 @@ contract LSTHelper is ReentrancyGuard {
 
     /**
      * @notice Stakes an asset in a vault on behalf of a receiver.
-     * @dev The caller (msg.sender) needs to approve the LSTHelper to pull the underlying tokens from them.
+     * @dev The caller (msg.sender) needs to approve the VaultHelper to pull the underlying tokens from them.
      * @param vault Address of the vault.
      * @param user Address of the receiver who will get the vault shares.
      * @param collateral Address of the collateral.
@@ -63,12 +63,12 @@ contract LSTHelper is ReentrancyGuard {
         address underlying,
         uint256 amount
     ) external nonReentrant {
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
-        if (!VAULT_FACTORY.isEntity(vault)) revert LSTHelper__InvalidVault(vault);
-        if (collateral == address(0)) revert LSTHelper__ZeroAddress("collateral");
-        if (underlying == address(0)) revert LSTHelper__ZeroAddress("underlying");
-        if (user == address(0)) revert LSTHelper__InvalidUser(user);
-        if (amount == 0) revert LSTHelper__InvalidAmount(amount);
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+        if (collateral == address(0)) revert VaultHelper__ZeroAddress("collateral");
+        if (underlying == address(0)) revert VaultHelper__ZeroAddress("underlying");
+        if (user == address(0)) revert VaultHelper__InvalidUser(user);
+        if (amount == 0) revert VaultHelper__InvalidAmount(amount);
 
         // --- Step 1: Measure balance before the transfer ---
         uint256 balanceBefore = IERC20(underlying).balanceOf(address(this));
@@ -84,7 +84,7 @@ contract LSTHelper is ReentrancyGuard {
 
         // --- Step 5: Deposit actual amount into collateral, minting collateral tokens to proxy ---
         uint256 collateralAmount = IDefaultCollateral(collateral).deposit(address(this), actualAmount);
-        if (collateralAmount == 0) revert LSTHelper__ZeroCollateralMint(actualAmount, collateral);
+        if (collateralAmount == 0) revert VaultHelper__ZeroCollateralMint(actualAmount, collateral);
         IERC20(underlying).forceApprove(collateral, 0);
 
         // --- Step 6: Approve vault to pull collateral tokens from proxy ---
@@ -108,8 +108,8 @@ contract LSTHelper is ReentrancyGuard {
         address vault,
         address user
     ) external view returns (PendingWithdraw[] memory pendingWithdraws) {
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
-        if (user == address(0)) revert LSTHelper__InvalidUser(user);
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (user == address(0)) revert VaultHelper__InvalidUser(user);
         uint256 currentEpoch = IVaultTokenized(vault).currentEpoch();
 
         uint256 count;
@@ -148,9 +148,9 @@ contract LSTHelper is ReentrancyGuard {
         uint256 fromEpoch,
         uint256 toEpoch
     ) external view returns (PendingWithdraw[] memory pendingWithdraws) {
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
-        if (user == address(0)) revert LSTHelper__InvalidUser(user);
-        if (toEpoch <= fromEpoch) revert LSTHelper__InvalidRange();
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (user == address(0)) revert VaultHelper__InvalidUser(user);
+        if (toEpoch <= fromEpoch) revert VaultHelper__InvalidRange();
         
         uint256 count;
         for (uint256 i = fromEpoch; i < toEpoch; i++) {
@@ -183,8 +183,8 @@ contract LSTHelper is ReentrancyGuard {
         address vault,
         address user
     ) external view returns (PendingWithdraw[] memory pendingWithdraws) {
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
-        if (user == address(0)) revert LSTHelper__InvalidUser(user);
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (user == address(0)) revert VaultHelper__InvalidUser(user);
         uint256 currentEpoch = IVaultTokenized(vault).currentEpoch();
 
         uint256 count;
@@ -219,9 +219,9 @@ contract LSTHelper is ReentrancyGuard {
         address vault,
         address[] memory rewardsTokens
     ) external view returns (ClaimAmountsPerToken[] memory) {
-        if (staker == address(0)) revert LSTHelper__InvalidUser(staker);
-        if (rewards == address(0)) revert LSTHelper__ZeroAddress("rewards");
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
+        if (staker == address(0)) revert VaultHelper__InvalidUser(staker);
+        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
         ClaimAmountsPerToken[] memory claimAmountsPerToken = new ClaimAmountsPerToken[](rewardsTokens.length);
         for (uint256 i = 0; i < rewardsTokens.length; i++) {
             claimAmountsPerToken[i] = getStakerClaimableReward(staker, rewards, vault, rewardsTokens[i]);
@@ -242,10 +242,10 @@ contract LSTHelper is ReentrancyGuard {
         address vault,
         address rewardsToken
     ) public view returns (ClaimAmountsPerToken memory) {
-        if (staker == address(0)) revert LSTHelper__InvalidUser(staker);
-        if (rewards == address(0)) revert LSTHelper__ZeroAddress("rewards");
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
-        if (rewardsToken == address(0)) revert LSTHelper__ZeroAddress("rewardsToken");
+        if (staker == address(0)) revert VaultHelper__InvalidUser(staker);
+        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (rewardsToken == address(0)) revert VaultHelper__ZeroAddress("rewardsToken");
         uint48 currentEpoch = Rewards(rewards).middleware().getCurrentEpoch();
         uint48 lastClaimedEpoch = Rewards(rewards).lastEpochClaimedStaker(staker, rewardsToken);
 
@@ -264,7 +264,7 @@ contract LSTHelper is ReentrancyGuard {
 
             uint256 vaultShare = Rewards(rewards).vaultShares(epoch, vault);
             if (vaultShare == 0) continue;
-            if (vaultShare > BASIS_POINTS_DENOMINATOR) revert LSTHelper__InvalidVaultShare(vaultShare);
+            if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
 
             uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(staker, epochTs, "");
             if (stakerVaultShare == 0) continue;
@@ -300,11 +300,11 @@ contract LSTHelper is ReentrancyGuard {
         uint48 fromEpoch,
         uint48 toEpoch
     ) external view returns (ClaimAmountsPerToken memory) {
-        if (staker == address(0)) revert LSTHelper__InvalidUser(staker);
-        if (rewards == address(0)) revert LSTHelper__ZeroAddress("rewards");
-        if (vault == address(0)) revert LSTHelper__ZeroAddress("vault");
-        if (rewardsToken == address(0)) revert LSTHelper__ZeroAddress("rewardsToken");
-        if (toEpoch <= fromEpoch) revert LSTHelper__InvalidRange();
+        if (staker == address(0)) revert VaultHelper__InvalidUser(staker);
+        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (rewardsToken == address(0)) revert VaultHelper__ZeroAddress("rewardsToken");
+        if (toEpoch <= fromEpoch) revert VaultHelper__InvalidRange();
         
         uint48 currentEpoch = Rewards(rewards).middleware().getCurrentEpoch();
         if (toEpoch > currentEpoch) toEpoch = currentEpoch;
@@ -315,7 +315,7 @@ contract LSTHelper is ReentrancyGuard {
             uint256 rewardsAmount = Rewards(rewards).getRewardsAmountPerTokenFromEpoch(epoch, rewardsToken);
             uint256 vaultShare = Rewards(rewards).vaultShares(epoch, vault);
             if (vaultShare == 0) continue;
-            if (vaultShare > BASIS_POINTS_DENOMINATOR) revert LSTHelper__InvalidVaultShare(vaultShare);
+            if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
             
             uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(staker, epochTs, "");
             if (stakerVaultShare == 0) continue;
