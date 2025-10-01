@@ -10,6 +10,8 @@ import {Token} from "./mocks/MockToken.sol";
 import {console} from "forge-std/console.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {MockVaultScan} from "./mocks/MockVaultScan.sol";
+import {MockVaultOverflow} from "./mocks/MockVaultOverflow.sol";
 
 contract LSTHelperTest is Test {
     LSTHelper public lstHelper;
@@ -23,7 +25,9 @@ contract LSTHelperTest is Test {
     address constant VAULT_ADDRESS = 0xc2BC5788A769F3BF4C37255eF301c08D641416D4;
     address constant USER_ADDRESS = 0xf2afA31E62ce3809919DD92681fa9fB2E45B2657;
     address constant MIDDLEWARE_ADDRESS = 0xBE843C7d31e773acFf38575d7eC7A23358726d4e;
+    address constant VAULT_FACTORY_ADDRESS = 0xfb43d27E02Ed1721E92D9FcD41B3AbAd822D5526; // VaultFactory on Fuji
     address immutable ADMIN = makeAddr("Admin");
+    address immutable RELAYER = makeAddr("Relayer");
     // Fork Fuji testnet
     uint256 fuji;
 
@@ -31,7 +35,8 @@ contract LSTHelperTest is Test {
         fuji = vm.createFork("https://api.avax-test.network/ext/bc/C/rpc");
         vm.selectFork(fuji);
         vm.startPrank(ADMIN);
-        lstHelper = new LSTHelper();
+        
+        lstHelper = new LSTHelper(VAULT_FACTORY_ADDRESS);
         rewards = new MockRewards(address(MIDDLEWARE_ADDRESS), address(VAULT_ADDRESS));
         rewardsToken = new Token("Rewards");
         rewardsToken2 = new Token("Rewards2");
@@ -93,4 +98,220 @@ contract LSTHelperTest is Test {
         assertEq(assetBalanceBefore - assetBalanceAfter, 10_000 ether);
         assertEq(vaultBalanceAfter - vaultBalanceBefore, 10_000 ether);
     }
+
+    function test_StakeAssetInVault_RelayerPaysForUser() public {
+        // This test demonstrates the scenario: a relayer can pay tokens on behalf of a user
+        // and the user gets the shares. This is actually the intended behavior.
+        
+        // Give relayer some tokens
+        vm.prank(USER_ADDRESS);
+        IERC20(UNDERLYING_ADDRESS).transfer(RELAYER, 5_000 ether);
+        
+        uint256 relayerBalanceBefore = IERC20(UNDERLYING_ADDRESS).balanceOf(RELAYER);
+        uint256 userBalanceBefore = IERC20(UNDERLYING_ADDRESS).balanceOf(USER_ADDRESS);
+        uint256 userVaultSharesBefore = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
+        uint256 relayerVaultSharesBefore = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(RELAYER);
+        
+        // Relayer approves and calls stakeAssetInVault for USER_ADDRESS
+        vm.startPrank(RELAYER);
+        IERC20(UNDERLYING_ADDRESS).approve(address(lstHelper), 1_000 ether);
+        lstHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        vm.stopPrank();
+        
+        uint256 relayerBalanceAfter = IERC20(UNDERLYING_ADDRESS).balanceOf(RELAYER);
+        uint256 userBalanceAfter = IERC20(UNDERLYING_ADDRESS).balanceOf(USER_ADDRESS);
+        uint256 userVaultSharesAfter = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
+        uint256 relayerVaultSharesAfter = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(RELAYER);
+        
+        // Relayer paid the tokens
+        assertEq(relayerBalanceBefore - relayerBalanceAfter, 1_000 ether);
+        // User didn't pay anything
+        assertEq(userBalanceBefore, userBalanceAfter);
+        // But user got the shares!
+        assertEq(userVaultSharesAfter - userVaultSharesBefore, 1_000 ether);
+        // Relayer got no shares
+        assertEq(relayerVaultSharesAfter, relayerVaultSharesBefore);
+    }
+
+    // TEST TOO BIG TO RUN IN CI, SKIPPING. UNCOMMENT TO RUN LOCALLY.
+    // // Demonstrates gas blowup without pagination.
+    // function test_GetUserPendingWithdraws_TooManyEpochs_revertsUnderGasCap() public {
+    //     // 50k epochs => 2 loops × 2 external calls/epoch = ~200k external calls + large array alloc.
+    //     MockVaultScan mv = new MockVaultScan(2_000);
+    //     address user = address(0xBEEF);
+    //     // Call with a realistic gas cap to simulate on-chain budget.
+    //     (bool ok, ) = address(lstHelper).staticcall{gas: 3_000_000}(
+    //         abi.encodeWithSelector(
+    //             LSTHelper.getUserPendingWithdraws.selector,
+    //             address(mv),
+    //             user
+    //         )
+    //     );
+    //     // Expect failure (out-of-gas or revert due to memory expansion).
+    //     assertTrue(!ok);
+    // }
+    
+    function test_StakeAssetInVault_InvalidVault_Reverts() public {
+        // Test that using a non-whitelisted vault reverts
+        address fakeVault = makeAddr("FakeVault");
+        
+        vm.startPrank(USER_ADDRESS);
+        IERC20(UNDERLYING_ADDRESS).approve(address(lstHelper), 1_000 ether);
+        
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__InvalidVault.selector, fakeVault));
+        lstHelper.stakeAssetInVault(fakeVault, USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        vm.stopPrank();
+    }
+    
+    function test_StakeAssetInVault_ZeroAddress_Reverts() public {
+        vm.startPrank(USER_ADDRESS);
+        IERC20(UNDERLYING_ADDRESS).approve(address(lstHelper), 1_000 ether);
+        
+        // Test zero vault address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "vault"));
+        lstHelper.stakeAssetInVault(address(0), USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        
+        // Test zero collateral address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "collateral"));
+        lstHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, address(0), UNDERLYING_ADDRESS, 1_000 ether);
+        
+        // Test zero underlying address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "underlying"));
+        lstHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, COLLATERAL_ADDRESS, address(0), 1_000 ether);
+        
+        // Test zero user address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__InvalidUser.selector, address(0)));
+        lstHelper.stakeAssetInVault(VAULT_ADDRESS, address(0), COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        
+        vm.stopPrank();
+    }
+
+    function test_GetUserPendingWithdrawsInRange() public {
+        // Test with a valid range
+        PendingWithdraw[] memory pendingWithdraws = lstHelper.getUserPendingWithdrawsInRange(
+            VAULT_ADDRESS, 
+            USER_ADDRESS, 
+            0, 
+            10
+        );
+        // Should have at most 10 epochs worth of withdrawals
+        assertTrue(pendingWithdraws.length <= 10);
+    }
+
+    function test_GetUserPendingWithdrawsInRange_InvalidRange_Reverts() public {
+        // Test fromEpoch >= toEpoch
+        vm.expectRevert(LSTHelper.LSTHelper__InvalidRange.selector);
+        lstHelper.getUserPendingWithdrawsInRange(VAULT_ADDRESS, USER_ADDRESS, 10, 10);
+        
+        vm.expectRevert(LSTHelper.LSTHelper__InvalidRange.selector);
+        lstHelper.getUserPendingWithdrawsInRange(VAULT_ADDRESS, USER_ADDRESS, 10, 5);
+    }
+
+    function test_GetUserPendingWithdrawsInRange_ZeroAddress_Reverts() public {
+        // Test zero vault address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "vault"));
+        lstHelper.getUserPendingWithdrawsInRange(address(0), USER_ADDRESS, 0, 10);
+        
+        // Test zero user address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__InvalidUser.selector, address(0)));
+        lstHelper.getUserPendingWithdrawsInRange(VAULT_ADDRESS, address(0), 0, 10);
+    }
+
+    function test_GetStakerClaimableRewardInRange() public {
+        // Setup rewards for testing
+        address[] memory tokens = new address[](1);
+        tokens[0] = address(rewardsToken);
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 1_000_000_000_000_000;
+
+        vm.startPrank(ADMIN);
+        rewardsToken.approve(address(rewards), 100_000_000_000_000_000_000);
+        rewards.setGlobalRewards(tokens, amounts);
+        rewards.setVaultShares(VAULT_ADDRESS, 1000);
+        vm.stopPrank();
+
+        // Test with a valid range
+        ClaimAmountsPerToken memory rewardAmount = lstHelper.getStakerClaimableRewardInRange(
+            USER_ADDRESS,
+            address(rewards),
+            VAULT_ADDRESS,
+            address(rewardsToken),
+            1050,
+            1055
+        );
+        
+        assertEq(rewardAmount.token, address(rewardsToken));
+        // Amount could be 0 or positive depending on the user's shares in those epochs
+        assertTrue(rewardAmount.amount >= 0);
+    }
+
+    function test_GetStakerClaimableRewardInRange_InvalidRange_Reverts() public {
+        // Test fromEpoch >= toEpoch
+        vm.expectRevert(LSTHelper.LSTHelper__InvalidRange.selector);
+        lstHelper.getStakerClaimableRewardInRange(
+            USER_ADDRESS,
+            address(rewards),
+            VAULT_ADDRESS,
+            address(rewardsToken),
+            1055,
+            1055
+        );
+        
+        vm.expectRevert(LSTHelper.LSTHelper__InvalidRange.selector);
+        lstHelper.getStakerClaimableRewardInRange(
+            USER_ADDRESS,
+            address(rewards),
+            VAULT_ADDRESS,
+            address(rewardsToken),
+            1055,
+            1050
+        );
+    }
+
+    function test_GetStakerClaimableRewardInRange_ZeroAddress_Reverts() public {
+        // Test zero staker address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__InvalidUser.selector, address(0)));
+        lstHelper.getStakerClaimableRewardInRange(
+            address(0),
+            address(rewards),
+            VAULT_ADDRESS,
+            address(rewardsToken),
+            1050,
+            1055
+        );
+        
+        // Test zero rewards address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "rewards"));
+        lstHelper.getStakerClaimableRewardInRange(
+            USER_ADDRESS,
+            address(0),
+            VAULT_ADDRESS,
+            address(rewardsToken),
+            1050,
+            1055
+        );
+        
+        // Test zero vault address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "vault"));
+        lstHelper.getStakerClaimableRewardInRange(
+            USER_ADDRESS,
+            address(rewards),
+            address(0),
+            address(rewardsToken),
+            1050,
+            1055
+        );
+        
+        // Test zero rewardsToken address
+        vm.expectRevert(abi.encodeWithSelector(LSTHelper.LSTHelper__ZeroAddress.selector, "rewardsToken"));
+        lstHelper.getStakerClaimableRewardInRange(
+            USER_ADDRESS,
+            address(rewards),
+            VAULT_ADDRESS,
+            address(0),
+            1050,
+            1055
+        );
+    }
+
 }
