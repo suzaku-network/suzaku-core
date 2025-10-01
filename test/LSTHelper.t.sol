@@ -11,7 +11,6 @@ import {console} from "forge-std/console.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockVaultScan} from "./mocks/MockVaultScan.sol";
-import {MockVaultOverflow} from "./mocks/MockVaultOverflow.sol";
 
 contract LSTHelperTest is Test {
     LSTHelper public lstHelper;
