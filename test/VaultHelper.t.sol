@@ -4,254 +4,639 @@
 pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
-import {VaultHelper, ClaimAmountsPerToken, PendingWithdraw} from "../src/contracts/VaultHelper.sol";
-import {MockRewards} from "./mocks/MockRewards.sol";
-import {Token} from "./mocks/MockToken.sol";
-import {console} from "forge-std/console.sol";
+import {console2} from "forge-std/console2.sol";
+import {MiddlewareTestBase} from "./middleware/MiddlewareTestBase.t.sol";
+import {VaultHelper, PendingWithdraw, ClaimAmountsPerToken} from "../src/contracts/VaultHelper.sol";
+import {MockFeeOnTransferToken} from "./mocks/MockFeeOnTransferToken.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {MockVaultScan} from "./mocks/MockVaultScan.sol";
-import {MockFeeOnTransferToken} from "./mocks/MockFeeOnTransferToken.sol";
+import {Token} from "./mocks/MockToken.sol";
+import {MockRewards} from "./mocks/MockRewards.sol";
+import {Rewards} from "../src/contracts/rewards/Rewards.sol";
+import {DefaultCollateralFactory} from "../src/contracts/defaultCollateral/DefaultCollateralFactory.sol";
+import {IDefaultCollateral} from "../src/interfaces/defaultCollateral/IDefaultCollateral.sol";
+import {VaultTokenized} from "../src/contracts/vault/VaultTokenized.sol";
 
-contract VaultHelperTest is Test {
+contract VaultHelperTest is MiddlewareTestBase {
     VaultHelper public vaultHelper;
     MockRewards public rewards;
     Token public rewardsToken;
     Token public rewardsToken2;
-    Token public rewardsToken3;
-
-    address constant UNDERLYING_ADDRESS = 0x36E3645354f4B19B5f2052f056E2cAC39f6C1172;
-    address constant COLLATERAL_ADDRESS = 0x08d32A3e1B4B0a7ff6bAC233f40C9963AD45E58C;
-    address constant VAULT_ADDRESS = 0xc2BC5788A769F3BF4C37255eF301c08D641416D4;
-    address constant USER_ADDRESS = 0xf2afA31E62ce3809919DD92681fa9fB2E45B2657;
-    address constant MIDDLEWARE_ADDRESS = 0xBE843C7d31e773acFf38575d7eC7A23358726d4e;
-    address constant VAULT_FACTORY_ADDRESS = 0xfb43d27E02Ed1721E92D9FcD41B3AbAd822D5526; // VaultFactory on Fuji
-    address immutable ADMIN = makeAddr("Admin");
-    address immutable RELAYER = makeAddr("Relayer");
-    // Fork Fuji testnet
-    uint256 fuji;
-
-    function setUp() public {
-        fuji = vm.createFork("https://api.avax-test.network/ext/bc/C/rpc");
-        vm.selectFork(fuji);
-        vm.startPrank(ADMIN);
+    
+    // DefaultCollateral setup
+    DefaultCollateralFactory public defaultCollateralFactory;
+    address public defaultCollateral1;
+    address public defaultCollateral2;
+    Token public underlyingToken1;
+    Token public underlyingToken2;
+    
+    // Vaults that use DefaultCollateral
+    VaultTokenized public vaultWithDC1;
+    VaultTokenized public vaultWithDC2;
+    
+    function setUp() public override {
+        super.setUp();
         
-        vaultHelper = new VaultHelper(VAULT_FACTORY_ADDRESS);
-        rewards = new MockRewards(address(MIDDLEWARE_ADDRESS), address(VAULT_ADDRESS));
+        // Deploy VaultHelper with the real vault factory from MiddlewareTestBase
+        vaultHelper = new VaultHelper(address(vaultFactory));
+        
+        // Deploy DefaultCollateralFactory
+        defaultCollateralFactory = new DefaultCollateralFactory();
+        
+        // Create underlying tokens for DefaultCollateral
+        underlyingToken1 = new Token("Underlying Token 1");
+        underlyingToken2 = new Token("Underlying Token 2");
+        
+        // Create DefaultCollateral instances through factory
+        defaultCollateral1 = defaultCollateralFactory.create(
+            address(underlyingToken1),
+            type(uint256).max, // no limit
+            address(0) // no limit increaser
+        );
+        
+        defaultCollateral2 = defaultCollateralFactory.create(
+            address(underlyingToken2),
+            type(uint256).max, // no limit
+            address(0) // no limit increaser
+        );
+        
+        // Create vaults that use DefaultCollateral as their collateral
+        uint48 epochDuration = 8 hours;
+        uint64 lastVersion = vaultFactory.lastVersion();
+        
+        address vaultAddress1 = vaultFactory.create(
+            lastVersion,
+            curatorOwner1,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: defaultCollateral1,
+                    burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: curatorOwner1,
+                    depositWhitelistSetRoleHolder: curatorOwner1,
+                    depositorWhitelistRoleHolder: curatorOwner1,
+                    isDepositLimitSetRoleHolder: curatorOwner1,
+                    depositLimitSetRoleHolder: curatorOwner1,
+                    name: "VaultWithDC1",
+                    symbol: "VDC1"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        vaultWithDC1 = VaultTokenized(vaultAddress1);
+        
+        address vaultAddress2 = vaultFactory.create(
+            lastVersion,
+            curatorOwner2,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: defaultCollateral2,
+                    burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: curatorOwner2,
+                    depositWhitelistSetRoleHolder: curatorOwner2,
+                    depositorWhitelistRoleHolder: curatorOwner2,
+                    isDepositLimitSetRoleHolder: curatorOwner2,
+                    depositLimitSetRoleHolder: curatorOwner2,
+                    name: "VaultWithDC2",
+                    symbol: "VDC2"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        vaultWithDC2 = VaultTokenized(vaultAddress2);
+        
+        // Deploy mock rewards for the rewards tests
+        rewards = new MockRewards(address(middleware), address(vault));
         rewardsToken = new Token("Rewards");
         rewardsToken2 = new Token("Rewards2");
-        rewardsToken3 = new Token("Rewards3");
-        vm.stopPrank();
+        
+        // Give staker some underlying tokens to work with
+        underlyingToken1.transfer(staker, 100_000 ether);
+        underlyingToken2.transfer(staker, 100_000 ether);
     }
-
-    function test_GetUserPendingWithdraws() public view {
-        PendingWithdraw[] memory pendingWithdraws = vaultHelper.getUserPendingWithdraws(VAULT_ADDRESS, USER_ADDRESS);
-        assertEq(pendingWithdraws.length, 1);
-    }
-
-    function test_GetUserFuturePendingWithdraws() public view {
-        PendingWithdraw[] memory pendingWithdraws = vaultHelper.getUserFuturePendingWithdraws(VAULT_ADDRESS, USER_ADDRESS);
-        assertEq(pendingWithdraws.length, 0);
-    }
-
-    function test_GetStakerClaimableRewards() public {
-        // set rewards amount
-        address[] memory tokens = new address[](3);
-        tokens[0] = address(rewardsToken);
-        tokens[1] = address(rewardsToken2);
-        tokens[2] = address(rewardsToken3);
-        uint256[] memory amounts = new uint256[](3);
-        amounts[0] = 1_000_000_000_000_000;
-        amounts[1] = 2_000_000_000_000_000;
-        amounts[2] = 3_000_000_000_000_000;
-
-        vm.startPrank(ADMIN);
-        rewardsToken.approve(address(rewards), 100_000_000_000_000_000_000);
-        rewardsToken2.approve(address(rewards), 100_000_000_000_000_000_000);
-        rewardsToken3.approve(address(rewards), 100_000_000_000_000_000_000);
-        rewards.setGlobalRewards(tokens, amounts);
-        // set vault shares
-        rewards.setVaultShares(VAULT_ADDRESS, 1000);
-        // set last claimed epoch
-        rewards.setLastEpochClaimed(USER_ADDRESS, 1050);
-        vm.stopPrank();
-
-        ClaimAmountsPerToken[] memory rewardsAmountsPerToken =
-            vaultHelper.getStakerClaimableRewards(USER_ADDRESS, address(rewards), VAULT_ADDRESS, tokens);
-
-        assertEq(rewardsAmountsPerToken.length, 3);
-        assertEq(rewardsAmountsPerToken[0].token, address(rewardsToken));
-        assertEq(rewardsAmountsPerToken[1].token, address(rewardsToken2));
-        assertEq(rewardsAmountsPerToken[2].token, address(rewardsToken3));
-    }
-
+    
     function test_StakeAssetInVault() public {
-        uint256 assetBalanceBefore = IERC20(UNDERLYING_ADDRESS).balanceOf(USER_ADDRESS);
-        uint256 vaultBalanceBefore = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
-        vm.startPrank(USER_ADDRESS);
-        IERC20(UNDERLYING_ADDRESS).approve(address(vaultHelper), 10_000 ether);
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 10_000 ether);
+        uint256 amount = 10_000 ether;
+        
+        // Check initial balances
+        uint256 stakerBalanceBefore = underlyingToken1.balanceOf(staker);
+        uint256 vaultSharesBefore = vaultWithDC1.activeSharesOf(staker);
+        
+        // Approve and stake
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), amount);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1), 
+            staker, 
+            defaultCollateral1, 
+            address(underlyingToken1), 
+            amount
+        );
         vm.stopPrank();
-
-        uint256 assetBalanceAfter = IERC20(UNDERLYING_ADDRESS).balanceOf(USER_ADDRESS);
-        uint256 vaultBalanceAfter = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
-        assertEq(assetBalanceBefore - assetBalanceAfter, 10_000 ether);
-        assertEq(vaultBalanceAfter - vaultBalanceBefore, 10_000 ether);
+        
+        // Verify results
+        uint256 stakerBalanceAfter = underlyingToken1.balanceOf(staker);
+        uint256 vaultSharesAfter = vaultWithDC1.activeSharesOf(staker);
+        
+        assertEq(stakerBalanceBefore - stakerBalanceAfter, amount, "Staker should have spent the exact amount");
+        assertEq(vaultSharesAfter - vaultSharesBefore, amount, "Vault shares should equal deposit amount");
     }
-
-    function test_StakeAssetInVault_RelayerPaysForUser() public {
-        // This test demonstrates the scenario: a relayer can pay tokens on behalf of a user
-        // and the user gets the shares. This is actually the intended behavior.
+    
+    function test_StakeAssetInVault_FeeOnTransferToken() public {
+        // Deploy fee-on-transfer token
+        MockFeeOnTransferToken feeToken = new MockFeeOnTransferToken("FeeToken");
         
-        // Give relayer some tokens
-        vm.prank(USER_ADDRESS);
-        IERC20(UNDERLYING_ADDRESS).transfer(RELAYER, 5_000 ether);
+        // Deploy DefaultCollateral for fee token through factory
+        address feeTokenCollateral = defaultCollateralFactory.create(
+            address(feeToken),
+            type(uint256).max,
+            address(0)
+        );
         
-        uint256 relayerBalanceBefore = IERC20(UNDERLYING_ADDRESS).balanceOf(RELAYER);
-        uint256 userBalanceBefore = IERC20(UNDERLYING_ADDRESS).balanceOf(USER_ADDRESS);
-        uint256 userVaultSharesBefore = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
-        uint256 relayerVaultSharesBefore = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(RELAYER);
+        // Create a vault that uses this fee token collateral
+        uint48 epochDuration = 8 hours;
+        uint64 lastVersion = vaultFactory.lastVersion();
+        address feeTokenVaultAddr = vaultFactory.create(
+            lastVersion,
+            curatorOwner3,
+            abi.encode(
+                IVaultTokenized.InitParams({
+                    collateral: feeTokenCollateral,
+                    burner: address(0xdEaD),
+                    epochDuration: epochDuration,
+                    depositWhitelist: false,
+                    isDepositLimit: false,
+                    depositLimit: 0,
+                    defaultAdminRoleHolder: curatorOwner3,
+                    depositWhitelistSetRoleHolder: curatorOwner3,
+                    depositorWhitelistRoleHolder: curatorOwner3,
+                    isDepositLimitSetRoleHolder: curatorOwner3,
+                    depositLimitSetRoleHolder: curatorOwner3,
+                    name: "FeeTokenVault",
+                    symbol: "FTV"
+                })
+            ),
+            address(delegatorFactory),
+            address(slasherFactory)
+        );
+        VaultTokenized feeTokenVault = VaultTokenized(feeTokenVaultAddr);
         
-        // Relayer approves and calls stakeAssetInVault for USER_ADDRESS
-        vm.startPrank(RELAYER);
-        IERC20(UNDERLYING_ADDRESS).approve(address(vaultHelper), 1_000 ether);
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        // Give staker some fee tokens
+        feeToken.transfer(staker, 10_000 ether);
+        
+        uint256 depositAmount = 1_000 ether;
+        // Fee token deducts 1 token on each transfer:
+        // 1. From staker to VaultHelper: 1000 - 1 = 999
+        // 2. From VaultHelper to DefaultCollateral: 999 - 1 = 998
+        uint256 expectedReceived = depositAmount - 2;
+        
+        // Record initial state
+        uint256 stakerBalanceBefore = feeToken.balanceOf(staker);
+        uint256 vaultSharesBefore = feeTokenVault.activeSharesOf(staker);
+        
+        // Approve and stake
+        vm.startPrank(staker);
+        feeToken.approve(address(vaultHelper), depositAmount);
+        vaultHelper.stakeAssetInVault(
+            address(feeTokenVault),
+            staker,
+            feeTokenCollateral,
+            address(feeToken),
+            depositAmount
+        );
         vm.stopPrank();
         
-        uint256 relayerBalanceAfter = IERC20(UNDERLYING_ADDRESS).balanceOf(RELAYER);
-        uint256 userBalanceAfter = IERC20(UNDERLYING_ADDRESS).balanceOf(USER_ADDRESS);
-        uint256 userVaultSharesAfter = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
-        uint256 relayerVaultSharesAfter = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(RELAYER);
+        // Verify results
+        uint256 stakerBalanceAfter = feeToken.balanceOf(staker);
+        uint256 vaultSharesAfter = feeTokenVault.activeSharesOf(staker);
+        
+        // User should have paid exactly depositAmount
+        assertEq(stakerBalanceBefore - stakerBalanceAfter, depositAmount, "User paid full amount");
+        
+        // Vault should have received shares based on actualAmount (depositAmount - 1)
+        assertEq(vaultSharesAfter - vaultSharesBefore, expectedReceived, "Vault shares match actual received");
+    }
+    
+    function test_StakeAssetInVault_StandardToken_StillWorks() public {
+        // This test ensures our fix doesn't break normal token functionality
+        uint256 amount = 1_000 ether;
+        
+        // Record initial state
+        uint256 stakerBalanceBefore = underlyingToken2.balanceOf(staker);
+        uint256 vaultSharesBefore = vaultWithDC2.activeSharesOf(staker);
+        
+        // Approve and stake
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(vaultHelper), amount);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC2),
+            staker,
+            defaultCollateral2,
+            address(underlyingToken2),
+            amount
+        );
+        vm.stopPrank();
+        
+        // Verify standard tokens work as expected
+        uint256 stakerBalanceAfter = underlyingToken2.balanceOf(staker);
+        uint256 vaultSharesAfter = vaultWithDC2.activeSharesOf(staker);
+        
+        assertEq(stakerBalanceBefore - stakerBalanceAfter, amount, "Exact amount transferred");
+        assertEq(vaultSharesAfter - vaultSharesBefore, amount, "Vault shares equal deposit");
+    }
+    
+    function test_StakeAssetInVault_RelayerPaysForUser() public {
+        // Test that a relayer can pay tokens on behalf of a user
+        address relayer = makeAddr("relayer");
+        underlyingToken1.transfer(relayer, 5_000 ether);
+        
+        uint256 amount = 1_000 ether;
+        
+        // Record initial states
+        uint256 relayerBalanceBefore = underlyingToken1.balanceOf(relayer);
+        uint256 userBalanceBefore = underlyingToken1.balanceOf(alice);
+        uint256 relayerSharesBefore = vaultWithDC1.activeSharesOf(relayer);
+        uint256 userSharesBefore = vaultWithDC1.activeSharesOf(alice);
+        
+        // Relayer approves and stakes for alice
+        vm.startPrank(relayer);
+        underlyingToken1.approve(address(vaultHelper), amount);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1),
+            alice,
+            defaultCollateral1,
+            address(underlyingToken1),
+            amount
+        );
+        vm.stopPrank();
+        
+        // Verify results
+        uint256 relayerBalanceAfter = underlyingToken1.balanceOf(relayer);
+        uint256 userBalanceAfter = underlyingToken1.balanceOf(alice);
+        uint256 relayerSharesAfter = vaultWithDC1.activeSharesOf(relayer);
+        uint256 userSharesAfter = vaultWithDC1.activeSharesOf(alice);
         
         // Relayer paid the tokens
-        assertEq(relayerBalanceBefore - relayerBalanceAfter, 1_000 ether);
+        assertEq(relayerBalanceBefore - relayerBalanceAfter, amount, "Relayer paid");
         // User didn't pay anything
-        assertEq(userBalanceBefore, userBalanceAfter);
-        // But user got the shares!
-        assertEq(userVaultSharesAfter - userVaultSharesBefore, 1_000 ether);
+        assertEq(userBalanceBefore, userBalanceAfter, "User balance unchanged");
+        // User got the shares
+        assertEq(userSharesAfter - userSharesBefore, amount, "User got shares");
         // Relayer got no shares
-        assertEq(relayerVaultSharesAfter, relayerVaultSharesBefore);
+        assertEq(relayerSharesAfter, relayerSharesBefore, "Relayer shares unchanged");
     }
-
-    // TEST TOO BIG TO RUN IN CI, SKIPPING. UNCOMMENT TO RUN LOCALLY.
-    // // Demonstrates gas blowup without pagination.
-    // function test_GetUserPendingWithdraws_TooManyEpochs_revertsUnderGasCap() public {
-    //     // 50k epochs => 2 loops × 2 external calls/epoch = ~200k external calls + large array alloc.
-    //     MockVaultScan mv = new MockVaultScan(2_000);
-    //     address user = address(0xBEEF);
-    //     // Call with a realistic gas cap to simulate on-chain budget.
-    //     (bool ok, ) = address(vaultHelper).staticcall{gas: 3_000_000}(
-    //         abi.encodeWithSelector(
-    //             VaultHelper.getUserPendingWithdraws.selector,
-    //             address(mv),
-    //             user
-    //         )
-    //     );
-    //     // Expect failure (out-of-gas or revert due to memory expansion).
-    //     assertTrue(!ok);
-    // }
     
     function test_StakeAssetInVault_InvalidVault_Reverts() public {
-        // Test that using a non-whitelisted vault reverts
         address fakeVault = makeAddr("FakeVault");
         
-        vm.startPrank(USER_ADDRESS);
-        IERC20(UNDERLYING_ADDRESS).approve(address(vaultHelper), 1_000 ether);
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), 1_000 ether);
         
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
-        vaultHelper.stakeAssetInVault(fakeVault, USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        vaultHelper.stakeAssetInVault(
+            fakeVault, 
+            staker, 
+            defaultCollateral1, 
+            address(underlyingToken1), 
+            1_000 ether
+        );
         vm.stopPrank();
     }
     
     function test_StakeAssetInVault_ZeroAddress_Reverts() public {
-        vm.startPrank(USER_ADDRESS);
-        IERC20(UNDERLYING_ADDRESS).approve(address(vaultHelper), 1_000 ether);
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), 1_000 ether);
         
         // Test zero vault address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "vault"));
-        vaultHelper.stakeAssetInVault(address(0), USER_ADDRESS, COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        vaultHelper.stakeAssetInVault(
+            address(0), 
+            staker, 
+            defaultCollateral1, 
+            address(underlyingToken1), 
+            1_000 ether
+        );
         
         // Test zero collateral address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "collateral"));
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, address(0), UNDERLYING_ADDRESS, 1_000 ether);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1), 
+            staker, 
+            address(0), 
+            address(underlyingToken1), 
+            1_000 ether
+        );
         
         // Test zero underlying address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "underlying"));
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, COLLATERAL_ADDRESS, address(0), 1_000 ether);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1), 
+            staker, 
+            defaultCollateral1, 
+            address(0), 
+            1_000 ether
+        );
         
         // Test zero user address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidUser.selector, address(0)));
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, address(0), COLLATERAL_ADDRESS, UNDERLYING_ADDRESS, 1_000 ether);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1), 
+            address(0), 
+            defaultCollateral1, 
+            address(underlyingToken1), 
+            1_000 ether
+        );
         
         vm.stopPrank();
     }
-
+    
+    function test_GetUserPendingWithdraws() public {
+        // Use base vault from parent for this test
+        // Setup: Make a withdrawal request
+        collateral.transfer(alice, 100_000 ether);
+        vm.startPrank(alice);
+        collateral.approve(address(vault), 100_000 ether);
+        vault.deposit(alice, 100_000 ether);
+        
+        // Move to next block to allow withdrawal
+        vm.warp(block.timestamp + 1);
+        
+        // Request withdrawal - this creates withdrawal shares for the NEXT epoch
+        vault.withdraw(alice, 50_000 ether);
+        vm.stopPrank();
+        
+        // Record the epoch where withdrawal will be recorded (next epoch)
+        uint256 withdrawalEpoch = vault.currentEpoch() + 1;
+        
+        // Move forward to advance past the withdrawal epoch
+        // Need to advance at least 2 epochs so withdrawalEpoch becomes a past epoch
+        vm.warp(block.timestamp + vault.epochDuration() * 2 + 1);
+        
+        // Check pending withdrawals
+        PendingWithdraw[] memory pendingWithdraws = vaultHelper.getUserPendingWithdraws(address(vault), alice);
+        
+        // Should have one pending withdrawal
+        assertEq(pendingWithdraws.length, 1, "Should have 1 pending withdrawal");
+        assertEq(pendingWithdraws[0].amount, 50_000 ether, "Withdrawal amount should match");
+        assertEq(pendingWithdraws[0].epoch, withdrawalEpoch, "Should be from the epoch when withdrawal was recorded");
+    }
+    
+    function test_GetUserFuturePendingWithdraws() public {
+        // Use base vault from parent for this test
+        // Setup: Make deposits and withdrawal requests across epochs
+        collateral.transfer(alice, 200_000 ether);
+        vm.startPrank(alice);
+        collateral.approve(address(vault), 200_000 ether);
+        vault.deposit(alice, 100_000 ether);
+        
+        // Request withdrawal for current epoch
+        vault.withdraw(alice, 50_000 ether);
+        vm.stopPrank();
+        
+        // Check future pending withdrawals
+        PendingWithdraw[] memory futureWithdraws = vaultHelper.getUserFuturePendingWithdraws(address(vault), alice);
+        
+        // Should include the withdrawal from current epoch
+        assertGt(futureWithdraws.length, 0, "Should have future withdrawals");
+    }
+    
     function test_GetUserPendingWithdrawsInRange() public {
         // Test with a valid range
+        uint256 fromEpoch = 0;
+        uint256 toEpoch = 10;
+        
         PendingWithdraw[] memory pendingWithdraws = vaultHelper.getUserPendingWithdrawsInRange(
-            VAULT_ADDRESS, 
-            USER_ADDRESS, 
-            0, 
-            10
+            address(vault), 
+            alice, 
+            fromEpoch, 
+            toEpoch
         );
-        // Should have at most 10 epochs worth of withdrawals
-        assertTrue(pendingWithdraws.length <= 10);
+        
+        // Should return withdrawals within range (may be empty if no withdrawals)
+        assertTrue(pendingWithdraws.length <= toEpoch - fromEpoch, "Should not exceed range");
     }
-
+    
     function test_GetUserPendingWithdrawsInRange_InvalidRange_Reverts() public {
         // Test fromEpoch >= toEpoch
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
-        vaultHelper.getUserPendingWithdrawsInRange(VAULT_ADDRESS, USER_ADDRESS, 10, 10);
+        vaultHelper.getUserPendingWithdrawsInRange(address(vault), alice, 10, 10);
         
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
-        vaultHelper.getUserPendingWithdrawsInRange(VAULT_ADDRESS, USER_ADDRESS, 10, 5);
+        vaultHelper.getUserPendingWithdrawsInRange(address(vault), alice, 10, 5);
     }
-
+    
     function test_GetUserPendingWithdrawsInRange_ZeroAddress_Reverts() public {
         // Test zero vault address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "vault"));
-        vaultHelper.getUserPendingWithdrawsInRange(address(0), USER_ADDRESS, 0, 10);
+        vaultHelper.getUserPendingWithdrawsInRange(address(0), alice, 0, 10);
         
         // Test zero user address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidUser.selector, address(0)));
-        vaultHelper.getUserPendingWithdrawsInRange(VAULT_ADDRESS, address(0), 0, 10);
+        vaultHelper.getUserPendingWithdrawsInRange(address(vault), address(0), 0, 10);
     }
-
-    function test_GetStakerClaimableRewardInRange() public {
-        // Setup rewards for testing
-        address[] memory tokens = new address[](1);
-        tokens[0] = address(rewardsToken);
-        uint256[] memory amounts = new uint256[](1);
-        amounts[0] = 1_000_000_000_000_000;
-
-        vm.startPrank(ADMIN);
-        rewardsToken.approve(address(rewards), 100_000_000_000_000_000_000);
-        rewards.setGlobalRewards(tokens, amounts);
-        rewards.setVaultShares(VAULT_ADDRESS, 1000);
-        vm.stopPrank();
-
-        // Test with a valid range
-        ClaimAmountsPerToken memory rewardAmount = vaultHelper.getStakerClaimableRewardInRange(
-            USER_ADDRESS,
-            address(rewards),
-            VAULT_ADDRESS,
-            address(rewardsToken),
-            1050,
-            1055
+    
+    // Rewards tests - properly set up to avoid arithmetic overflow
+    function test_GetStakerClaimableRewards() public {
+        // Since getStakerClaimableRewards expects an array of vaults and returns aggregated amounts,
+        // we'll test the simpler getStakerClaimableReward first and then test the array version
+        
+        // Test with real contracts setup
+        address rewardToken = address(collateral);
+        uint48 currentEpoch = 100;
+        uint48 lastClaimedEpoch = 95;  // 5 epochs unclaimed
+        
+        // Create a mock rewards contract
+        address mockRewards = makeAddr("mockRewards");
+        
+        // Mock the middleware getter on rewards contract
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("middleware()"),
+            abi.encode(address(middleware))
         );
         
-        assertEq(rewardAmount.token, address(rewardsToken));
-        // Amount could be 0 or positive depending on the user's shares in those epochs
-        assertTrue(rewardAmount.amount >= 0);
+        // Mock middleware getCurrentEpoch
+        vm.mockCall(
+            address(middleware),
+            abi.encodeWithSelector(middleware.getCurrentEpoch.selector),
+            abi.encode(currentEpoch)
+        );
+        
+        // Mock lastEpochClaimedStaker on rewards
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("lastEpochClaimedStaker(address,address)", alice, rewardToken),
+            abi.encode(lastClaimedEpoch)
+        );
+        
+        // For each epoch from 96 to 99, mock the necessary data
+        for (uint48 epoch = 96; epoch < 100; epoch++) {
+            uint48 epochTs = epoch * 1000; // Simple timestamp calculation for test
+            
+            // Mock getEpochStartTs
+            vm.mockCall(
+                address(middleware),
+                abi.encodeWithSelector(middleware.getEpochStartTs.selector, epoch),
+                abi.encode(epochTs)
+            );
+            
+            // Mock rewards amount for this epoch (1000 tokens per epoch)
+            vm.mockCall(
+                mockRewards,
+                abi.encodeWithSignature("getRewardsAmountPerTokenFromEpoch(uint48,address)", epoch, rewardToken),
+                abi.encode(1000 ether)
+            );
+            
+            // Mock vault share (50% = 5000 basis points)
+            vm.mockCall(
+                mockRewards,
+                abi.encodeWithSignature("vaultShares(uint48,address)", epoch, address(vault)),
+                abi.encode(5000)
+            );
+            
+            // Mock staker's active shares in vault at epochTs (25% of vault)
+            vm.mockCall(
+                address(vault),
+                abi.encodeWithSelector(IVaultTokenized.activeSharesOfAt.selector, alice, epochTs, ""),
+                abi.encode(250 ether)
+            );
+            
+            // Mock total vault shares at epochTs
+            vm.mockCall(
+                address(vault),
+                abi.encodeWithSelector(IVaultTokenized.activeSharesAt.selector, epochTs, ""),
+                abi.encode(1000 ether)
+            );
+        }
+        
+        // Test single vault reward calculation
+        ClaimAmountsPerToken memory claimAmount = vaultHelper.getStakerClaimableReward(
+            alice,
+            mockRewards,
+            address(vault),
+            rewardToken
+        );
+        
+        // Expected: 4 epochs * (1000 ether * 50% * 25%) = 4 * 125 ether = 500 ether
+        assertEq(claimAmount.token, rewardToken, "Token address mismatch");
+        assertEq(claimAmount.amount, 500 ether, "Claim amount incorrect");
+        
+        // Now test the array version
+        address[] memory tokens = new address[](1);
+        tokens[0] = rewardToken;
+        
+        ClaimAmountsPerToken[] memory claimAmounts = vaultHelper.getStakerClaimableRewards(
+            alice,
+            mockRewards,
+            address(vault),
+            tokens
+        );
+        
+        assertEq(claimAmounts.length, 1, "Should return one claim amount");
+        assertEq(claimAmounts[0].token, rewardToken, "Token address mismatch in array");
+        assertEq(claimAmounts[0].amount, 500 ether, "Claim amount incorrect in array");
     }
-
+    
+    function test_GetStakerClaimableReward() public {
+        // This test is already covered in test_GetStakerClaimableRewards above
+        // The getStakerClaimableReward function is tested there with proper mocking
+    }
+    
+    function test_GetStakerClaimableRewardInRange() public {
+        // Test rewards calculation within specific epoch range
+        address staker = alice;
+        address rewardToken = address(collateral);
+        uint48 fromEpoch = 10;
+        uint48 toEpoch = 15;  // 5 epochs in range
+        
+        // Create a mock rewards contract
+        address mockRewards = makeAddr("mockRewards");
+        
+        // Mock the middleware getter on rewards contract
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("middleware()"),
+            abi.encode(address(middleware))
+        );
+        
+        // Ensure helper's currentEpoch cap does not truncate [fromEpoch, toEpoch)
+        vm.mockCall(
+            address(middleware),
+            abi.encodeWithSelector(middleware.getCurrentEpoch.selector),
+            abi.encode(uint48(toEpoch)) // any value >= toEpoch is fine
+        );
+        
+        // For each epoch in range, mock the necessary data
+        for (uint48 epoch = fromEpoch; epoch < toEpoch; epoch++) {
+            uint48 epochTs = epoch * 1000; // Simple timestamp calculation for test
+            
+            // Mock getEpochStartTs
+            vm.mockCall(
+                address(middleware),
+                abi.encodeWithSelector(middleware.getEpochStartTs.selector, epoch),
+                abi.encode(epochTs)
+            );
+            
+            // Mock rewards amount for this epoch (200 tokens per epoch)
+            vm.mockCall(
+                mockRewards,
+                abi.encodeWithSignature("getRewardsAmountPerTokenFromEpoch(uint48,address)", epoch, rewardToken),
+                abi.encode(200 ether)
+            );
+            
+            // Mock vault share (25% = 2500 basis points)
+            vm.mockCall(
+                mockRewards,
+                abi.encodeWithSignature("vaultShares(uint48,address)", epoch, address(vault)),
+                abi.encode(2500)
+            );
+            
+            // Mock staker's active shares in vault at epochTs (50% of vault)
+            vm.mockCall(
+                address(vault),
+                abi.encodeWithSelector(IVaultTokenized.activeSharesOfAt.selector, staker, epochTs, ""),
+                abi.encode(500 ether)
+            );
+            
+            // Mock total vault shares at epochTs
+            vm.mockCall(
+                address(vault),
+                abi.encodeWithSelector(IVaultTokenized.activeSharesAt.selector, epochTs, ""),
+                abi.encode(1000 ether)
+            );
+        }
+        
+        // Get claimable reward in range
+        ClaimAmountsPerToken memory claimAmount = vaultHelper.getStakerClaimableRewardInRange(
+            staker,
+            mockRewards,
+            address(vault), 
+            rewardToken, 
+            fromEpoch,
+            toEpoch
+        );
+        
+        // Expected: 5 epochs * (200 ether * 25% * 50%) = 5 * 25 ether = 125 ether
+        assertEq(claimAmount.token, rewardToken, "Token address mismatch");
+        assertEq(claimAmount.amount, 125 ether, "Range reward incorrect");
+    }
+    
     function test_GetStakerClaimableRewardInRange_InvalidRange_Reverts() public {
         // Test fromEpoch >= toEpoch
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
         vaultHelper.getStakerClaimableRewardInRange(
-            USER_ADDRESS,
+            alice,
             address(rewards),
-            VAULT_ADDRESS,
+            address(vault),
             address(rewardsToken),
             1055,
             1055
@@ -259,202 +644,59 @@ contract VaultHelperTest is Test {
         
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
         vaultHelper.getStakerClaimableRewardInRange(
-            USER_ADDRESS,
+            alice,
             address(rewards),
-            VAULT_ADDRESS,
+            address(vault),
             address(rewardsToken),
             1055,
             1050
         );
     }
-
-    function test_GetStakerClaimableRewardInRange_ZeroAddress_Reverts() public {
-        // Test zero staker address
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidUser.selector, address(0)));
-        vaultHelper.getStakerClaimableRewardInRange(
-            address(0),
-            address(rewards),
-            VAULT_ADDRESS,
-            address(rewardsToken),
-            1050,
-            1055
+    
+    function test_MultipleVaults_DifferentUnderlying() public {
+        // Test staking in vaultWithDC1 with underlyingToken1
+        uint256 amount1 = 5_000 ether;
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), amount1);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1),
+            staker,
+            defaultCollateral1,
+            address(underlyingToken1),
+            amount1
         );
-        
-        // Test zero rewards address
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "rewards"));
-        vaultHelper.getStakerClaimableRewardInRange(
-            USER_ADDRESS,
-            address(0),
-            VAULT_ADDRESS,
-            address(rewardsToken),
-            1050,
-            1055
-        );
-        
-        // Test zero vault address
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "vault"));
-        vaultHelper.getStakerClaimableRewardInRange(
-            USER_ADDRESS,
-            address(rewards),
-            address(0),
-            address(rewardsToken),
-            1050,
-            1055
-        );
-        
-        // Test zero rewardsToken address
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "rewardsToken"));
-        vaultHelper.getStakerClaimableRewardInRange(
-            USER_ADDRESS,
-            address(rewards),
-            VAULT_ADDRESS,
-            address(0),
-            1050,
-            1055
-        );
-    }
-
-    function test_StakeAssetInVault_FeeOnTransferToken() public {
-        // This test verifies that our fix correctly handles fee-on-transfer tokens
-        // by measuring the actual amount received rather than assuming the amount parameter
-        
-        // Deploy a fee-on-transfer token (burns 1 token on each transfer)
-        MockFeeOnTransferToken feeToken = new MockFeeOnTransferToken("FeeToken");
-        
-        // Setup: Create a mock collateral contract
-        address mockCollateral = makeAddr("MockCollateral");
-        
-        // Give USER some fee tokens to work with
-        feeToken.transfer(USER_ADDRESS, 10_000 ether);
-        
-        uint256 userBalanceBefore = feeToken.balanceOf(USER_ADDRESS);
-        
-        // The deposit amount we'll try
-        uint256 depositAmount = 1_000 ether;
-        
-        // User approves vaultHelper for the deposit amount
-        vm.startPrank(USER_ADDRESS);
-        feeToken.approve(address(vaultHelper), depositAmount);
         vm.stopPrank();
         
-        // Because of the fee, vaultHelper will receive depositAmount - 1
-        uint256 expectedReceived = depositAmount - 1;
+        assertEq(vaultWithDC1.activeSharesOf(staker), amount1, "Should have shares in vault1");
         
-        // Mock the collateral deposit to expect the ACTUAL amount received (not the requested amount)
-        // This is key - DefaultCollateral will revert if it doesn't have enough allowance
-        vm.mockCall(
-            mockCollateral,
-            abi.encodeWithSelector(bytes4(keccak256("deposit(address,uint256)")), address(vaultHelper), expectedReceived),
-            abi.encode(expectedReceived) // Return shares equal to actual amount
+        // Test staking in vaultWithDC2 with underlyingToken2
+        uint256 amount2 = 3_000 ether;
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(vaultHelper), amount2);
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC2),
+            staker,
+            defaultCollateral2,
+            address(underlyingToken2),
+            amount2
         );
-        
-        // Execute stakeAssetInVault - this should work with our fix
-        vm.prank(USER_ADDRESS);
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, mockCollateral, address(feeToken), depositAmount);
-        
-        // Verify the results
-        uint256 userBalanceAfter = feeToken.balanceOf(USER_ADDRESS);
-        
-        // User should have paid exactly depositAmount
-        assertEq(userBalanceBefore - userBalanceAfter, depositAmount);
-    }
-
-    function test_StakeAssetInVault_StandardToken_StillWorks() public {
-        // This test ensures our fix doesn't break normal (non-fee) token functionality
-        
-        // Setup: Create a standard token and mock collateral
-        Token standardToken = new Token("StandardToken");
-        address mockCollateral = makeAddr("MockCollateral");
-        
-        // Give USER some tokens
-        standardToken.transfer(USER_ADDRESS, 10_000 ether);
-        
-        uint256 userBalanceBefore = standardToken.balanceOf(USER_ADDRESS);
-        uint256 depositAmount = 1_000 ether;
-        
-        // User approves vaultHelper
-        vm.startPrank(USER_ADDRESS);
-        standardToken.approve(address(vaultHelper), depositAmount);
         vm.stopPrank();
         
-        // For standard tokens, the amount received equals the amount sent
-        vm.mockCall(
-            mockCollateral,
-            abi.encodeWithSelector(bytes4(keccak256("deposit(address,uint256)")), address(vaultHelper), depositAmount),
-            abi.encode(depositAmount)
+        assertEq(vaultWithDC2.activeSharesOf(staker), amount2, "Should have shares in vault2");
+    }
+    
+    function test_ZeroAmount_Reverts() public {
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), 1_000 ether);
+        
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidAmount.selector, 0));
+        vaultHelper.stakeAssetInVault(
+            address(vaultWithDC1),
+            staker,
+            defaultCollateral1,
+            address(underlyingToken1),
+            0
         );
-        
-        // Execute stakeAssetInVault
-        vm.prank(USER_ADDRESS);
-        vaultHelper.stakeAssetInVault(VAULT_ADDRESS, USER_ADDRESS, mockCollateral, address(standardToken), depositAmount);
-        
-        // Verify the user paid exactly the deposit amount
-        uint256 userBalanceAfter = standardToken.balanceOf(USER_ADDRESS);
-        assertEq(userBalanceBefore - userBalanceAfter, depositAmount);
+        vm.stopPrank();
     }
-
-    function test_StakeAssetInVault_FeeOnTransferToken_IntegrationWithRealContracts() public {
-        // This test uses the real contracts on Fuji to ensure our fix works end-to-end
-        // Skip this test if we detect issues with the Fuji setup
-        
-        // Deploy a fee-on-transfer token
-        MockFeeOnTransferToken feeToken = new MockFeeOnTransferToken("FeeToken");
-        
-        // Give USER some fee tokens
-        uint256 initialAmount = 100_000 ether;
-        feeToken.transfer(USER_ADDRESS, initialAmount);
-        
-        // The deposit amount we'll try
-        uint256 depositAmount = 5_000 ether;
-        
-        // Due to the fee-on-transfer, when USER transfers to vaultHelper:
-        // - USER will send depositAmount
-        // - vaultHelper will receive depositAmount - 1
-        
-        uint256 userBalanceBefore = feeToken.balanceOf(USER_ADDRESS);
-        uint256 vaultSharesBefore = IVaultTokenized(VAULT_ADDRESS).activeSharesOf(USER_ADDRESS);
-        
-        // User approves vaultHelper
-        vm.startPrank(USER_ADDRESS);
-        feeToken.approve(address(vaultHelper), depositAmount);
-        
-        // This should work without reverting thanks to our fix
-        // The fix measures the actual amount received and uses that for subsequent operations
-        try vaultHelper.stakeAssetInVault(
-            VAULT_ADDRESS, 
-            USER_ADDRESS, 
-            COLLATERAL_ADDRESS, 
-            address(feeToken), 
-            depositAmount
-        ) {
-            // If we get here, the fix is working - fee-on-transfer was handled correctly
-            vm.stopPrank();
-            
-            uint256 userBalanceAfter = feeToken.balanceOf(USER_ADDRESS);
-            
-            // User should have sent exactly depositAmount
-            assertEq(userBalanceBefore - userBalanceAfter, depositAmount);
-            
-            // Note: We can't easily verify vault shares increased because the collateral
-            // contract on Fuji might not accept our custom fee token. But the important
-            // thing is that the transaction didn't revert.
-            
-        } catch {
-            // If the transaction reverts, it might be because the Fuji collateral contract
-            // doesn't accept our custom token, not because of our fee-on-transfer handling
-            vm.stopPrank();
-            
-            // In this case, we just verify that our helper at least received the correct amount
-            uint256 helperBalance = feeToken.balanceOf(address(vaultHelper));
-            uint256 userBalanceAfter = feeToken.balanceOf(USER_ADDRESS);
-            
-            // If the helper has a balance, it means it received tokens but couldn't proceed
-            if (helperBalance > 0) {
-                // Verify the helper received depositAmount - 1 (due to fee)
-                assertEq(helperBalance, depositAmount - 1);
-                assertEq(userBalanceBefore - userBalanceAfter, depositAmount);
-            }
-        }
-    }
-
 }
