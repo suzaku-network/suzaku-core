@@ -32,6 +32,7 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
   * Iterate from `lastEpochClaimedX[claimer][token] + 1` forward:
 
     * Stop at first epoch where `distributionComplete == false`.
+    * **Maximum of `MAX_EPOCHS_PER_CLAIM` (64) epochs processed per call to prevent out-of-gas.**
     * Sum rewards for each settled epoch.
     * Always advance pointer to the last settled epoch visited.
     * If sum == 0 and pointer moved → emit `ZeroRewardsClaim` and return.
@@ -41,6 +42,7 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
     * `claimOperatorFee(token, recipient)` for operators.
     * `claimCuratorFee(token, recipient)` for curators.
     * `claimProtocolFee(token, recipient)` for protocol owner (aggregated bucket, no epochs).
+  * **Note:** Users with long unclaimed backlogs can call claim functions multiple times to process all epochs.
 
 * **Sweep leftovers**
 

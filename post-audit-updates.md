@@ -137,6 +137,11 @@ uint256 usedShares = totalDistributedShares > BASIS_POINTS_DENOMINATOR
 - All epoch/time calculations now sourced from middleware for consistency
 - Removes dependency on separate epoch tracking
 
+**Out-of-Gas Protection:**
+- Added `MAX_EPOCHS_PER_CLAIM` constant (64) to prevent out-of-gas on long histories
+- Claim functions (`claimRewards`, `claimOperatorFee`, `claimCuratorFee`) now process at most 64 epochs per call
+- Users with long backlogs can call claim functions multiple times to process all epochs
+
 ## UptimeTracker.sol Changes
 
 **Epoch Validation (NEW):**

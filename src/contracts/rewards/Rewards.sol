@@ -38,6 +38,9 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     /// @dev The number of epochs after distribution is possible that users have to claim
     ///      before undistributed rewards can be swept.
     uint48 public constant CLAIM_GRACE_PERIOD_EPOCHS = 1;
+    
+    /// @dev Cap epochs processed in a single claim to prevent out-of-gas on long histories
+    uint48 public constant MAX_EPOCHS_PER_CLAIM = 64;
 
     // STATE VARIABLES
     // Fee configuration
@@ -193,7 +196,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalRewards = 0;
         uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
 
             if (!st.distributionComplete) break;
@@ -261,7 +268,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalRewards = 0;
         uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
 
             if (!st.distributionComplete) break;
@@ -304,7 +315,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalRewards = 0;
         uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
 
             if (!st.distributionComplete) break;
