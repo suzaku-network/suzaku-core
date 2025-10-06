@@ -2,10 +2,10 @@
 // SPDX-FileCopyrightText: Copyright 2024 Symbiotic
 pragma solidity 0.8.25;
 
-import {Factory} from "src/contracts/Factory.sol";
+import {Factory} from "../Factory.sol";
 import {DefaultCollateral} from "./DefaultCollateral.sol";
 import {IDefaultCollateralFactory} from
-    "src/interfaces/defaultCollateral/IDefaultCollateralFactory.sol";
+    "../../interfaces/defaultCollateral/IDefaultCollateralFactory.sol";
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 

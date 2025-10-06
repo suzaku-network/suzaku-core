@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 Symbiotic
 pragma solidity 0.8.25;
 
-import {IFactory} from "src/interfaces/IFactory.sol";
+import {IFactory} from "../interfaces/IFactory.sol";
 
 import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
