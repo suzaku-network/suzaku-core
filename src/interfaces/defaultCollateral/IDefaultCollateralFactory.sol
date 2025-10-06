@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 Symbiotic
 pragma solidity 0.8.25;
 
-import {IFactory} from "src/interfaces/IFactory.sol";
+import {IFactory} from "../IFactory.sol";
 
 interface IDefaultCollateralFactory is IFactory {
     /**

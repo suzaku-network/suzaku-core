@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright 2024 Symbiotic
 pragma solidity 0.8.25;
 
-import {ICollateral} from "src/interfaces/ICollateral.sol";
+import {ICollateral} from "../ICollateral.sol";
 
 interface IDefaultCollateral is ICollateral {
     error NotLimitIncreaser();

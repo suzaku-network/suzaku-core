@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright 2024 Symbiotic
 pragma solidity 0.8.25;
 
-import {IDefaultCollateral} from "src/interfaces/defaultCollateral/IDefaultCollateral.sol";
-import {ICollateral} from "src/interfaces/ICollateral.sol";
-import {Permit2Lib} from "src/contracts/libraries/Permit2Lib.sol";
+import {IDefaultCollateral} from "../../interfaces/defaultCollateral/IDefaultCollateral.sol";
+import {ICollateral} from "../../interfaces/ICollateral.sol";
+import {Permit2Lib} from "../libraries/Permit2Lib.sol";
 
 import {ReentrancyGuardUpgradeable} from
     "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
