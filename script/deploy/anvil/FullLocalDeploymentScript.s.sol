@@ -22,6 +22,7 @@ import {ISlasher} from "../../../src/interfaces/slasher/ISlasher.sol";
 import {IVetoSlasher} from "../../../src/interfaces/slasher/IVetoSlasher.sol";
 import {IBaseSlasher} from "../../../src/interfaces/slasher/IBaseSlasher.sol";
 import {Token} from "../../../test/mocks/MockToken.sol"; // A simple ERC20 for collateral
+import {VaultHelper} from "../../../src/contracts/VaultHelper.sol";
 
 contract FullLocalDeploymentScript is Script {
     HelperConfig internal helperConfig;
@@ -192,6 +193,10 @@ contract FullLocalDeploymentScript is Script {
             VaultTokenized(vault).setSlasher(slasher);
         }
 
+        // Deploy VaultHelper
+        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory));
+        console2.log("VaultHelper deployed at:", address(vaultHelper));
+
         console2.log("Full local deployment completed successfully.");
 
         // Optionally write out deployment details
@@ -216,7 +221,7 @@ contract FullLocalDeploymentScript is Script {
         vm.serializeAddress(key, "OperatorRegistry", address(operatorRegistry));
         vm.serializeAddress(key, "OperatorVaultOptInService", address(operatorVaultOptInService));
         vm.serializeAddress(key, "OperatorL1OptInService", address(operatorL1OptInService));
-        string memory output = vm.serializeAddress(key, "OperatorRegistry", address(operatorRegistry));
+        string memory output = vm.serializeAddress(key, "VaultHelper", address(vaultHelper));
         vm.writeJson(output, filePath);
 
         vm.stopBroadcast();
