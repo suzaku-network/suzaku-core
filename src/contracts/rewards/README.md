@@ -153,6 +153,47 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
 
 ---
 
+## Changing Collateral Class Weights
+
+### Why Change Weights?
+
+**Purpose:** Market prices fluctuate. A collateral class worth 40% of TVL yesterday may be worth 20% today due to price changes. Weight adjustments maintain alignment between economic security and reward allocation.
+
+### How Weights Work
+
+**Key behavior:** `rewardsSharePerCollateralClass` is **not stored per epoch**. The contract reads the **current** value during distribution. This means:
+
+- Weight changes apply to all **future** distributions
+- Weight changes apply to **past undistributed** epochs
+
+### Safe Procedure
+
+**Goal:** Avoid applying new weights to past epochs unintentionally.
+
+**Process:**
+
+1. **Distribute all pending epochs** - Complete distribution for all eligible epochs (currentEpoch - 2 or earlier)
+2. **Change weights** - Call `setRewardsShareForCollateralClass(classId, newBasisPoints)` for each class
+3. **Fund future epochs** - Use `setRewardsAmountForEpochs()` to fund upcoming epochs
+
+**Example:**
+```
+Current epoch: 100
+Last distributed: 97
+
+→ Distribute epochs 98, 99 (now eligible)
+→ Change weights: PRIMARY 6000→7000, SECONDARY 4000→3000
+→ Fund epochs 101-110
+
+Result: Epoch 100+ will use new weights when distributed
+```
+
+**If you must change mid-stream:** Document which historical epochs will be affected. Changes are permanent once distribution runs.
+
+**Note:** Fees (`protocolFee`, `operatorFee`, `curatorFee`) behave identically—they also apply at distribution time, not funding time.
+
+---
+
 ## Edge cases covered
 
 * New or empty class: `totalStake == 0` → skipped, no div‑0.
