@@ -106,25 +106,36 @@ Located at `lib/suzaku-contracts-library/src/contracts/ValidatorManager/`, the *
 
 **Architecture:**
 ```mermaid
-graph TD
-    A[AvalancheL1Middleware<br/>Suzaku Core] -->|initiates validator operations| B[BalancerValidatorManager<br/>Suzaku Library]
-    B -->|owns| C[ValidatorManager v2.1.0<br/>ICM Contracts]
+graph TB
+    subgraph "Suzaku Core"
+        MW[AvalancheL1Middleware<br/>Security Module]
+    end
     
-    A:::security
-    B:::balancer
-    C:::icm
+    subgraph "Suzaku Library"
+        BVM[BalancerValidatorManager]
+    end
     
-    classDef security fill:#e1f5e1,stroke:#4caf50,stroke-width:2px
+    subgraph "ICM Contracts"
+        VM[ValidatorManager v2.1.0]
+    end
+    
+    subgraph "Avalanche P-Chain"
+        PC[P-Chain<br/>Validator Set]
+    end
+    
+    MW -->|"implements<br/>ISecurityModule"| BVM
+    BVM -->|"owns"| VM
+    VM <-->|"ICM messages"| PC
+    
+    MW:::middleware
+    BVM:::balancer
+    VM:::icm
+    PC:::pchain
+    
+    classDef middleware fill:#e1f5e1,stroke:#4caf50,stroke-width:2px
     classDef balancer fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
     classDef icm fill:#fff3e0,stroke:#ff9800,stroke-width:2px
-    
-    A-.->|implements| D[ISecurityModule]
-    B-.->|manages multiple<br/>security modules| E[Enforces weight limits]
-    C-.->|handles| F[P-Chain communication]
-    
-    style D fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5
-    style E fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5
-    style F fill:#f5f5f5,stroke:#9e9e9e,stroke-dasharray: 5 5
+    classDef pchain fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
 ```
 
 The middleware acts as a security module, initiating validator operations through the balancer, which enforces weight limits and coordinates with the underlying ICM ValidatorManager for P-Chain interactions.
