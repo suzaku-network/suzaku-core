@@ -48,14 +48,22 @@ The middleware orchestrates validator management and stake tracking for Avalanch
 
 ### Security Module Integration
 
-```
-Middleware (Security Module)
-    ↓ implements ISecurityModule
-BalancerValidatorManager
-    ↓ owns
-ValidatorManager v2.1.0 (ICM)
-    ↓ communicates with
-P-Chain
+```mermaid
+graph TD
+    A[Middleware<br/>Security Module] -->|implements| B[ISecurityModule]
+    A -->|initiates operations| C[BalancerValidatorManager]
+    C -->|owns| D[ValidatorManager v2.1.0<br/>ICM]
+    D -->|communicates with| E[P-Chain]
+    
+    A:::middleware
+    C:::balancer
+    D:::icm
+    E:::pchain
+    
+    classDef middleware fill:#e1f5e1,stroke:#4caf50,stroke-width:2px
+    classDef balancer fill:#e3f2fd,stroke:#2196f3,stroke-width:2px
+    classDef icm fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    classDef pchain fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
 ```
 
 The middleware initiates validator operations (registration, removal, weight updates) through the balancer, which enforces weight limits and coordinates with ICM's ValidatorManager for P-Chain messaging.
@@ -226,17 +234,35 @@ Ensures:
 
 **Epoch Flow:**
 
-```
-Epoch N:
-  ├─ Operators have nodes with weights from epoch N-1
-  ├─ Mid-epoch changes → locked stake, pending flags
-  └─ Update window (last portion of epoch) → force node updates
-
-Epoch N → N+1 transition:
-  ├─ Resolve pending registrations/removals
-  ├─ Update node stake cache
-  ├─ Unlock stake deltas from completed updates
-  └─ Carry forward active nodes to new epoch
+```mermaid
+graph LR
+    subgraph "Epoch N"
+        A[Operators have nodes<br/>with weights from N-1]
+        B[Mid-epoch changes:<br/>locked stake, pending flags]
+        C[Update window:<br/>force node updates]
+    end
+    
+    subgraph "Epoch N → N+1 Transition"
+        D[Resolve pending<br/>registrations/removals]
+        E[Update node<br/>stake cache]
+        F[Unlock stake deltas<br/>from completed updates]
+        G[Carry forward<br/>active nodes]
+    end
+    
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    
+    style A fill:#e3f2fd
+    style B fill:#fff3e0
+    style C fill:#ffebee
+    style D fill:#e8f5e9
+    style E fill:#f3e5f5
+    style F fill:#fce4ec
+    style G fill:#e1f5fe
 ```
 
 **Node Stake Cache Updates:**

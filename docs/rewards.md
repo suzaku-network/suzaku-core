@@ -100,13 +100,37 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
 
 ## Time windows
 
+```mermaid
+gantt
+    title Epoch Timeline and Time Windows
+    dateFormat X
+    axisFormat %s
+    
+    section Past Epochs
+    N-5         :done, n5, 0, 1
+    N-4         :done, n4, 1, 1
+    N-3         :done, n3, 2, 1
+    N-2         :done, n2, 3, 1
+    N-1         :done, n1, 4, 1
+    
+    section Target Epoch
+    N           :active, n, 5, 1
+    
+    section Future Epochs
+    N+1         :future, n_1, 6, 1
+    N+2         :future, n_2, 7, 1
+    N+3         :crit, current, 8, 1
+    
+    section Time Windows
+    Funding Window  :done, funding, 1, 5
+    Distribution Start :milestone, 7, 0
+    Sweep Start     :milestone, 8, 0
 ```
-                   ← past                                  now →
-…  N-5  N-4  N-3  N-2  N-1   N   N+1  N+2  N+3  currentEpoch
-      └──── funding window ────┘
-                    └─ earliest distribution for N is when currentEpoch ≥ N+2
-sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplete
-```
+
+**Key Time Constraints:**
+- **Funding Window**: Epochs N-4 to N can be funded
+- **Earliest Distribution**: When currentEpoch ≥ N+2
+- **Sweep Allowed**: When currentEpoch ≥ N+3 and distributionComplete
 
 * Unfunded epochs:
 
