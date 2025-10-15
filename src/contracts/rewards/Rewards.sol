@@ -129,6 +129,10 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         operatorFee = operatorFee_;
         curatorFee = curatorFee_;
         minRequiredUptime = minRequiredUptime_;
+        // Sentinel: epoch 0 is never fundable/distributable
+        epochStatus[0].distributionComplete = true;
+        epochStatus[0].funded = true;
+        distributionBatches[0].isComplete = true;
     }
 
     // EXTERNAL FUNCTIONS
@@ -153,8 +157,8 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
                 revert EpochNotFunded(epoch);
         }
 
-        // Enforce sequential distribution - cannot skip epochs
-        if (epoch > 1) {
+        // Enforce sequential distribution, include epoch 0
+        if (epoch > 0) {
             EpochStatus storage prevSt = epochStatus[epoch - 1];
             if (!prevSt.distributionComplete) {
                 revert DistributionNotComplete(epoch - 1);

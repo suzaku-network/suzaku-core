@@ -2192,6 +2192,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
     }
 
     /* ─── H1 — Funding range guard lets top‑up inner epoch already started ─── */
+    /*
     function test_H1_FundingRangeGuard_TopUpInnerEpoch_AfterItStarted() public {
         // Use epoch0/1 to exploit the sequential off‑by‑one that allows starting epoch 1 first.
         uint48 ep0 = 0;
@@ -2221,8 +2222,47 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         uint256 after_ = rewards.getRewardsAmountPerTokenFromEpoch(ep1, address(token));
         assertGt(after_, before, "epoch 1 was topped up mid-distribution");
     }
+    */
+
+    function test_H1_FundingRangeGuard_TopUpInnerEpoch_AfterItStarted_fixed() public {
+        // Use epoch0/1 to show the fix for the sequential off‑by‑one
+        uint48 ep0 = 0;
+        uint48 ep1 = 1;
+        _setupRealStakes(ep0, 4 hours);
+        _setupRealStakes(ep1, 4 hours);
+
+        // fund both epochs initially (but epoch 0 will be rejected)
+        token.mint(rewardsDistributor, 200_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        
+        // Attempting to fund epoch 0 will revert (it's sentinel complete)
+        vm.expectRevert(abi.encodeWithSelector(IRewards.DistributionAlreadyStarted.selector, ep0));
+        rewards.setRewardsAmountForEpochs(ep0, 1, address(token), 100_000 ether);
+        
+        // Fund epoch 1 normally
+        rewards.setRewardsAmountForEpochs(ep1, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+
+        // epoch 1 can be processed since epoch 0 is marked complete at initialization
+        _moveToNextEpochAndCalc(3);
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(ep1, 1); // start, not complete
+
+        uint256 before = rewards.getRewardsAmountPerTokenFromEpoch(ep1, address(token));
+
+        // FIXED: With epoch 0 marked as complete in initialization, funding epoch 0 will now revert
+        vm.prank(rewardsDistributor);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.DistributionAlreadyStarted.selector, ep0));
+        rewards.setRewardsAmountForEpochs(ep0, 2, address(token), 1 ether);
+
+        // Verify epoch 1 amount remains unchanged (no top-up occurred)
+        uint256 after_ = rewards.getRewardsAmountPerTokenFromEpoch(ep1, address(token));
+        assertEq(after_, before, "epoch 1 amount should remain unchanged");
+    }
 
     /* ─── H2 — Epoch‑0 unclaimable + epoch‑1 distributable without epoch‑0 ─── */
+    /*
     function test_H2_Epoch0Unclaimable_And_Epoch1ProcessableBefore0() public {
         uint48 ep0 = 0;
         uint48 ep1 = 1;
@@ -2242,14 +2282,6 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(ep1, 50);
 
-        // claim succeeds for epoch 1 while epoch 0 remains skipped
-        uint256 before = token.balanceOf(staker);
-        vm.prank(staker);
-        rewards.claimRewards(address(token), staker);
-        assertGt(token.balanceOf(staker), before, "should claim epoch 1 even if epoch 0 pending");
-        assertEq(rewards.lastEpochClaimedStaker(staker, address(token)), ep1, "pointer advanced to 1, skipping 0");
-        
-        // Later distribute epoch 0 - but it still cannot be claimed
         vm.prank(rewardsDistributor);
         rewards.distributeRewards(ep0, 50);
         
@@ -2257,6 +2289,69 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
         vm.prank(staker);
         vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaimEpoch.selector, staker, 1));
         rewards.claimRewards(address(token), staker);
+    }
+    */
+
+    function test_H2_Epoch0Unclaimable_And_Epoch1ProcessableBefore0_fixed() public {
+        uint48 ep0 = 0;
+        uint48 ep1 = 1;
+        _setupRealStakes(ep0, 4 hours);
+        _setupRealStakes(ep1, 4 hours);
+
+        // fund epoch 1 only (epoch 0 cannot be funded - it's sentinel complete)
+        token.mint(rewardsDistributor, 200_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        rewards.setRewardsAmountForEpochs(ep1, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+
+        // epoch 1 can be processed now since epoch 0 is marked complete at initialization
+        _moveToNextEpochAndCalc(3);
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(ep1, 50);
+
+        // claim succeeds for epoch 1 (epoch 0 is sentinel complete)
+        uint256 before = token.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(address(token), staker);
+        assertGt(token.balanceOf(staker), before, "should claim epoch 1 rewards");
+        assertEq(rewards.lastEpochClaimedStaker(staker, address(token)), ep1, "pointer advanced to 1");
+        
+        // Epoch 0 cannot be distributed - it's already marked complete at initialization
+        vm.prank(rewardsDistributor);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyCompleted.selector, ep0));
+        rewards.distributeRewards(ep0, 50);
+        
+        // Try to claim again - should revert because no more rewards to claim
+        vm.prank(staker);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.NoRewardsToClaimEpoch.selector, staker, ep1));
+        rewards.claimRewards(address(token), staker);
+    }
+
+    function test_epoch0_sentinel_protection() public {
+        // Verify epoch 0 cannot be funded
+        token.mint(rewardsDistributor, 100_000 ether);
+        vm.startPrank(rewardsDistributor);
+        token.approve(address(rewards), type(uint256).max);
+        
+        // Cannot fund epoch 0
+        vm.expectRevert(abi.encodeWithSelector(IRewards.DistributionAlreadyStarted.selector, 0));
+        rewards.setRewardsAmountForEpochs(0, 1, address(token), 100_000 ether);
+        vm.stopPrank();
+        
+        // Cannot distribute epoch 0 (already complete)
+        _moveToNextEpochAndCalc(3);
+        vm.prank(rewardsDistributor);
+        vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyCompleted.selector, 0));
+        rewards.distributeRewards(0, 50);
+        
+        // Verify epoch 0 status
+        (bool funded, bool distributionComplete) = rewards.epochStatus(0);
+        assertTrue(funded, "Epoch 0 should be marked as funded");
+        assertTrue(distributionComplete, "Epoch 0 should be marked as distribution complete");
+        
+        (, bool isComplete) = rewards.distributionBatches(0);
+        assertTrue(isComplete, "Epoch 0 batch should be marked as complete");
     }
 
     /* ─── H3 — Fee‑on‑transfer tokens underfund pools ⇒ later claims revert ─── */
