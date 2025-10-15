@@ -2355,6 +2355,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
     }
 
     /* ─── H3 — Fee‑on‑transfer tokens underfund pools ⇒ later claims revert ─── */
+    /*
     function test_H3_FeeOnTransfer_Underfunding_BreaksClaims() public {
         uint48 epoch = middleware.getCurrentEpoch();
         if (epoch == 0) epoch = 1;
@@ -2435,6 +2436,89 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
             // Protocol claim failed - vulnerability proven
             assertGt(successfulClaims, 0, "at least some claims should succeed before failure");
         }
+    }
+    */
+
+    function test_H3_FeeOnTransfer_Underfunding_BreaksClaims_fixed() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+        _setupRealStakes(epoch, 4 hours);
+
+        // Make underfunding deterministic: only 10% of the funded amount actually lands
+        FeeOnTransferToken feeTok = new FeeOnTransferToken(10_000, 9000); // 90% fee
+        
+        // Mint and fund the epoch
+        feeTok.mint(rewardsDistributor, 100_000 ether);
+        vm.startPrank(rewardsDistributor);
+        feeTok.approve(address(rewards), type(uint256).max);
+        
+        // Fund the epoch - this will transfer tokens with fee
+        rewards.setRewardsAmountForEpochs(epoch, 1, address(feeTok), 100_000 ether);
+        vm.stopPrank();
+        
+        // Check actual balance vs recorded amount
+        uint256 actualBalance = feeTok.balanceOf(address(rewards));
+        uint256 recordedAmount = rewards.getRewardsAmountPerTokenFromEpoch(epoch, address(feeTok));
+        
+        // FIXED: With our H3 fix, the contract now properly accounts for what actually arrived
+        // Only 10% arrives (10,000 ether), protocol takes 10% of that (1,000 ether)
+        // So epoch gets 9,000 ether - matching what's actually available
+        assertEq(actualBalance, 10_000 ether, "actual balance should be 10% of requested");
+        assertEq(recordedAmount, 9_000 ether, "recorded amount should be 90% of actual (after protocol fee)");
+        
+        // Distribute rewards
+        _moveToNextEpochAndCalc(3);
+        address[] memory ops = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(ops.length));
+
+        // Move forward to allow claiming
+        _moveToNextEpochAndCalc(1);
+        
+        // Start claiming - ALL claims should succeed now (no insufficient balance)
+        uint256 successfulClaims = 0;
+        
+        // Try staker claim
+        vm.prank(staker);
+        try rewards.claimRewards(address(feeTok), staker) {
+            successfulClaims++;
+        } catch {
+            revert("Staker claim should not fail with fix");
+        }
+        
+        // Try operator claims
+        for (uint256 i = 0; i < ops.length; i++) {
+            vm.prank(ops[i]);
+            try rewards.claimOperatorFee(address(feeTok), ops[i]) {
+                successfulClaims++;
+            } catch {
+                revert("Operator claim should not fail with fix");
+            }
+        }
+        
+        // Try curator claims
+        uint256 nVault = vaultManager.getVaultCount();
+        for (uint256 i = 0; i < nVault; i++) {
+            (address v,,) = vaultManager.getVaultAtWithTimes(i);
+            address curator = VaultTokenized(v).owner();
+            vm.prank(curator);
+            try rewards.claimCuratorFee(address(feeTok), curator) {
+                successfulClaims++;
+            } catch {
+                revert("Curator claim should not fail with fix");
+            }
+        }
+        
+        // Try protocol fee claim
+        vm.prank(protocolOwner);
+        try rewards.claimProtocolFee(address(feeTok), protocolOwner) {
+            successfulClaims++;
+        } catch {
+            revert("Protocol claim should not fail with fix");
+        }
+        
+        // FIXED: All claims succeeded! The vulnerability is resolved
+        assertGt(successfulClaims, 5, "all claims should succeed without running out of funds");
     }
 
     /* ─── H4 — Uptime not computed ⇒ all shares zero but distribution completes ─── */

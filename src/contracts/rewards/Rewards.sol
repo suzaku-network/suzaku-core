@@ -449,24 +449,28 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             revert DistributionAlreadyStarted(startEpoch);
         }
 
-        uint256 totalRewards = rewardsAmount * numberOfEpochs;
-        IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), totalRewards);
+        // Credit by measured balance delta to support fee-on-transfer tokens
+        uint256 balanceBefore = IERC20(rewardsToken).balanceOf(address(this));
+        IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), rewardsAmount * numberOfEpochs);
+        uint256 received = IERC20(rewardsToken).balanceOf(address(this)) - balanceBefore;
 
-        uint256 protocolRewardsAmount = Math.mulDiv(totalRewards, protocolFee, BASIS_POINTS_DENOMINATOR);
+        // Split what actually arrived: protocol cut from received, remainder to epochs
+        uint256 protocolRewardsAmount = Math.mulDiv(received, protocolFee, BASIS_POINTS_DENOMINATOR);
         protocolRewards[rewardsToken] += protocolRewardsAmount;
-
-        rewardsAmount -= Math.mulDiv(rewardsAmount, protocolFee, BASIS_POINTS_DENOMINATOR);
+        uint256 totalRewardsForEpochs = received - protocolRewardsAmount;
+        uint256 rewardsPerEpoch = totalRewardsForEpochs / numberOfEpochs;              // floor
+        uint256 remainderRewards = totalRewardsForEpochs - rewardsPerEpoch * numberOfEpochs;       // carry remainder to last epoch
 
         for (uint48 i = 0; i < numberOfEpochs; i++) {
             uint48 targetEpoch = startEpoch + i;
-            EpochStatus storage st = epochStatus[targetEpoch];
-
-            st.funded = true;
+            EpochStatus storage status = epochStatus[targetEpoch];
+            uint256 epochAmount = rewardsPerEpoch + (i == numberOfEpochs - 1 ? remainderRewards : 0);
+            if (epochAmount > 0) status.funded = true; // only flag funded if something actually landed
             (, uint256 existing) = rewardsAmountPerTokenFromEpoch[targetEpoch].tryGet(rewardsToken);
-            rewardsAmountPerTokenFromEpoch[targetEpoch].set(rewardsToken, existing + rewardsAmount);
+            rewardsAmountPerTokenFromEpoch[targetEpoch].set(rewardsToken, existing + epochAmount);
         }
 
-        emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsAmount);
+        emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsPerEpoch);
     }
 
     /// @inheritdoc IRewards
