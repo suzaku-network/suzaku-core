@@ -29,7 +29,7 @@ contract RewardsIntegrationTest is MiddlewareTestBase {
     ERC20Mock         token;
 
     /* ─── Setup ───────────────────────────────────────────────────────────── */
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();                                // ← real middleware & vaults ready
 
         // ── fast‑path: add two secondary collateral‑classes & their vaults ───────────

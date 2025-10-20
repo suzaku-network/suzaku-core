@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: Copyright 2024 ADDPHO
+
+pragma solidity 0.8.25;
+
+import {ERC4626Upgradeable, IERC4626} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
+import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
+import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
+import {IRewards} from "../../interfaces/rewards/IRewards.sol";
+
+/**
+ * @title LSTWrapper
+ * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares.
+ * @dev Users deposit VaultTokenized shares (asset). The wrapper claims the native
+ * collateral rewards from the Rewards contract and auto-compounds them back
+ * into the underlying VaultTokenized instance, increasing the value per share (PPS)
+ * of this LSTWrapper token over time.
+ */
+contract LSTWrapper is
+    Initializable,
+    ERC4626Upgradeable,
+    ReentrancyGuardUpgradeable,
+    OwnableUpgradeable,
+    ILSTWrapper
+{
+    using SafeERC20 for IERC20;
+
+    /// @custom:storage-location erc7201:lstwrapper.storage
+    struct LSTWrapperStorageStruct {
+        /// @notice The underlying VaultTokenized contract instance being wrapped. Its shares are the asset.
+        IVaultTokenized vault;
+        /// @notice The Rewards contract associated with the underlying vault.
+        IRewards rewards;
+        /// @notice The native collateral token used by the vault and distributed by the Rewards contract.
+        IERC20 collateral;
+    }
+
+    // bytes32(uint256(keccak256(abi.encodePacked(uint256(keccak256("lstwrapper.storage")) - 1))) & ~uint256(0xff));
+    bytes32 public constant _LSTWRAPPER_STORAGE_SLOT = 0x799f344bf9d1b9145d63579fefcda32172d8d3c9b295fe5dc25c088a9f94f700;
+
+    constructor() {
+        _disableInitializers(); // Required for upgradeable contracts
+    }
+
+    /**
+     * @notice Initializes the LST Wrapper contract.
+     * @param admin The initial owner and admin of this wrapper.
+     * @param vault_ Address of the specific VaultTokenized instance to wrap.
+     * @param rewards_ Address of the associated Rewards contract.
+     * @param name_ ERC20 name for this new LST wrapper token.
+     * @param symbol_ ERC20 symbol for this new LST wrapper token.
+     */
+    function initialize(
+        address admin,
+        address vault_,
+        address rewards_,
+        string memory name_,
+        string memory symbol_
+    ) external initializer {
+        // Input Validation
+        if (admin == address(0)) revert LSTWrapper__ZeroAddress("admin");
+        if (vault_ == address(0)) revert LSTWrapper__ZeroAddress("vault");
+        if (rewards_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
+
+        // Initialize Inherited Contracts
+        __ERC20_init(name_, symbol_); // name/symbol for this wrapper token
+        __ERC4626_init(IERC20(vault_)); // set VaultTokenized shares as asset
+        __ReentrancyGuard_init();
+        __Ownable_init(admin); // Initialize OwnableUpgradeable with the admin address
+
+        // Set State Variables
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.vault = IVaultTokenized(vault_);
+        lws.rewards = IRewards(rewards_);
+
+        // Determine the collateral token
+        address collateralAddr = lws.vault.collateral();
+        if (collateralAddr == address(0)) revert LSTWrapper__InvalidVaultCollateral();
+        lws.collateral = IERC20(collateralAddr);
+
+        // Crucial Approval for Auto-Compounding
+        // Approve the underlying vault to spend the collateral tokens received by this wrapper.
+        lws.collateral.forceApprove(vault_, type(uint256).max);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function vault() external view returns (address) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return address(lws.vault);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function rewards() external view returns (address) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return address(lws.rewards);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function collateral() external view returns (address) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return address(lws.collateral);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function harvest() external nonReentrant returns (uint256 claimedCollateral, uint256 mintedVaultShares) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        uint256 balanceBeforeClaim = lws.collateral.balanceOf(address(this));
+
+        // Claim rewards, catching expected reverts.
+        try lws.rewards.claimRewards(address(lws.collateral), address(this)) { }
+        catch (bytes memory reason) {
+            emit RewardsClaimFailed(reason);
+        }
+
+        claimedCollateral = lws.collateral.balanceOf(address(this)) - balanceBeforeClaim;
+
+        if (claimedCollateral > 0) {
+            // Deposit claimed collateral back into the underlying vault.
+            // Approval was done in initialize().
+            (, mintedVaultShares) = lws.vault.deposit(address(this), claimedCollateral);
+            emit Harvest(msg.sender, claimedCollateral, mintedVaultShares);
+        } else {
+            emit Harvest(msg.sender, 0, 0);
+        }
+
+        return (claimedCollateral, mintedVaultShares);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function sweep(address token, address recipient, uint256 amount) external onlyOwner {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (token == address(asset())) revert LSTWrapper__CannotSweepAsset();
+        if (token == address(lws.collateral)) revert LSTWrapper__CannotSweepCollateral();
+        if (recipient == address(0)) revert LSTWrapper__InvalidRecipient();
+
+        IERC20(token).safeTransfer(recipient, amount);
+        emit Sweep(msg.sender, token, recipient, amount);
+    }
+
+    function totalAssets() public view virtual override(ERC4626Upgradeable, IERC4626) returns (uint256) {
+        return IERC20(asset()).balanceOf(address(this));
+    }
+
+    function decimals()
+        public
+        view
+        virtual
+        override(ERC4626Upgradeable, IERC20Metadata)
+        returns (uint8)
+    {
+        try IERC20Metadata(address(asset())).decimals() returns (uint8 assetDecimals) {
+            return assetDecimals;
+        } catch {
+            return 18; // Fallback
+        }
+    }
+
+    function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {
+        bytes32 slot = _LSTWRAPPER_STORAGE_SLOT;
+        assembly {
+            lws.slot := slot
+        }
+    }
+}
