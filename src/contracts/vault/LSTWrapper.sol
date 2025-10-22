@@ -41,6 +41,8 @@ contract LSTWrapper is
         IRewards rewards;
         /// @notice The collateral token used by the vault.
         IERC20 collateral;
+        /// @notice The native token (underlying of collateral) paid by Rewards contract.
+        IERC20 nativeToken;
         /// @notice Helper used for native->collateral conversion and staking.
         IVaultHelper vaultHelper;
     }
@@ -95,6 +97,7 @@ contract LSTWrapper is
         if (nativeTokenAddr == address(0)) revert LSTWrapper__InvalidRewardsToken();
         
         lws.collateral = IERC20(collateralAddr);
+        lws.nativeToken = IERC20(nativeTokenAddr);
         lws.vaultHelper = IVaultHelper(helper_);
         // No infinite approvals; per‑harvest allowances only.
     }
@@ -118,19 +121,19 @@ contract LSTWrapper is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function collateral() external view returns (address) {
+    function collateral() external view returns (address collateral_) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        return address(lws.collateral);
+        collateral_ = address(lws.collateral);
     }
 
-    function nativeToken() external view returns (address) {
+    function nativeToken() external view returns (address token) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        return ICollateral(address(lws.collateral)).asset();
+        token = address(lws.nativeToken);
     }
 
-    function vaultHelper() external view returns (address) {
+    function vaultHelper() external view returns (address helper) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        return address(lws.vaultHelper);
+        helper = address(lws.vaultHelper);
     }
 
     /**
@@ -150,8 +153,11 @@ contract LSTWrapper is
             }
         }
 
-        // Get native token from collateral
-        address nativeTokenAddr = ICollateral(address(lws.collateral)).asset();
+        // Use cached native token (validated at initialization)
+        address nativeTokenAddr = address(lws.nativeToken);
+        
+        // Track balance before claim to compute actual claimed amount
+        uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
         
         // Claim rewards (native token), catch expected reverts.
         try lws.rewards.claimRewards(nativeTokenAddr, address(this)) { }
@@ -159,8 +165,13 @@ contract LSTWrapper is
             emit RewardsClaimFailed(reason);
         }
 
-        claimedNative = IERC20(nativeTokenAddr).balanceOf(address(this));
-        if (claimedNative == 0) {
+        // Calculate actual claimed amount as the delta
+        uint256 nativeBalanceAfter = lws.nativeToken.balanceOf(address(this));
+        claimedNative = nativeBalanceAfter - nativeBalanceBefore;
+        
+        // Use total balance for processing (includes any pre-existing dust)
+        uint256 totalNativeBalance = nativeBalanceAfter;
+        if (totalNativeBalance == 0) {
             emit Harvest(msg.sender, 0, 0);
             return (0, 0);
         }
@@ -173,17 +184,17 @@ contract LSTWrapper is
         }
 
         uint256 sharesBefore = IERC20(asset()).balanceOf(address(this));
-        // Approve helper to pull native token exactly once
-        IERC20(nativeTokenAddr).forceApprove(address(lws.vaultHelper), 0);
-        IERC20(nativeTokenAddr).forceApprove(address(lws.vaultHelper), claimedNative);
+        // Approve helper to pull native token exactly once (use total balance to include dust)
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), totalNativeBalance);
         lws.vaultHelper.stakeAssetInVault(
             address(lws.vault),
             address(this),
             address(lws.collateral),
             nativeTokenAddr,
-            claimedNative
+            totalNativeBalance
         );
-        IERC20(nativeTokenAddr).forceApprove(address(lws.vaultHelper), 0);
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
 
         uint256 sharesAfter = IERC20(asset()).balanceOf(address(this));
         mintedVaultShares = sharesAfter - sharesBefore;
@@ -204,6 +215,30 @@ contract LSTWrapper is
 
         IERC20(token).safeTransfer(recipient, amount);
         emit Sweep(msg.sender, token, recipient, amount);
+    }
+    
+    /**
+     * @notice Recovers collateral dust that was accidentally sent to the wrapper.
+     * @param recipient The address to send the dust to
+     * @param amount The amount of collateral dust to recover
+     * @dev Only callable by owner. This is safe because the wrapper should never
+     *      intentionally hold collateral - it only holds vault shares and native tokens.
+     */
+    function sweepCollateralDust(address recipient, uint256 amount) external onlyOwner {
+        if (recipient == address(0)) revert LSTWrapper__InvalidRecipient();
+        
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        
+        // Safety check: only allow sweeping small amounts to prevent accidents
+        uint256 collateralBalance = lws.collateral.balanceOf(address(this));
+        uint256 maxDustAmount = 1e18; // Configurable threshold (1 token with 18 decimals)
+        
+        if (amount > maxDustAmount || amount > collateralBalance) {
+            revert LSTWrapper__ExcessiveAmount();
+        }
+        
+        lws.collateral.safeTransfer(recipient, amount);
+        emit CollateralDustSwept(msg.sender, recipient, amount);
     }
 
     function totalAssets() public view virtual override(ERC4626Upgradeable, IERC4626) returns (uint256) {

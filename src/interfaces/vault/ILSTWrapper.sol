@@ -17,6 +17,7 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__DepositRestricted();
     error LSTWrapper__DepositLimitExceeded(uint256 headroom);
     error LSTWrapper__ZeroSharesMinted();
+    error LSTWrapper__ExcessiveAmount();
 
     // Events
     /**
@@ -42,6 +43,14 @@ interface ILSTWrapper is IERC4626 {
      */
     event RewardsClaimFailed(bytes reason);
     event VaultHelperUpdated(address indexed helper);
+    
+    /**
+     * @notice Emitted when collateral dust is swept from the contract.
+     * @param caller address that triggered the sweep
+     * @param recipient recipient of the swept dust
+     * @param amount amount of collateral dust swept
+     */
+    event CollateralDustSwept(address indexed caller, address indexed recipient, uint256 amount);
 
     // Functions
     /**
@@ -109,4 +118,12 @@ interface ILSTWrapper is IERC4626 {
 
     // Admin
     function setVaultHelper(address helper_) external;
+    
+    /**
+     * @notice Recovers collateral dust that was accidentally sent to the wrapper.
+     * @param recipient The address to send the dust to
+     * @param amount The amount of collateral dust to recover
+     * @dev Only callable by owner. Limited to small amounts for safety.
+     */
+    function sweepCollateralDust(address recipient, uint256 amount) external;
 }
