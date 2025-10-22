@@ -8,7 +8,7 @@ pragma solidity 0.8.25;
 // Shows that the sum of operator + vault + curator shares can exceed 10 000 bp
 // (100 %), proving that claimUndistributedRewards will mis-count.
 // ─────────────────────────────────────────────────────────────────────────────
-import {AvalancheL1MiddlewareTest} from "../middleware/AvalancheL1MiddlewareTest.t.sol";
+import {MiddlewareTestBase} from "../middleware/MiddlewareTestBase.t.sol";
 
 import {Rewards}           from "src/contracts/rewards/Rewards.sol";
 import {MockUptimeTracker} from "../mocks/MockUptimeTracker.sol";
@@ -19,7 +19,7 @@ import {VaultTokenized}    from "src/contracts/vault/VaultTokenized.sol";
 import {console2}          from "forge-std/console2.sol";
 import {stdError}          from "forge-std/Test.sol";
 
-contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
+contract RewardsSharesOverflowTest is MiddlewareTestBase {
     // ── helpers & globals ────────────────────────────────────────────────────
     MockUptimeTracker internal uptimeTracker;
     Rewards          internal rewards;
@@ -33,7 +33,7 @@ contract PoCIncorrectSumOfShares is AvalancheL1MiddlewareTest {
     // -----------------------------------------------------------------------
     //                      MAIN TEST ROUTINE
     // -----------------------------------------------------------------------
-    function test_PoCIncorrectSumOfShares() public {
+    function test_SharesCalculationOverflow() public {
         _setupRewardsAndSecondaryCollateralClass();          // 1. deploy + fund rewards
 
         address[] memory operators = middleware.getAllOperators();

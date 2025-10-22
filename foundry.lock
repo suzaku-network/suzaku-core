@@ -1,0 +1,23 @@
+{
+  "lib/core": {
+    "rev": "1e391f3cfce3feb74e542e70711d670cf5c6415e"
+  },
+  "lib/forge-std": {
+    "rev": "60acb7aaadcce2d68e52986a0a66fe79f07d138f"
+  },
+  "lib/openzeppelin-contracts": {
+    "rev": "88962fb5ab6965d224dc6e6757f34e4f301160c5"
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "rev": "cdfb877d9cf59106e1615d38d104cea69e228142"
+  },
+  "lib/openzeppelin-foundry-upgrades": {
+    "rev": "16e0ae21e0e39049f619f2396fa28c57fad07368"
+  },
+  "lib/permit2": {
+    "rev": "cc56ad0f3439c502c246fc5cfcc3db92bb8b7219"
+  },
+  "lib/suzaku-contracts-library": {
+    "rev": "1a2ff8789520188f3526a2f54b3320546dd891b0"
+  }
+}

@@ -2205,6 +2205,12 @@ contract RewardsTest is Test {
     //     );
     // }
 
+    /* ─── Test MAX_EPOCHS_PER_CLAIM constant ─── */
+    function test_maxEpochsPerClaim_constant() public view {
+        // Verify the constant exists and has the expected value
+        uint48 maxEpochs = rewards.MAX_EPOCHS_PER_CLAIM();
+        assertEq(maxEpochs, 64, "MAX_EPOCHS_PER_CLAIM should be 64");
+    }
 
 }
 

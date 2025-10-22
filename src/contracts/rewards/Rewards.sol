@@ -38,6 +38,9 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
     /// @dev The number of epochs after distribution is possible that users have to claim
     ///      before undistributed rewards can be swept.
     uint48 public constant CLAIM_GRACE_PERIOD_EPOCHS = 1;
+    
+    /// @dev Cap epochs processed in a single claim to prevent out-of-gas on long histories
+    uint48 public constant MAX_EPOCHS_PER_CLAIM = 64;
 
     // STATE VARIABLES
     // Fee configuration
@@ -126,6 +129,10 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         operatorFee = operatorFee_;
         curatorFee = curatorFee_;
         minRequiredUptime = minRequiredUptime_;
+        // Sentinel: epoch 0 is never fundable/distributable
+        epochStatus[0].distributionComplete = true;
+        epochStatus[0].funded = true;
+        distributionBatches[0].isComplete = true;
     }
 
     // EXTERNAL FUNCTIONS
@@ -150,8 +157,8 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
                 revert EpochNotFunded(epoch);
         }
 
-        // Enforce sequential distribution - cannot skip epochs
-        if (epoch > 1) {
+        // Enforce sequential distribution, include epoch 0
+        if (epoch > 0) {
             EpochStatus storage prevSt = epochStatus[epoch - 1];
             if (!prevSt.distributionComplete) {
                 revert DistributionNotComplete(epoch - 1);
@@ -193,7 +200,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalRewards = 0;
         uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
 
             if (!st.distributionComplete) break;
@@ -261,7 +272,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalRewards = 0;
         uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
 
             if (!st.distributionComplete) break;
@@ -304,7 +319,11 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
         uint256 totalRewards = 0;
         uint48 newLast = lastClaimedEpoch;
 
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; ++epoch) {
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
 
             if (!st.distributionComplete) break;
@@ -430,24 +449,28 @@ contract Rewards is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewar
             revert DistributionAlreadyStarted(startEpoch);
         }
 
-        uint256 totalRewards = rewardsAmount * numberOfEpochs;
-        IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), totalRewards);
+        // Credit by measured balance delta to support fee-on-transfer tokens
+        uint256 balanceBefore = IERC20(rewardsToken).balanceOf(address(this));
+        IERC20(rewardsToken).safeTransferFrom(msg.sender, address(this), rewardsAmount * numberOfEpochs);
+        uint256 received = IERC20(rewardsToken).balanceOf(address(this)) - balanceBefore;
 
-        uint256 protocolRewardsAmount = Math.mulDiv(totalRewards, protocolFee, BASIS_POINTS_DENOMINATOR);
+        // Split what actually arrived: protocol cut from received, remainder to epochs
+        uint256 protocolRewardsAmount = Math.mulDiv(received, protocolFee, BASIS_POINTS_DENOMINATOR);
         protocolRewards[rewardsToken] += protocolRewardsAmount;
-
-        rewardsAmount -= Math.mulDiv(rewardsAmount, protocolFee, BASIS_POINTS_DENOMINATOR);
+        uint256 totalRewardsForEpochs = received - protocolRewardsAmount;
+        uint256 rewardsPerEpoch = totalRewardsForEpochs / numberOfEpochs;              // floor
+        uint256 remainderRewards = totalRewardsForEpochs - rewardsPerEpoch * numberOfEpochs;       // carry remainder to last epoch
 
         for (uint48 i = 0; i < numberOfEpochs; i++) {
             uint48 targetEpoch = startEpoch + i;
-            EpochStatus storage st = epochStatus[targetEpoch];
-
-            st.funded = true;
+            EpochStatus storage status = epochStatus[targetEpoch];
+            uint256 epochAmount = rewardsPerEpoch + (i == numberOfEpochs - 1 ? remainderRewards : 0);
+            if (epochAmount > 0) status.funded = true; // only flag funded if something actually landed
             (, uint256 existing) = rewardsAmountPerTokenFromEpoch[targetEpoch].tryGet(rewardsToken);
-            rewardsAmountPerTokenFromEpoch[targetEpoch].set(rewardsToken, existing + rewardsAmount);
+            rewardsAmountPerTokenFromEpoch[targetEpoch].set(rewardsToken, existing + epochAmount);
         }
 
-        emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsAmount);
+        emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsPerEpoch);
     }
 
     /// @inheritdoc IRewards

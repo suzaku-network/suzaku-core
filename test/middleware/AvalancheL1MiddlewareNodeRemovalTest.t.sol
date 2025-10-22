@@ -13,9 +13,9 @@ import {StakeConversion} from "src/contracts/middleware/libraries/StakeConversio
 import {console2} from "forge-std/console2.sol";
 import {IBalancerValidatorManager} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
-contract PoCIrremovableNode is MiddlewareTestBase {
+contract AvalancheL1MiddlewareNodeRemovalTest is MiddlewareTestBase {
     /// Demonstrates *expected* vs *buggy* behaviour side-by-side
-    function test_PoCIrremovableNode() public {
+    function test_PhantomNodeRemovalBehavior() public {
         //
         // 1) NORMAL FLOW – node can be removed
         //

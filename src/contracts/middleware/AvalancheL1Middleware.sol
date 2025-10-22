@@ -223,8 +223,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             revert AvalancheL1Middleware__ZeroAddress();
         }
         vaultManagerSet = true;
+        address oldVaultManager = address(vaultManager);
         vaultManager = MiddlewareVaultManager(vaultManager_);
-        emit VaultManagerUpdated(address(vaultManager), vaultManager_);
+        emit VaultManagerUpdated(oldVaultManager, vaultManager_);
     }
 
 
