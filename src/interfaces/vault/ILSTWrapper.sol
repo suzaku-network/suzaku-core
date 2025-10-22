@@ -12,15 +12,20 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__CannotSweepCollateral();
     error LSTWrapper__InvalidRecipient();
     error LSTWrapper__InvalidVaultCollateral();
+    error LSTWrapper__InvalidRewardsToken();
+    error LSTWrapper__InvalidVaultHelper();
+    error LSTWrapper__DepositRestricted();
+    error LSTWrapper__DepositLimitExceeded(uint256 headroom);
+    error LSTWrapper__ZeroSharesMinted();
 
     // Events
     /**
-     * @notice Emitted when rewards are harvested and reinvested.
+     * @notice Emitted when rewards (native token) are harvested and reinvested.
      * @param caller address that triggered the harvest
-     * @param claimedCollateral amount of collateral claimed from rewards
+     * @param claimedNative amount of native token claimed from rewards
      * @param mintedVaultShares amount of vault shares minted from reinvestment
      */
-    event Harvest(address indexed caller, uint256 claimedCollateral, uint256 mintedVaultShares);
+    event Harvest(address indexed caller, uint256 claimedNative, uint256 mintedVaultShares);
 
     /**
      * @notice Emitted when tokens are swept from the contract.
@@ -36,6 +41,7 @@ interface ILSTWrapper is IERC4626 {
      * @param reason error reason for the failed claim
      */
     event RewardsClaimFailed(bytes reason);
+    event VaultHelperUpdated(address indexed helper);
 
     // Functions
     /**
@@ -57,10 +63,21 @@ interface ILSTWrapper is IERC4626 {
     function collateral() external view returns (address);
 
     /**
+     * @notice Get the native token (underlying) paid by Rewards.
+     */
+    function nativeToken() external view returns (address);
+
+    /**
+     * @notice Get the vault helper used for conversion and staking.
+     */
+    function vaultHelper() external view returns (address);
+
+    /**
      * @notice Initialize the LST Wrapper.
      * @param admin initial owner and admin of the wrapper
      * @param vault_ address of the VaultTokenized instance to wrap
      * @param rewards_ address of the associated Rewards contract
+     * @param helper_ address of the VaultHelper to use
      * @param name_ ERC20 name for the LST wrapper token
      * @param symbol_ ERC20 symbol for the LST wrapper token
      */
@@ -68,17 +85,18 @@ interface ILSTWrapper is IERC4626 {
         address admin,
         address vault_,
         address rewards_,
+        address helper_,
         string memory name_,
         string memory symbol_
     ) external;
 
     /**
      * @notice Harvest rewards and reinvest them into the vault.
-     * @return claimedCollateral amount of collateral claimed from rewards
+     * @return claimedNative amount of native token claimed from rewards
      * @return mintedVaultShares amount of vault shares minted from reinvestment
-     * @dev This function is permissionless and increases the value per share of the wrapper token.
+     * @dev Owner-only in this version to simplify operations.
      */
-    function harvest() external returns (uint256 claimedCollateral, uint256 mintedVaultShares);
+    function harvest() external returns (uint256 claimedNative, uint256 mintedVaultShares);
 
     /**
      * @notice Sweep unexpected tokens from the contract.
@@ -88,4 +106,7 @@ interface ILSTWrapper is IERC4626 {
      * @dev Only callable by owner. Cannot sweep the underlying asset or collateral.
      */
     function sweep(address token, address recipient, uint256 amount) external;
+
+    // Admin
+    function setVaultHelper(address helper_) external;
 }

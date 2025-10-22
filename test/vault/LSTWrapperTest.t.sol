@@ -12,10 +12,12 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
 
 contract LSTWrapperTest is RewardsIntegrationTest {
     LSTWrapper public lstWrapper;
     LSTWrapper public lstWrapperImplementation;
+    VaultHelper public vaultHelper;
     
     address public lstAdmin;
     address public lstUser1;
@@ -34,18 +36,22 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         lstUser2 = makeAddr("lstUser2");
         attacker = makeAddr("attacker");
         
+        // Deploy VaultHelper
+        vaultHelper = new VaultHelper(address(vaultFactory));
+        
         // Deploy LSTWrapper implementation
         lstWrapperImplementation = new LSTWrapper();
         
-        // Deploy proxy and initialize
-        bytes memory initData = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin,
-            address(vault),
-            address(rewards),
-            "LST Wrapped VaultTokenized",
-            "lstVT"
-        );
+            // Deploy proxy and initialize
+            bytes memory initData = abi.encodeWithSelector(
+                LSTWrapper.initialize.selector,
+                lstAdmin,
+                address(vault),
+                address(rewards),
+                address(vaultHelper), // helper
+                "LST Wrapped VaultTokenized",
+                "lstVT"
+            );
         
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(lstWrapperImplementation),
@@ -87,6 +93,10 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         assertEq(lstWrapper.vault(), address(vault));
         assertEq(lstWrapper.rewards(), address(rewards));
         assertEq(lstWrapper.collateral(), vault.collateral());
+        // Note: nativeToken() will revert when called because the test collateral 
+        // is a simple Token that doesn't implement ICollateral.asset()
+        // This is expected behavior in test environment
+        assertEq(lstWrapper.vaultHelper(), address(vaultHelper));
         assertEq(lstWrapper.asset(), address(vault));
         assertEq(lstWrapper.name(), "LST Wrapped VaultTokenized");
         assertEq(lstWrapper.symbol(), "lstVT");
@@ -101,6 +111,7 @@ contract LSTWrapperTest is RewardsIntegrationTest {
             address(0), // zero admin
             address(vault),
             address(rewards),
+            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -114,6 +125,7 @@ contract LSTWrapperTest is RewardsIntegrationTest {
             lstAdmin,
             address(0), // zero vault
             address(rewards),
+            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -127,11 +139,27 @@ contract LSTWrapperTest is RewardsIntegrationTest {
             lstAdmin,
             address(vault),
             address(0), // zero rewards
+            address(vaultHelper),
             "Test",
             "TST"
         );
         vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__ZeroAddress.selector, "rewards"));
         new ERC1967Proxy(address(impl3), initData3);
+        
+        // Test zero helper
+        LSTWrapper impl4 = new LSTWrapper();
+        bytes memory initData4 = abi.encodeWithSelector(
+            LSTWrapper.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(rewards),
+            address(0), // zero helper
+            "Test",
+            "TST"
+        );
+        vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector);
+        new ERC1967Proxy(address(impl4), initData4);
+        
     }
     
     function test_Initialize_RevertInvalidVaultCollateral() public {
@@ -144,6 +172,7 @@ contract LSTWrapperTest is RewardsIntegrationTest {
             lstAdmin,
             mockVault,
             address(rewards),
+            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -229,21 +258,21 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         lstWrapper.deposit(depositAmount, lstUser1);
         vm.stopPrank();
         
-        // Simple test: send some collateral directly to lstWrapper to simulate rewards
+        // Simple test: send some underlying (rewardsToken) directly to lstWrapper to simulate rewards
         uint256 rewardAmount = 1 ether;
-        collateral.transfer(address(lstWrapper), rewardAmount);
+        collateral.transfer(address(lstWrapper), rewardAmount); // In test setup, collateral is used as rewardsToken
         
         // Record balances before harvest
         uint256 vaultBalanceBefore = vault.balanceOf(address(lstWrapper));
         
-        // Harvest - this should deposit the collateral into the vault
+        // Harvest - this should convert underlying to collateral via vaultHelper and deposit into the vault
         vm.prank(lstAdmin);
-        (, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (uint256 claimedUnderlying, uint256 mintedVaultShares) = lstWrapper.harvest();
         
         // Verify harvest increased vault balance
         uint256 vaultBalanceAfter = vault.balanceOf(address(lstWrapper));
         assertGt(vaultBalanceAfter, vaultBalanceBefore, "Vault balance should increase after harvest");
-        // claimedCollateral might be 0 if no rewards from rewards contract
+        // claimedUnderlying should be the amount we transferred
         // but mintedVaultShares should be > 0 from the collateral we sent
         assertGt(mintedVaultShares, 0, "Should mint vault shares from harvest");
     }
@@ -315,6 +344,31 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         vm.prank(lstUser1);
         vm.expectRevert();
         lstWrapper.sweep(address(randomToken), lstUser2, 1 ether);
+    }
+    
+    // Admin setter tests
+    
+    function test_SetVaultHelper() public {
+        address newHelper = makeAddr("newHelper");
+        
+        vm.prank(lstAdmin);
+        vm.expectEmit(true, false, false, false);
+        emit ILSTWrapper.VaultHelperUpdated(newHelper);
+        lstWrapper.setVaultHelper(newHelper);
+        
+        assertEq(lstWrapper.vaultHelper(), newHelper);
+    }
+    
+    function test_SetVaultHelper_RevertZeroAddress() public {
+        vm.prank(lstAdmin);
+        vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector);
+        lstWrapper.setVaultHelper(address(0));
+    }
+    
+    function test_SetVaultHelper_OnlyOwner() public {
+        vm.prank(lstUser1);
+        vm.expectRevert();
+        lstWrapper.setVaultHelper(makeAddr("newHelper"));
     }
     
     // Preview functions tests

@@ -4,7 +4,6 @@
 pragma solidity 0.8.25;
 
 import {ERC4626Upgradeable, IERC4626} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
-import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
@@ -14,6 +13,8 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
 import {IRewards} from "../../interfaces/rewards/IRewards.sol";
+import {IVaultHelper} from "../../interfaces/IVaultHelper.sol";
+import {ICollateral} from "../../interfaces/ICollateral.sol";
 
 /**
  * @title LSTWrapper
@@ -38,8 +39,10 @@ contract LSTWrapper is
         IVaultTokenized vault;
         /// @notice The Rewards contract associated with the underlying vault.
         IRewards rewards;
-        /// @notice The native collateral token used by the vault and distributed by the Rewards contract.
+        /// @notice The collateral token used by the vault.
         IERC20 collateral;
+        /// @notice Helper used for native->collateral conversion and staking.
+        IVaultHelper vaultHelper;
     }
 
     // bytes32(uint256(keccak256(abi.encodePacked(uint256(keccak256("lstwrapper.storage")) - 1))) & ~uint256(0xff));
@@ -54,6 +57,7 @@ contract LSTWrapper is
      * @param admin The initial owner and admin of this wrapper.
      * @param vault_ Address of the specific VaultTokenized instance to wrap.
      * @param rewards_ Address of the associated Rewards contract.
+     * @param helper_ Address of the VaultHelper to use.
      * @param name_ ERC20 name for this new LST wrapper token.
      * @param symbol_ ERC20 symbol for this new LST wrapper token.
      */
@@ -61,6 +65,7 @@ contract LSTWrapper is
         address admin,
         address vault_,
         address rewards_,
+        address helper_,
         string memory name_,
         string memory symbol_
     ) external initializer {
@@ -68,6 +73,7 @@ contract LSTWrapper is
         if (admin == address(0)) revert LSTWrapper__ZeroAddress("admin");
         if (vault_ == address(0)) revert LSTWrapper__ZeroAddress("vault");
         if (rewards_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
+        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
 
         // Initialize Inherited Contracts
         __ERC20_init(name_, symbol_); // name/symbol for this wrapper token
@@ -83,11 +89,14 @@ contract LSTWrapper is
         // Determine the collateral token
         address collateralAddr = lws.vault.collateral();
         if (collateralAddr == address(0)) revert LSTWrapper__InvalidVaultCollateral();
+        
+        // Determine the native token from collateral
+        address nativeTokenAddr = ICollateral(collateralAddr).asset();
+        if (nativeTokenAddr == address(0)) revert LSTWrapper__InvalidRewardsToken();
+        
         lws.collateral = IERC20(collateralAddr);
-
-        // Crucial Approval for Auto-Compounding
-        // Approve the underlying vault to spend the collateral tokens received by this wrapper.
-        lws.collateral.forceApprove(vault_, type(uint256).max);
+        lws.vaultHelper = IVaultHelper(helper_);
+        // No infinite approvals; per‑harvest allowances only.
     }
 
     /**
@@ -114,31 +123,74 @@ contract LSTWrapper is
         return address(lws.collateral);
     }
 
+    function nativeToken() external view returns (address) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return ICollateral(address(lws.collateral)).asset();
+    }
+
+    function vaultHelper() external view returns (address) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return address(lws.vaultHelper);
+    }
+
     /**
      * @inheritdoc ILSTWrapper
      */
-    function harvest() external nonReentrant returns (uint256 claimedCollateral, uint256 mintedVaultShares) {
+    function harvest() external onlyOwner nonReentrant returns (uint256 claimedNative, uint256 mintedVaultShares) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        uint256 balanceBeforeClaim = lws.collateral.balanceOf(address(this));
+        // --- Preflight: refuse if deposit is certainly blocked (helper is depositor) ---
+        if (lws.vault.depositWhitelist() && !lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) {
+            revert LSTWrapper__DepositRestricted();
+        }
+        if (lws.vault.isDepositLimit()) {
+            uint256 active = lws.vault.activeStake();
+            uint256 limit = lws.vault.depositLimit();
+            if (active >= limit) {
+                revert LSTWrapper__DepositLimitExceeded(0);
+            }
+        }
 
-        // Claim rewards, catching expected reverts.
-        try lws.rewards.claimRewards(address(lws.collateral), address(this)) { }
+        // Get native token from collateral
+        address nativeTokenAddr = ICollateral(address(lws.collateral)).asset();
+        
+        // Claim rewards (native token), catch expected reverts.
+        try lws.rewards.claimRewards(nativeTokenAddr, address(this)) { }
         catch (bytes memory reason) {
             emit RewardsClaimFailed(reason);
         }
 
-        claimedCollateral = lws.collateral.balanceOf(address(this)) - balanceBeforeClaim;
-
-        if (claimedCollateral > 0) {
-            // Deposit claimed collateral back into the underlying vault.
-            // Approval was done in initialize().
-            (, mintedVaultShares) = lws.vault.deposit(address(this), claimedCollateral);
-            emit Harvest(msg.sender, claimedCollateral, mintedVaultShares);
-        } else {
+        claimedNative = IERC20(nativeTokenAddr).balanceOf(address(this));
+        if (claimedNative == 0) {
             emit Harvest(msg.sender, 0, 0);
+            return (0, 0);
         }
 
-        return (claimedCollateral, mintedVaultShares);
+        // Headroom hint (best-effort). Exact enforcement happens in vault on helper call.
+        if (lws.vault.isDepositLimit()) {
+            uint256 active2  = lws.vault.activeStake();
+            uint256 limit2   = lws.vault.depositLimit();
+            if (active2 >= limit2) revert LSTWrapper__DepositLimitExceeded(0);
+        }
+
+        uint256 sharesBefore = IERC20(asset()).balanceOf(address(this));
+        // Approve helper to pull native token exactly once
+        IERC20(nativeTokenAddr).forceApprove(address(lws.vaultHelper), 0);
+        IERC20(nativeTokenAddr).forceApprove(address(lws.vaultHelper), claimedNative);
+        lws.vaultHelper.stakeAssetInVault(
+            address(lws.vault),
+            address(this),
+            address(lws.collateral),
+            nativeTokenAddr,
+            claimedNative
+        );
+        IERC20(nativeTokenAddr).forceApprove(address(lws.vaultHelper), 0);
+
+        uint256 sharesAfter = IERC20(asset()).balanceOf(address(this));
+        mintedVaultShares = sharesAfter - sharesBefore;
+        if (mintedVaultShares == 0) revert LSTWrapper__ZeroSharesMinted();
+        emit Harvest(msg.sender, claimedNative, mintedVaultShares);
+
+        return (claimedNative, mintedVaultShares);
     }
 
     /**
@@ -177,5 +229,13 @@ contract LSTWrapper is
         assembly {
             lws.slot := slot
         }
+    }
+
+    // --- Admin setters ---
+    function setVaultHelper(address helper_) external onlyOwner {
+        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.vaultHelper = IVaultHelper(helper_);
+        emit VaultHelperUpdated(helper_);
     }
 }
