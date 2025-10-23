@@ -126,11 +126,17 @@ contract LSTWrapper is
         collateral_ = address(lws.collateral);
     }
 
+    /**
+     * @inheritdoc ILSTWrapper
+     */
     function nativeToken() external view returns (address token) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         token = address(lws.nativeToken);
     }
 
+    /**
+     * @inheritdoc ILSTWrapper
+     */
     function vaultHelper() external view returns (address helper) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         helper = address(lws.vaultHelper);
@@ -139,19 +145,8 @@ contract LSTWrapper is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function harvest() external onlyOwner nonReentrant returns (uint256 claimedNative, uint256 mintedVaultShares) {
+    function harvest() external nonReentrant returns (uint256 claimedNative, uint256 mintedVaultShares) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        // --- Preflight: refuse if deposit is certainly blocked (helper is depositor) ---
-        if (lws.vault.depositWhitelist() && !lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) {
-            revert LSTWrapper__DepositRestricted();
-        }
-        if (lws.vault.isDepositLimit()) {
-            uint256 active = lws.vault.activeStake();
-            uint256 limit = lws.vault.depositLimit();
-            if (active >= limit) {
-                revert LSTWrapper__DepositLimitExceeded(0);
-            }
-        }
 
         // Use cached native token (validated at initialization)
         address nativeTokenAddr = address(lws.nativeToken);
@@ -176,32 +171,147 @@ contract LSTWrapper is
             return (0, 0);
         }
 
-        // Headroom hint (best-effort). Exact enforcement happens in vault on helper call.
+        // Gate by underlying vault whitelist only when depositing
+        if (lws.vault.depositWhitelist()) {
+            if (!lws.vault.isDepositorWhitelisted(msg.sender)) revert LSTWrapper__DepositRestricted();
+            if (!lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) revert LSTWrapper__DepositRestricted();
+        }
+        // Deposit limit check only when depositing
         if (lws.vault.isDepositLimit()) {
-            uint256 active2  = lws.vault.activeStake();
-            uint256 limit2   = lws.vault.depositLimit();
-            if (active2 >= limit2) revert LSTWrapper__DepositLimitExceeded(0);
+            uint256 active  = lws.vault.activeStake();
+            uint256 limit   = lws.vault.depositLimit();
+            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
         }
 
-        uint256 sharesBefore = IERC20(asset()).balanceOf(address(this));
         // Approve helper to pull native token exactly once (use total balance to include dust)
         lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
         lws.nativeToken.forceApprove(address(lws.vaultHelper), totalNativeBalance);
-        lws.vaultHelper.stakeAssetInVault(
+        (, mintedVaultShares) = lws.vaultHelper.stakeAssetInVault(
             address(lws.vault),
             address(this),
             address(lws.collateral),
             nativeTokenAddr,
             totalNativeBalance
         );
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
-
-        uint256 sharesAfter = IERC20(asset()).balanceOf(address(this));
-        mintedVaultShares = sharesAfter - sharesBefore;
+        // Prevent silent value loss on rounding
         if (mintedVaultShares == 0) revert LSTWrapper__ZeroSharesMinted();
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
         emit Harvest(msg.sender, claimedNative, mintedVaultShares);
 
         return (claimedNative, mintedVaultShares);
+    }
+
+    /**
+     * @notice Deposit assets into the vault with zero-share protection.
+     * @dev Overrides ERC4626 to prevent zero-share mints from donation attacks.
+     * @param assets Amount of assets to deposit
+     * @param receiver Address to receive the shares
+     * @return shares Amount of shares minted
+     */
+    function deposit(uint256 assets, address receiver)
+        public
+        override(ERC4626Upgradeable, IERC4626)
+        nonReentrant
+        returns (uint256 shares)
+    {
+        shares = previewDeposit(assets);
+        if (shares == 0 && assets > 0) revert LSTWrapper__ZeroSharesMinted();
+        return super.deposit(assets, receiver);
+    }
+
+    /**
+     * @notice Mint shares with zero-share protection.
+     * @dev Overrides ERC4626 to prevent zero-share mints from donation attacks.
+     * @param shares Amount of shares to mint
+     * @param receiver Address to receive the shares
+     * @return assets Amount of assets required
+     */
+    function mint(uint256 shares, address receiver)
+        public
+        override(ERC4626Upgradeable, IERC4626)
+        nonReentrant
+        returns (uint256 assets)
+    {
+        if (shares == 0) revert LSTWrapper__ZeroSharesMinted();
+        return super.mint(shares, receiver);
+    }
+
+    /**
+     * @notice Withdraw assets with reentrancy protection.
+     * @dev Overrides ERC4626 to add nonReentrant guard for safety.
+     * @param assets Amount of assets to withdraw
+     * @param receiver Address to receive the assets
+     * @param owner Address that owns the shares
+     * @return shares Amount of shares burned
+     */
+    function withdraw(uint256 assets, address receiver, address owner)
+        public
+        override(ERC4626Upgradeable, IERC4626)
+        nonReentrant
+        returns (uint256 shares)
+    {
+        return super.withdraw(assets, receiver, owner);
+    }
+
+    /**
+     * @notice Redeem shares with reentrancy protection.
+     * @dev Overrides ERC4626 to add nonReentrant guard for safety.
+     * @param shares Amount of shares to redeem
+     * @param receiver Address to receive the assets
+     * @param owner Address that owns the shares
+     * @return assets Amount of assets received
+     */
+    function redeem(uint256 shares, address receiver, address owner)
+        public
+        override(ERC4626Upgradeable, IERC4626)
+        nonReentrant
+        returns (uint256 assets)
+    {
+        return super.redeem(shares, receiver, owner);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function depositWithMinShares(uint256 assets, uint256 minShares, address receiver)
+        external
+        returns (uint256 shares)
+    {
+        shares = deposit(assets, receiver); // deposit() already guards zero‑share mints
+        if (shares < minShares) revert LSTWrapper__SlippageProtection();
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function mintWithMaxAssets(uint256 shares, uint256 maxAssets, address receiver)
+        external
+        returns (uint256 assets)
+    {
+        assets = mint(shares, receiver);
+        if (assets > maxAssets) revert LSTWrapper__SlippageProtection();
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function withdrawWithMaxShares(uint256 assets, uint256 maxShares, address receiver, address owner)
+        external
+        returns (uint256 shares)
+    {
+        shares = withdraw(assets, receiver, owner);
+        if (shares > maxShares) revert LSTWrapper__SlippageProtection();
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function redeemWithMinAssets(uint256 shares, uint256 minAssets, address receiver, address owner)
+        external
+        returns (uint256 assets)
+    {
+        assets = redeem(shares, receiver, owner);
+        if (assets < minAssets) revert LSTWrapper__SlippageProtection();
     }
 
     /**
@@ -211,6 +321,7 @@ contract LSTWrapper is
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         if (token == address(asset())) revert LSTWrapper__CannotSweepAsset();
         if (token == address(lws.collateral)) revert LSTWrapper__CannotSweepCollateral();
+        if (token == address(lws.nativeToken)) revert LSTWrapper__CannotSweepNativeToken();
         if (recipient == address(0)) revert LSTWrapper__InvalidRecipient();
 
         IERC20(token).safeTransfer(recipient, amount);
@@ -218,11 +329,7 @@ contract LSTWrapper is
     }
     
     /**
-     * @notice Recovers collateral dust that was accidentally sent to the wrapper.
-     * @param recipient The address to send the dust to
-     * @param amount The amount of collateral dust to recover
-     * @dev Only callable by owner. This is safe because the wrapper should never
-     *      intentionally hold collateral - it only holds vault shares and native tokens.
+     * @inheritdoc ILSTWrapper
      */
     function sweepCollateralDust(address recipient, uint256 amount) external onlyOwner {
         if (recipient == address(0)) revert LSTWrapper__InvalidRecipient();
@@ -231,7 +338,14 @@ contract LSTWrapper is
         
         // Safety check: only allow sweeping small amounts to prevent accidents
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
-        uint256 maxDustAmount = 1e18; // Configurable threshold (1 token with 18 decimals)
+        uint256 maxDustAmount;
+        // Use collateral decimals if available; fall back to 1e18
+        try IERC20Metadata(address(lws.collateral)).decimals() returns (uint8 dec) {
+            // 1 whole token in collateral units
+            maxDustAmount = 10 ** uint256(dec);
+        } catch {
+            maxDustAmount = 1e18;
+        }
         
         if (amount > maxDustAmount || amount > collateralBalance) {
             revert LSTWrapper__ExcessiveAmount();
@@ -239,6 +353,27 @@ contract LSTWrapper is
         
         lws.collateral.safeTransfer(recipient, amount);
         emit CollateralDustSwept(msg.sender, recipient, amount);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function rescueAssetWhenNoSupply(address recipient, uint256 amount) external onlyOwner {
+        if (recipient == address(0)) revert LSTWrapper__InvalidRecipient();
+        if (totalSupply() != 0) revert LSTWrapper__AssetRescueNotAllowed();
+
+        IERC20(asset()).safeTransfer(recipient, amount);
+        emit AssetRescued(recipient, amount);
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function setVaultHelper(address helper_) external onlyOwner {
+        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.vaultHelper = IVaultHelper(helper_);
+        emit VaultHelperUpdated(helper_);
     }
 
     function totalAssets() public view virtual override(ERC4626Upgradeable, IERC4626) returns (uint256) {
@@ -266,11 +401,4 @@ contract LSTWrapper is
         }
     }
 
-    // --- Admin setters ---
-    function setVaultHelper(address helper_) external onlyOwner {
-        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.vaultHelper = IVaultHelper(helper_);
-        emit VaultHelperUpdated(helper_);
-    }
 }

@@ -10,6 +10,7 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__ZeroAddress(string param);
     error LSTWrapper__CannotSweepAsset();
     error LSTWrapper__CannotSweepCollateral();
+    error LSTWrapper__CannotSweepNativeToken();
     error LSTWrapper__InvalidRecipient();
     error LSTWrapper__InvalidVaultCollateral();
     error LSTWrapper__InvalidRewardsToken();
@@ -18,6 +19,8 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__DepositLimitExceeded(uint256 headroom);
     error LSTWrapper__ZeroSharesMinted();
     error LSTWrapper__ExcessiveAmount();
+    error LSTWrapper__AssetRescueNotAllowed();
+    error LSTWrapper__SlippageProtection();
 
     // Events
     /**
@@ -42,6 +45,10 @@ interface ILSTWrapper is IERC4626 {
      * @param reason error reason for the failed claim
      */
     event RewardsClaimFailed(bytes reason);
+    /**
+     * @notice Emitted when the vault helper is updated.
+     * @param helper new vault helper address
+     */
     event VaultHelperUpdated(address indexed helper);
     
     /**
@@ -51,6 +58,13 @@ interface ILSTWrapper is IERC4626 {
      * @param amount amount of collateral dust swept
      */
     event CollateralDustSwept(address indexed caller, address indexed recipient, uint256 amount);
+    
+    /**
+     * @notice Emitted when asset tokens are rescued from the contract.
+     * @param recipient recipient of the rescued assets
+     * @param amount amount of assets rescued
+     */
+    event AssetRescued(address indexed recipient, uint256 amount);
 
     // Functions
     /**
@@ -73,11 +87,13 @@ interface ILSTWrapper is IERC4626 {
 
     /**
      * @notice Get the native token (underlying) paid by Rewards.
+     * @return address of the native token
      */
     function nativeToken() external view returns (address);
 
     /**
      * @notice Get the vault helper used for conversion and staking.
+     * @return address of the vault helper
      */
     function vaultHelper() external view returns (address);
 
@@ -100,10 +116,11 @@ interface ILSTWrapper is IERC4626 {
     ) external;
 
     /**
-     * @notice Harvest rewards and reinvest them into the vault.
+     * @notice Harvest rewards and reinvest into the vault.
+     * @dev Permissionless. If the underlying vault enforces a depositor whitelist,
+     *      the caller must be whitelisted. The helper must also be whitelisted.
      * @return claimedNative amount of native token claimed from rewards
      * @return mintedVaultShares amount of vault shares minted from reinvestment
-     * @dev Owner-only in this version to simplify operations.
      */
     function harvest() external returns (uint256 claimedNative, uint256 mintedVaultShares);
 
@@ -118,7 +135,7 @@ interface ILSTWrapper is IERC4626 {
 
     // Admin
     function setVaultHelper(address helper_) external;
-    
+
     /**
      * @notice Recovers collateral dust that was accidentally sent to the wrapper.
      * @param recipient The address to send the dust to
@@ -126,4 +143,56 @@ interface ILSTWrapper is IERC4626 {
      * @dev Only callable by owner. Limited to small amounts for safety.
      */
     function sweepCollateralDust(address recipient, uint256 amount) external;
+
+    /**
+     * @notice Rescue underlying asset tokens if no wrapper shares exist.
+     * @dev Prevents permanent lock after donation griefing. Only when totalSupply()==0.
+     */
+    function rescueAssetWhenNoSupply(address recipient, uint256 amount) external;
+
+    /**
+     * @notice Deposit assets with minimum shares protection.
+     * @param assets amount of assets to deposit
+     * @param minShares minimum shares to receive
+     * @param receiver recipient of the shares
+     * @return shares actual shares minted
+     */
+    function depositWithMinShares(uint256 assets, uint256 minShares, address receiver)
+        external
+        returns (uint256 shares);
+
+    /**
+     * @notice Mint shares with maximum assets protection.
+     * @param shares amount of shares to mint
+     * @param maxAssets maximum assets to spend
+     * @param receiver recipient of the shares
+     * @return assets actual assets spent
+     */
+    function mintWithMaxAssets(uint256 shares, uint256 maxAssets, address receiver)
+        external
+        returns (uint256 assets);
+
+    /**
+     * @notice Withdraw assets with maximum shares protection.
+     * @param assets amount of assets to withdraw
+     * @param maxShares maximum shares to burn
+     * @param receiver recipient of the assets
+     * @param owner owner of the shares
+     * @return shares actual shares burned
+     */
+    function withdrawWithMaxShares(uint256 assets, uint256 maxShares, address receiver, address owner)
+        external
+        returns (uint256 shares);
+
+    /**
+     * @notice Redeem shares with minimum assets protection.
+     * @param shares amount of shares to redeem
+     * @param minAssets minimum assets to receive
+     * @param receiver recipient of the assets
+     * @param owner owner of the shares
+     * @return assets actual assets received
+     */
+    function redeemWithMinAssets(uint256 shares, uint256 minAssets, address receiver, address owner)
+        external
+        returns (uint256 assets);
 }

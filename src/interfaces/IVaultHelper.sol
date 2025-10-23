@@ -35,6 +35,8 @@ interface IVaultHelper {
      * @param collateral Address of the collateral asset for the vault.
      * @param underlying Address of the underlying asset to stake.
      * @param amount Amount of the underlying asset to stake.
+     * @return collateralMinted amount of collateral minted from `underlying`
+     * @return sharesMinted amount of `vault` shares minted to `user`
      */
     function stakeAssetInVault(
         address vault,
@@ -42,7 +44,7 @@ interface IVaultHelper {
         address collateral,
         address underlying,
         uint256 amount
-    ) external;
+    ) external returns (uint256 collateralMinted, uint256 sharesMinted);
 
     /**
      * @notice Get all pending withdrawals for a user in a vault.

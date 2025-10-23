@@ -42,6 +42,7 @@ contract VaultHelper is ReentrancyGuard {
     error VaultHelper__InvalidVaultShare(uint256 share);
     error VaultHelper__InvalidVault(address vault);
     error VaultHelper__InvalidRange();
+    error VaultHelper__ZeroVaultSharesMinted(uint256 collateralAmount);
 
     // -------------------------------
     // Proxy function
@@ -62,7 +63,9 @@ contract VaultHelper is ReentrancyGuard {
         address collateral,
         address underlying,
         uint256 amount
-    ) external nonReentrant {
+    ) external nonReentrant
+      returns (uint256 collateralAmount, uint256 sharesMinted)
+    {
         if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
         if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
         if (collateral == address(0)) revert VaultHelper__ZeroAddress("collateral");
@@ -83,7 +86,7 @@ contract VaultHelper is ReentrancyGuard {
         IERC20(underlying).forceApprove(collateral, actualAmount);
 
         // --- Step 5: Deposit actual amount into collateral, minting collateral tokens to proxy ---
-        uint256 collateralAmount = IDefaultCollateral(collateral).deposit(address(this), actualAmount);
+        collateralAmount = IDefaultCollateral(collateral).deposit(address(this), actualAmount);
         if (collateralAmount == 0) revert VaultHelper__ZeroCollateralMint(actualAmount, collateral);
         IERC20(underlying).forceApprove(collateral, 0);
 
@@ -91,8 +94,11 @@ contract VaultHelper is ReentrancyGuard {
         IERC20(collateral).forceApprove(vault, collateralAmount);
 
         // --- Step 7: Deposit collateral into vault on behalf of the receiver (`user`) ---
-        IVaultTokenized(vault).deposit(user, collateralAmount);
+        (, sharesMinted) = IVaultTokenized(vault).deposit(user, collateralAmount);
+        if (sharesMinted == 0) revert VaultHelper__ZeroVaultSharesMinted(collateralAmount);
         IERC20(collateral).forceApprove(vault, 0);
+
+        return (collateralAmount, sharesMinted);
     }
 
     // -------------------------------
