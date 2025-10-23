@@ -1133,7 +1133,7 @@ contract L1RestakeDelegatorTest is Test {
     function _deployValidatorManager(
         ValidatorManagerSettings memory settings,
         address proxyAdminOwnerAddress,
-        address protocolOwnerAddress
+        address /* protocolOwnerAddress */
     ) private returns (address) {
         // Deploy ValidatorManager (upgradeable)
         address validatorManager = address(new ValidatorManager(ICMInitializable.Allowed));

@@ -409,7 +409,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         assertGt(futureWithdraws.length, 0, "Should have future withdrawals");
     }
     
-    function test_GetUserPendingWithdrawsInRange() public {
+    function test_GetUserPendingWithdrawsInRange() public view {
         // Test with a valid range
         uint256 fromEpoch = 0;
         uint256 toEpoch = 10;

@@ -297,35 +297,31 @@ contract LSTWrapperTest is RewardsIntegrationTest {
     }
     
     function test_Harvest_DepositLimit_RevertsThenLaterSucceeds() public {
-        // vault with deposit limit headroom = 0
-        MockVaultWithDepositWhitelist mockVault = new MockVaultWithDepositWhitelist(
-            address(collateral), false, true, 100 ether
-        );
-        mockVault.setActiveStake(100 ether); // no headroom
-
-        LSTWrapper impl = new LSTWrapper();
-        bytes memory init = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin, address(mockVault), address(rewards), address(vaultHelper),
-            "Test","TST"
-        );
-        LSTWrapper w = LSTWrapper(address(new ERC1967Proxy(address(impl), init)));
+        // Use the existing vault and set deposit limit
+        uint256 currentStake = vault.activeStake();
+        uint256 limitAtStake = currentStake; // Set limit exactly at current stake (no headroom)
+        
+        vm.prank(vault.owner());
+        vault.setIsDepositLimit(true);
+        vm.prank(vault.owner());
+        vault.setDepositLimit(limitAtStake);
 
         address nat = MockCollateral(address(collateral)).asset();
-        Token(nat).transfer(address(w), 5 ether);
+        Token(nat).transfer(address(lstWrapper), 5 ether);
 
-        vm.prank(lstAdmin);
-        vm.expectRevert(); // bubble from mockVault.deposit via helper
-        w.harvest();
+        vm.prank(lstUser1); // Use permissionless harvest
+        vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__DepositLimitExceeded.selector, 0));
+        lstWrapper.harvest();
 
         // native still on wrapper
-        assertEq(Token(nat).balanceOf(address(w)), 5 ether);
+        assertEq(Token(nat).balanceOf(address(lstWrapper)), 5 ether);
 
-        // open headroom
-        mockVault.setActiveStake(90 ether);
+        // open headroom by increasing deposit limit
+        vm.prank(vault.owner());
+        vault.setDepositLimit(limitAtStake + 10 ether); // Add headroom
 
-        vm.prank(lstAdmin);
-        (uint256 claimed, uint256 minted) = w.harvest();
+        vm.prank(lstUser1);
+        (uint256 claimed, uint256 minted) = lstWrapper.harvest();
         assertEq(claimed, 0);        // claim path still 0 here; we invested pre‑existing 5 ether
         assertGt(minted, 0);
     }
@@ -439,10 +435,13 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         assertGt(mintedVaultShares, 0, "Should mint vault shares from harvest");
     }
     
-    function test_Harvest_OnlyOwner() public {
+    function test_Harvest_Permissionless() public {
+        // Harvest is now permissionless - anyone can call it
         vm.prank(lstUser1);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, lstUser1));
-        lstWrapper.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        // Should succeed without reverting (no rewards expected, so returns 0,0)
+        assertEq(claimedNative, 0, "Should harvest 0 native when no rewards");
+        assertEq(mintedVaultShares, 0, "Should mint 0 shares when no rewards");
     }
     
     function test_Harvest_NoRewards() public {
@@ -656,12 +655,12 @@ contract LSTWrapperTest is RewardsIntegrationTest {
     
     // Max functions tests
     
-    function test_MaxDeposit() public {
+    function test_MaxDeposit() public view {
         // Should return max uint256 as there's no deposit limit
         assertEq(lstWrapper.maxDeposit(lstUser1), type(uint256).max);
     }
     
-    function test_MaxMint() public {
+    function test_MaxMint() public view {
         // Should return max uint256 as there's no mint limit
         assertEq(lstWrapper.maxMint(lstUser1), type(uint256).max);
     }
@@ -799,7 +798,7 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         lstWrapper.deposit(depositAmount, lstUser2);
         vm.stopPrank();
         
-        uint256 preHarvestPPS = lstWrapper.convertToAssets(1 ether);
+        // uint256 preHarvestPPS = lstWrapper.convertToAssets(1 ether); // Unused
         
         // Transfer native token to wrapper, do NOT harvest
         address nat = MockCollateral(address(collateral)).asset();
@@ -969,6 +968,7 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         vm.startPrank(curatorOwner1);
         vault.setDepositWhitelist(true);
         vault.setDepositorWhitelistStatus(address(vaultHelper), true);
+        vault.setDepositorWhitelistStatus(lstAdmin, true); // Whitelist the caller for permissionless harvest
         vm.stopPrank();
         
         // Create new helper that is NOT whitelisted
@@ -993,7 +993,7 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         
         // harvest() succeeds
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (, uint256 mintedVaultShares) = lstWrapper.harvest();
         assertGt(mintedVaultShares, 0, "Should mint shares with whitelisted helper");
         
         // Reset whitelist
@@ -1024,11 +1024,11 @@ contract LSTWrapperTest is RewardsIntegrationTest {
 // Mock contracts for testing
 
 contract MockInvalidVault {
-    function collateral() external view returns (address) {
+    function collateral() external pure returns (address) {
         return address(0);
     }
     
-    function decimals() external view returns (uint8) {
+    function decimals() external pure returns (uint8) {
         return 18;
     }
 }

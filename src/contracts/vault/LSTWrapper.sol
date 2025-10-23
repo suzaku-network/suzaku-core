@@ -216,6 +216,15 @@ contract LSTWrapper is
     {
         shares = previewDeposit(assets);
         if (shares == 0 && assets > 0) revert LSTWrapper__ZeroSharesMinted();
+        
+        // Check deposit limits before depositing
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (lws.vault.isDepositLimit()) {
+            uint256 active = lws.vault.activeStake();
+            uint256 limit = lws.vault.depositLimit();
+            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
+        }
+        
         return super.deposit(assets, receiver);
     }
 
@@ -233,6 +242,15 @@ contract LSTWrapper is
         returns (uint256 assets)
     {
         if (shares == 0) revert LSTWrapper__ZeroSharesMinted();
+        
+        // Check deposit limits before minting (which deposits assets)
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (lws.vault.isDepositLimit()) {
+            uint256 active = lws.vault.activeStake();
+            uint256 limit = lws.vault.depositLimit();
+            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
+        }
+        
         return super.mint(shares, receiver);
     }
 
