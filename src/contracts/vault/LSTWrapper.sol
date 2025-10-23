@@ -412,6 +412,27 @@ contract LSTWrapper is
         }
     }
 
+    // --- Virtual offset to prevent zero/tiny-supply capture ---
+    function convertToShares(uint256 assets)
+        public
+        view
+        override(ERC4626Upgradeable, IERC4626)
+        returns (uint256)
+    {
+        uint256 v = 10 ** decimals();
+        return (assets * (totalSupply() + v)) / (totalAssets() + v);
+    }
+
+    function convertToAssets(uint256 shares)
+        public
+        view
+        override(ERC4626Upgradeable, IERC4626)
+        returns (uint256)
+    {
+        uint256 v = 10 ** decimals();
+        return (shares * (totalAssets() + v)) / (totalSupply() + v);
+    }
+
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {
         bytes32 slot = _LSTWRAPPER_STORAGE_SLOT;
         assembly {
