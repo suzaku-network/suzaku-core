@@ -21,6 +21,7 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__ExcessiveAmount();
     error LSTWrapper__AssetRescueNotAllowed();
     error LSTWrapper__SlippageProtection();
+    error LSTWrapper__DepositsPaused();
 
     // Events
     /**
@@ -65,6 +66,12 @@ interface ILSTWrapper is IERC4626 {
      * @param amount amount of assets rescued
      */
     event AssetRescued(address indexed recipient, uint256 amount);
+    
+    /**
+     * @notice Emitted when deposits are paused or unpaused.
+     * @param paused true if deposits are paused, false if unpaused
+     */
+    event DepositsPaused(bool paused);
 
     // Functions
     /**
@@ -135,6 +142,7 @@ interface ILSTWrapper is IERC4626 {
 
     // Admin
     function setVaultHelper(address helper_) external;
+    function setDepositsPaused(bool paused) external;
 
     /**
      * @notice Recovers collateral dust that was accidentally sent to the wrapper.

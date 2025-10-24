@@ -201,12 +201,13 @@ function rescueAssetWhenNoSupply(address recipient, uint256 amount) external onl
 
 // Configuration
 function setVaultHelper(address helper_) external onlyOwner
+function setDepositsPaused(bool paused) external onlyOwner
 ```
 
-**Dust Sweeping Security:**
-- Dual cap: `min(1 token unit, 0.0001% of balance)`
-- No unsafe fallbacks when decimals unknown
-- Zero amount protection
+**Security Features:**
+- **Dust Sweeping**: Dual cap `min(1 token unit, 0.0001% of balance)` with no unsafe fallbacks
+- **Asset Rescue**: Only when `totalSupply() == 0` and deposits are paused (prevents front-run DoS)
+- **Deposit Pause**: Owner can pause deposits/mints for emergency situations or rescue operations
 
 ---
 
@@ -309,6 +310,7 @@ event Sweep(address indexed caller, address indexed token, address indexed recip
 event CollateralDustSwept(address indexed caller, address indexed recipient, uint256 amount);
 event AssetRescued(address indexed recipient, uint256 amount);
 event VaultHelperUpdated(address indexed helper);
+event DepositsPaused(bool paused);
 
 // Error conditions
 event RewardsClaimFailed(bytes reason);
@@ -329,6 +331,7 @@ error LSTWrapper__DepositRestricted();
 error LSTWrapper__DepositLimitExceeded(uint256 headroom);
 error LSTWrapper__ZeroSharesMinted();
 error LSTWrapper__SlippageProtection();
+error LSTWrapper__DepositsPaused();
 
 // Admin restrictions
 error LSTWrapper__CannotSweepAsset();

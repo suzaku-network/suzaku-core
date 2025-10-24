@@ -46,6 +46,7 @@ contract LSTWrapper is
         IERC20 nativeToken;
         /// @notice Helper used for native->collateral conversion and staking.
         IVaultHelper vaultHelper;
+        bool depositsPaused;
     }
 
     // bytes32(uint256(keccak256(abi.encodePacked(uint256(keccak256("lstwrapper.storage")) - 1))) & ~uint256(0xff));
@@ -220,6 +221,7 @@ contract LSTWrapper is
         
         // Check deposit limits before depositing
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (lws.depositsPaused) revert LSTWrapper__DepositsPaused();
         if (lws.vault.isDepositLimit()) {
             uint256 active = lws.vault.activeStake();
             uint256 limit = lws.vault.depositLimit();
@@ -246,6 +248,7 @@ contract LSTWrapper is
         
         // Check deposit limits before minting (which deposits assets)
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (lws.depositsPaused) revert LSTWrapper__DepositsPaused();
         if (lws.vault.isDepositLimit()) {
             uint256 active = lws.vault.activeStake();
             uint256 limit = lws.vault.depositLimit();
@@ -372,6 +375,9 @@ contract LSTWrapper is
     function rescueAssetWhenNoSupply(address recipient, uint256 amount) external onlyOwner {
         if (recipient == address(0)) revert LSTWrapper__InvalidRecipient();
         if (totalSupply() != 0) revert LSTWrapper__AssetRescueNotAllowed();
+        // Prevent front-run deposits from reopening supply during rescue.
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (!lws.depositsPaused) revert LSTWrapper__DepositsPaused();
 
         IERC20(asset()).safeTransfer(recipient, amount);
         emit AssetRescued(recipient, amount);
@@ -436,7 +442,7 @@ contract LSTWrapper is
     {
         uint256 supply = totalSupply();
         uint256 totalAssetsAmount = totalAssets();
-        uint256 virtualOffset = _virtualOffset();
+        uint256 virtualOffset = _virtualOffset(supply);
         return Math.mulDiv(assets, supply + virtualOffset, totalAssetsAmount + virtualOffset, rounding);
     }
 
@@ -451,21 +457,20 @@ contract LSTWrapper is
     {
         uint256 supply = totalSupply();
         uint256 totalAssetsAmount = totalAssets();
-        uint256 virtualOffset = _virtualOffset();
+        uint256 virtualOffset = _virtualOffset(supply);
         return Math.mulDiv(shares, totalAssetsAmount + virtualOffset, supply + virtualOffset, rounding);
     }
 
-    /**
-     * @dev Virtual offset to prevent zero/tiny-supply capture. Bounded to prevent overflow.
-     */
-    function _virtualOffset() internal view returns (uint256) {
+    // Apply virtual offset only for the first mint (supply == 0) to avoid leftover yield.
+    function _virtualOffset(uint256 supply) internal view returns (uint256) {
+        if (supply != 0) return 0;
         uint8 assetDecimals;
         try IERC20Metadata(address(asset())).decimals() returns (uint8 decimalsValue) {
             assetDecimals = decimalsValue;
         } catch {
             assetDecimals = 18;
         }
-        if (assetDecimals > 36) assetDecimals = 36; // Guard: 10**36 fits safely in uint256 and mulDiv paths
+        if (assetDecimals > 36) assetDecimals = 36;
         return _safePow10(assetDecimals);
     }
 
@@ -486,6 +491,13 @@ contract LSTWrapper is
         } catch { }
         // If decimals unknown, rely on percentageCap only
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
+    }
+
+    /// @notice Owner can pause or resume deposits/mints. Required for rescue.
+    function setDepositsPaused(bool paused) external onlyOwner {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.depositsPaused = paused;
+        emit DepositsPaused(paused);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {
