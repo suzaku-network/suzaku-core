@@ -619,7 +619,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Prepare node data
         bytes32 nodeId = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d426;
         bytes memory blsKey = new bytes(48);
-        uint64 registrationExpiry = uint64(block.timestamp + 2 days);
         address[] memory ownerArr = new address[](1);
         ownerArr[0] = alice;
         PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});
@@ -1437,9 +1436,9 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         (uint256 minStake, ) = middleware.getClassStakingRequirements(1);
 
         // Create & confirm nodes for each operator
-        (bytes32[] memory nodeIdsAlice, bytes32[] memory validationIdsAlice,) = _createAndConfirmNodes(alice, nA, minStake, true, 2);
-        (bytes32[] memory nodeIdsCharlie, bytes32[] memory validationIdsCharlie,) = _createAndConfirmNodes(charlie, nC, minStake, true, 2);
-        (bytes32[] memory nodeIdsDave, bytes32[] memory validationIdsDave,) = _createAndConfirmNodes(dave, nD, minStake, true, 2);
+        (bytes32[] memory nodeIdsAlice, ,) = _createAndConfirmNodes(alice, nA, minStake, true, 2);
+        (bytes32[] memory nodeIdsCharlie, ,) = _createAndConfirmNodes(charlie, nC, minStake, true, 2);
+        (bytes32[] memory nodeIdsDave, ,) = _createAndConfirmNodes(dave, nD, minStake, true, 2);
 
         // Move to next epoch
         _calcAndWarpOneEpoch();
@@ -1506,9 +1505,9 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         (uint256 minStake, ) = middleware.getClassStakingRequirements(1);
 
         // Create & confirm nodes for each operator
-        (bytes32[] memory nodeIdsAlice, bytes32[] memory validationIdsAlice,) = _createAndConfirmNodes(alice, nA, minStake, true, 2);
-        (bytes32[] memory nodeIdsCharlie, bytes32[] memory validationIdsCharlie,) = _createAndConfirmNodes(charlie, nC, minStake, true, 2);
-        (bytes32[] memory nodeIdsDave, bytes32[] memory validationIdsDave,) = _createAndConfirmNodes(dave, nD, minStake, true, 2);
+        (bytes32[] memory nodeIdsAlice, ,) = _createAndConfirmNodes(alice, nA, minStake, true, 2);
+        (bytes32[] memory nodeIdsCharlie, ,) = _createAndConfirmNodes(charlie, nC, minStake, true, 2);
+        (bytes32[] memory nodeIdsDave, ,) = _createAndConfirmNodes(dave, nD, minStake, true, 2);
 
         // Move to next epoch
         _calcAndWarpOneEpoch();
@@ -1998,7 +1997,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         bytes32 sharedNodeId_X = keccak256(abi.encodePacked("REUSED_NODE_ID_XYZ"));
         bytes memory blsKey_A = new bytes(48);
         bytes memory blsKey_B = new bytes(48); // Operator B uses a different BLS key
-        uint64 registrationExpiry = uint64(block.timestamp + 2 days);
         address[] memory ownerArr = new address[](1);
         ownerArr[0] = operatorA; // For simplicity, operator owns the PChainOwner
         PChainOwner memory pchainOwner_A = PChainOwner({threshold: 1, addresses: ownerArr});
@@ -2254,7 +2252,6 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         bytes32 nodeId_B = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d626;
         bytes32 nodeId_C = 0x00000000000000000000000039a662260f928d2d98ab5ad93aa7af8e0ee4d526;
         bytes memory blsKey = new bytes(48);
-        uint64 registrationExpiry = uint64(block.timestamp + 2 days);
         address[] memory ownerArr = new address[](1); 
         ownerArr[0] = alice;
         PChainOwner memory ownerStruct = PChainOwner({threshold: 1, addresses: ownerArr});

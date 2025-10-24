@@ -5,6 +5,7 @@ pragma solidity 0.8.25;
 
 import {ERC4626Upgradeable, IERC4626} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -354,18 +355,10 @@ contract LSTWrapper is
         
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         
-        // Safety check: only allow sweeping small amounts to prevent accidents
+        // Allow only very small "dust": min(1 whole token unit, 0.0001% of balance).
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
-        uint256 maxDustAmount;
-        // Use collateral decimals if available; fall back to 1e18
-        try IERC20Metadata(address(lws.collateral)).decimals() returns (uint8 dec) {
-            // 1 whole token in collateral units
-            maxDustAmount = 10 ** uint256(dec);
-        } catch {
-            maxDustAmount = 1e18;
-        }
-        
-        if (amount > maxDustAmount || amount > collateralBalance) {
+        uint256 maxDustAmount = _maxCollateralDust(lws);
+        if (amount == 0 || amount > maxDustAmount || amount > collateralBalance) {
             revert LSTWrapper__ExcessiveAmount();
         }
         
@@ -412,25 +405,87 @@ contract LSTWrapper is
         }
     }
 
-    // --- Virtual offset to prevent zero/tiny-supply capture ---
+    /// @inheritdoc IERC4626
     function convertToShares(uint256 assets)
         public
         view
         override(ERC4626Upgradeable, IERC4626)
         returns (uint256)
     {
-        uint256 v = 10 ** decimals();
-        return (assets * (totalSupply() + v)) / (totalAssets() + v);
+        return _convertToShares(assets, Math.Rounding.Floor);
     }
 
+    /// @inheritdoc IERC4626
     function convertToAssets(uint256 shares)
         public
         view
         override(ERC4626Upgradeable, IERC4626)
         returns (uint256)
     {
-        uint256 v = 10 ** decimals();
-        return (shares * (totalAssets() + v)) / (totalSupply() + v);
+        return _convertToAssets(shares, Math.Rounding.Floor);
+    }
+
+    /**
+     * @dev Internal conversion function (from assets to shares) with support for rounding direction.
+     */
+    function _convertToShares(uint256 assets, Math.Rounding rounding)
+        internal
+        view
+        override(ERC4626Upgradeable)
+        returns (uint256)
+    {
+        uint256 supply = totalSupply();
+        uint256 totalAssetsAmount = totalAssets();
+        uint256 virtualOffset = _virtualOffset();
+        return Math.mulDiv(assets, supply + virtualOffset, totalAssetsAmount + virtualOffset, rounding);
+    }
+
+    /**
+     * @dev Internal conversion function (from shares to assets) with support for rounding direction.
+     */
+    function _convertToAssets(uint256 shares, Math.Rounding rounding)
+        internal
+        view
+        override(ERC4626Upgradeable)
+        returns (uint256)
+    {
+        uint256 supply = totalSupply();
+        uint256 totalAssetsAmount = totalAssets();
+        uint256 virtualOffset = _virtualOffset();
+        return Math.mulDiv(shares, totalAssetsAmount + virtualOffset, supply + virtualOffset, rounding);
+    }
+
+    /**
+     * @dev Virtual offset to prevent zero/tiny-supply capture. Bounded to prevent overflow.
+     */
+    function _virtualOffset() internal view returns (uint256) {
+        uint8 assetDecimals;
+        try IERC20Metadata(address(asset())).decimals() returns (uint8 decimalsValue) {
+            assetDecimals = decimalsValue;
+        } catch {
+            assetDecimals = 18;
+        }
+        if (assetDecimals > 36) assetDecimals = 36; // Guard: 10**36 fits safely in uint256 and mulDiv paths
+        return _safePow10(assetDecimals);
+    }
+
+    function _safePow10(uint8 exponent) internal pure returns (uint256) {
+        // exponent <= 36 by construction
+        return 10 ** uint256(exponent);
+    }
+
+    function _maxCollateralDust(LSTWrapperStorageStruct storage lws) internal view returns (uint256) {
+        uint256 collateralBalance = lws.collateral.balanceOf(address(this));
+        // Percentage cap: 0.0001% of local balance, always defined
+        uint256 percentageCap = collateralBalance / 1_000_000;
+        // Absolute cap: 1 whole token unit if decimals known, else allow 1 base unit
+        uint256 unitCap = 1; // Allow sweeping at most 1 base unit if decimals() is unknown
+        try IERC20Metadata(address(lws.collateral)).decimals() returns (uint8 collateralDecimals) {
+            if (collateralDecimals > 36) collateralDecimals = 36;
+            unitCap = _safePow10(collateralDecimals);
+        } catch { }
+        // If decimals unknown, rely on percentageCap only
+        return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

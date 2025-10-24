@@ -552,18 +552,24 @@ contract LSTWrapperTest is RewardsIntegrationTest {
     
     function test_SweepCollateralDust_Success() public {
         // Send small amount of collateral to wrapper
-        uint256 dustAmount = 0.5 ether;
-        collateral.transfer(address(lstWrapper), dustAmount);
+        uint256 totalDust = 1000 ether; // Large balance to test percentage cap
+        collateral.transfer(address(lstWrapper), totalDust);
         
-        // Sweep the dust
+        // Calculate max dust amount: min(1 token unit, 0.0001% of balance)
+        // 0.0001% of 1000 ether = 0.001 ether
+        // 1 token unit = 1 ether (18 decimals)
+        // So max = min(1 ether, 0.001 ether) = 0.001 ether
+        uint256 maxDustAmount = 0.001 ether;
+        
+        // Sweep the maximum allowed dust
         address recipient = makeAddr("dustRecipient");
         vm.prank(lstAdmin);
         vm.expectEmit(true, true, false, true);
-        emit ILSTWrapper.CollateralDustSwept(lstAdmin, recipient, dustAmount);
-        lstWrapper.sweepCollateralDust(recipient, dustAmount);
+        emit ILSTWrapper.CollateralDustSwept(lstAdmin, recipient, maxDustAmount);
+        lstWrapper.sweepCollateralDust(recipient, maxDustAmount);
         
-        assertEq(collateral.balanceOf(recipient), dustAmount);
-        assertEq(collateral.balanceOf(address(lstWrapper)), 0);
+        assertEq(collateral.balanceOf(recipient), maxDustAmount);
+        assertEq(collateral.balanceOf(address(lstWrapper)), totalDust - maxDustAmount);
     }
     
     function test_SweepCollateralDust_RevertExcessiveAmount() public {
@@ -946,20 +952,23 @@ contract LSTWrapperTest is RewardsIntegrationTest {
         vm.expectRevert(ILSTWrapper.LSTWrapper__ExcessiveAmount.selector);
         lstWrapper.sweepCollateralDust(recipient, 3 ether);
         
-        // Try amount > maxDustAmount (1e18) => revert
+        // Try amount > maxDustAmount (now much smaller due to percentage cap) => revert
         vm.prank(lstAdmin);
         vm.expectRevert(ILSTWrapper.LSTWrapper__ExcessiveAmount.selector);
-        lstWrapper.sweepCollateralDust(recipient, 1.1 ether);
+        lstWrapper.sweepCollateralDust(recipient, 0.1 ether); // This exceeds 0.0001% of 2 ether
+        
+        // Calculate actual max dust: min(1 ether, 0.0001% of 2 ether) = min(1 ether, 0.000002 ether) = 0.000002 ether
+        uint256 maxAllowedDust = 0.000002 ether;
         
         // Amount <= min(balance, maxDustAmount) => success
         vm.expectEmit(true, true, false, true);
-        emit ILSTWrapper.CollateralDustSwept(lstAdmin, recipient, 0.5 ether);
+        emit ILSTWrapper.CollateralDustSwept(lstAdmin, recipient, maxAllowedDust);
         
         vm.prank(lstAdmin);
-        lstWrapper.sweepCollateralDust(recipient, 0.5 ether);
+        lstWrapper.sweepCollateralDust(recipient, maxAllowedDust);
         
-        assertEq(collateral.balanceOf(recipient), 0.5 ether);
-        assertEq(collateral.balanceOf(address(lstWrapper)), 1.5 ether);
+        assertEq(collateral.balanceOf(recipient), maxAllowedDust);
+        assertEq(collateral.balanceOf(address(lstWrapper)), 2 ether - maxAllowedDust);
     }
     
     // T9 - Helper change affects harvest
