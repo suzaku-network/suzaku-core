@@ -15,10 +15,8 @@ interface IVaultHelper {
 
     // Structs
     struct PendingWithdraw {
-        uint256 shares;
         uint256 amount;
-        uint256 timestamp;
-        uint48 epoch;
+        uint256 epoch;
     }
 
     struct ClaimAmountsPerToken {
@@ -30,11 +28,12 @@ interface IVaultHelper {
     /**
      * @notice Stake an underlying asset in a vault.
      * @dev Converts the underlying asset to collateral and deposits it in the vault on behalf of the user.
+     *      Handles fee-on-transfer tokens by staking the actually received amount.
      * @param vault Address of the vault to stake in.
      * @param user Address of the user on whose behalf the staking is done.
      * @param collateral Address of the collateral asset for the vault.
      * @param underlying Address of the underlying asset to stake.
-     * @param amount Amount of the underlying asset to stake.
+     * @param amount Max amount of underlying to pull; actual staked may be less if the token takes a fee.
      * @return collateralMinted amount of collateral minted from `underlying`
      * @return sharesMinted amount of `vault` shares minted to `user`
      */
@@ -62,7 +61,7 @@ interface IVaultHelper {
      * @param vault Address of the vault to query.
      * @param user Address of the user to query.
      * @param fromEpoch Starting epoch (inclusive).
-     * @param toEpoch Ending epoch (inclusive).
+     * @param toEpoch Ending epoch (exclusive).
      * @return pendingWithdraws Array of pending withdrawals in the specified range.
      */
     function getUserPendingWithdrawsInRange(
@@ -120,7 +119,7 @@ interface IVaultHelper {
      * @param vault Address of the vault.
      * @param rewardsToken Address of the reward token.
      * @param fromEpoch Starting epoch (inclusive).
-     * @param toEpoch Ending epoch (inclusive).
+     * @param toEpoch Ending epoch (exclusive).
      * @return Claimable amount for the specified token in the range.
      */
     function getStakerClaimableRewardInRange(
