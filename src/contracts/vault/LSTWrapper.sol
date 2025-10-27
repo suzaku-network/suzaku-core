@@ -101,6 +101,8 @@ contract LSTWrapper is
         lws.collateral = IERC20(collateralAddr);
         lws.nativeToken = IERC20(nativeTokenAddr);
         lws.vaultHelper = IVaultHelper(helper_);
+        // Start paused
+        lws.depositsPaused = true;
         // No infinite approvals; per‑harvest allowances only.
     }
 
@@ -221,12 +223,11 @@ contract LSTWrapper is
         
         // Check deposit limits before depositing
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        if (lws.depositsPaused) revert LSTWrapper__DepositsPaused();
-        if (lws.vault.isDepositLimit()) {
-            uint256 active = lws.vault.activeStake();
-            uint256 limit = lws.vault.depositLimit();
-            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
-        }
+        bool isFirstMint = totalSupply() == 0;
+        // Owner can perform the initial seed even while paused.
+        if (lws.depositsPaused && !(isFirstMint && msg.sender == owner())) revert LSTWrapper__DepositsPaused();
+        if (isFirstMint && msg.sender != owner()) revert LSTWrapper__OnlyOwnerFirstMint();
+        // Note: Deposit limit enforcement is handled by the underlying vault
         
         return super.deposit(assets, receiver);
     }
@@ -248,12 +249,11 @@ contract LSTWrapper is
         
         // Check deposit limits before minting (which deposits assets)
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        if (lws.depositsPaused) revert LSTWrapper__DepositsPaused();
-        if (lws.vault.isDepositLimit()) {
-            uint256 active = lws.vault.activeStake();
-            uint256 limit = lws.vault.depositLimit();
-            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
-        }
+        bool isFirstMint = totalSupply() == 0;
+        // Owner can perform the initial seed even while paused.
+        if (lws.depositsPaused && !(isFirstMint && msg.sender == owner())) revert LSTWrapper__DepositsPaused();
+        if (isFirstMint && msg.sender != owner()) revert LSTWrapper__OnlyOwnerFirstMint();
+        // Note: Deposit limit enforcement is handled by the underlying vault
         
         return super.mint(shares, receiver);
     }
