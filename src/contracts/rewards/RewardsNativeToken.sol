@@ -100,6 +100,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     // Undistributed sweep guard - epoch => swept
     mapping(uint48 => bool) private _undistributedSwept;
 
+    // Per-epoch total distributed shares in basis points (bp).
+    mapping(uint48 epoch => uint256 totalSharesBp) private _epochTotalDistributedShares;
+
     // Epoch snapshots to avoid index drift and dynamic enumeration
     mapping(uint48 epoch => address[] operators) private _epochOperators;
     mapping(uint48 epoch => address[] vaults) private _epochVaults;
@@ -264,11 +267,18 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
                     uint256 vaultShare = vaultShares[epoch][vault];
                     if (vaultShare == 0) continue;
 
-                    uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0));
+                    uint256 stakerVaultShare;
+                    // tolerate vault view failures to avoid claim DoS
+                    try IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0)) returns (uint256 s) {
+                        stakerVaultShare = s;
+                    } catch { continue; }
                     if (stakerVaultShare == 0) continue;
 
                     // Get total raw shares in this specific vault at that time
-                    uint256 totalRawSharesInVault = IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0));
+                    uint256 totalRawSharesInVault;
+                    try IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0)) returns (uint256 t) {
+                        totalRawSharesInVault = t;
+                    } catch { continue; }
                     if (totalRawSharesInVault == 0) continue;
 
                     uint256 tokensForVault = Math.mulDiv(
@@ -442,27 +452,26 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint256 totalRewardsForEpoch = epochRewards[epoch];
         if (totalRewardsForEpoch == 0) revert NoRewardsToClaim(msg.sender);
 
-        // Calculate total distributed shares for the epoch
-        uint256 totalDistributedShares = 0;
-
-        // Sum operator shares (epoch snapshot)
-        address[] storage operators = _epochOperators[epoch];
-        for (uint256 i = 0; i < operators.length; i++) {
-            totalDistributedShares += operatorShares[epoch][operators[i]];
-        }
-
-        // Sum vault shares (only vaults that received shares)
-        uint256 vCount = _epochVaultsWithShares[epoch].length();
-        for (uint256 i = 0; i < vCount; i++) {
-            address vault = _epochVaultsWithShares[epoch].at(i);
-            totalDistributedShares += vaultShares[epoch][vault];
-        }
-
-        // Sum curator shares
-        uint256 curatorsCount = _epochCurators[epoch].length();
-        for (uint256 i = 0; i < curatorsCount; i++) {
-            address curator = _epochCurators[epoch].at(i);
-            totalDistributedShares += curatorShares[epoch][curator];
+        // O(1): use accumulated bp; fallback to legacy enumeration if zero (old epochs)
+        uint256 totalDistributedShares = _epochTotalDistributedShares[epoch];
+        if (totalDistributedShares == 0) {
+            // Operators
+            address[] storage operators = _epochOperators[epoch];
+            for (uint256 i = 0; i < operators.length; i++) {
+                totalDistributedShares += operatorShares[epoch][operators[i]];
+            }
+            // Vaults
+            uint256 vCount = _epochVaultsWithShares[epoch].length();
+            for (uint256 i = 0; i < vCount; i++) {
+                address vault = _epochVaultsWithShares[epoch].at(i);
+                totalDistributedShares += vaultShares[epoch][vault];
+            }
+            // Curators
+            uint256 curatorsCount = _epochCurators[epoch].length();
+            for (uint256 i = 0; i < curatorsCount; i++) {
+                address curator = _epochCurators[epoch].at(i);
+                totalDistributedShares += curatorShares[epoch][curator];
+            }
         }
 
         // If no shares were distributed, sweep all rewards
@@ -685,7 +694,13 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
             if (totalStake == 0) continue;
 
-            uint256 operatorStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass);
+            uint256 operatorStake;
+            // tolerate view-call failures to avoid epoch-wide DoS
+            try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
+                operatorStake = s;
+            } catch {
+                operatorStake = 0;
+            }
 
             rawShare = Math.mulDiv(
                 Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
@@ -703,6 +718,10 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         }
 
         operatorShares[epoch][operator] = totalOperatorFeeShare;
+        if (totalOperatorFeeShare > 0) {
+            // accumulate operator fee bp toward epoch-level distributed total
+            _epochTotalDistributedShares[epoch] += totalOperatorFeeShare;
+        }
     }
 
     /**
@@ -711,41 +730,64 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
      * @param operator The operator to calculate the vault shares for
      */
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
-        address[] storage vaults = _epochVaults[epoch];
         uint48 epochTs = middleware.getEpochStartTs(epoch);
+        uint96[] memory classes = middleware.getCollateralClassIds();
+        uint256 addedBp; // bp actually credited in this call
 
-        for (uint256 i = 0; i < vaults.length; i++) {
-            address vault = vaults[i];
-            uint96 vaultCollateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
+        for (uint256 c = 0; c < classes.length; c++) {
+            uint96 cls = classes[c];
+            uint256 operatorClassShare = operatorBeneficiariesSharesPerCollateralClass[epoch][operator][cls];
+            if (operatorClassShare == 0) continue;
 
-            uint256 operatorCollateralClassShare = operatorBeneficiariesSharesPerCollateralClass[epoch][operator][vaultCollateralClass];
-            if (operatorCollateralClassShare == 0) continue;
+            address[] storage vaultsForClass = _epochVaultsByClass[epoch][cls];
+            for (uint256 i = 0; i < vaultsForClass.length; i++) {
+                address vault = vaultsForClass[i];
 
-            uint256 vaultStake = BaseDelegator(IVaultTokenized(vault).delegator()).stakeAt(
-                middleware.BALANCER(), vaultCollateralClass, operator, epochTs, new bytes(0)
-            );
+                // delegator() may revert → read defensively
+                address delegator;
+                try IVaultTokenized(vault).delegator() returns (address d) {
+                    delegator = d;
+                } catch { continue; }
 
-            if (vaultStake > 0) {
-                uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][vaultCollateralClass];
-                if (!_operatorActiveStakeComputed[epoch][operator][vaultCollateralClass]) {
-                    uint256 sum = middleware.getOperatorStake(operator, epoch, vaultCollateralClass);
-                    _operatorActiveStakeComputed[epoch][operator][vaultCollateralClass] = true;
-                    _operatorActiveStake[epoch][operator][vaultCollateralClass] = sum;
+                uint256 vaultStake;
+                // tolerate bad/misbehaving delegators
+                try BaseDelegator(delegator).stakeAt(
+                    middleware.BALANCER(), cls, operator, epochTs, new bytes(0)
+                ) returns (uint256 s) { vaultStake = s; } catch { continue; }
+                if (vaultStake == 0) continue;
+
+                uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][cls];
+                if (!_operatorActiveStakeComputed[epoch][operator][cls]) {
+                    uint256 sum;
+                    // tolerate middleware view failure
+                    try middleware.getOperatorStake(operator, epoch, cls) returns (uint256 s2) { sum = s2; } catch { sum = 0; }
+                    _operatorActiveStakeComputed[epoch][operator][cls] = true;
+                    _operatorActiveStake[epoch][operator][cls] = sum;
                     operatorActiveStake = sum;
                 }
                 if (operatorActiveStake == 0) continue;
-                
+
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
-                vaultShare = Math.mulDiv(vaultShare, operatorCollateralClassShare, BASIS_POINTS_DENOMINATOR);
+                vaultShare = Math.mulDiv(vaultShare, operatorClassShare, BASIS_POINTS_DENOMINATOR);
 
                 uint256 curatorShare = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
-                address curator = VaultTokenized(vault).owner();
-                curatorShares[epoch][curator] += curatorShare;
-                _epochCurators[epoch].add(curator);
+
+                address curator;
+                // tolerate vault owner read failure
+                try VaultTokenized(vault).owner() returns (address o) { curator = o; } catch { curator = address(0); }
+                if (curator != address(0)) {
+                    curatorShares[epoch][curator] += curatorShare;
+                    _epochCurators[epoch].add(curator);
+                    addedBp += curatorShare; // count only credited curator bp
+                }
 
                 vaultShares[epoch][vault] += vaultShare - curatorShare;
                 _epochVaultsWithShares[epoch].add(vault);
+                addedBp += (vaultShare - curatorShare); // staker bp
             }
+        }
+        if (addedBp > 0) {
+            _epochTotalDistributedShares[epoch] += addedBp;
         }
     }
 
