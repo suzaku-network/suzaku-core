@@ -20,6 +20,11 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     using SafeERC20 for IERC20;
     using EnumerableSet for EnumerableSet.AddressSet;
 
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     // Constants
     uint16 public constant BASIS_POINTS_DENOMINATOR = 10_000;
     bytes32 public constant REWARDS_MANAGER_ROLE = keccak256("REWARDS_MANAGER_ROLE");
@@ -95,6 +100,20 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     // Undistributed sweep guard - epoch => swept
     mapping(uint48 => bool) private _undistributedSwept;
 
+    // Epoch snapshots to avoid index drift and dynamic enumeration
+    mapping(uint48 epoch => address[] operators) private _epochOperators;
+    mapping(uint48 epoch => address[] vaults) private _epochVaults;
+    mapping(uint48 epoch => EnumerableSet.AddressSet vaultsWithShares) private _epochVaultsWithShares;
+    
+    // Per-epoch vault buckets by collateral class
+    mapping(uint48 epoch => mapping(uint96 collateralClass => address[] vaults)) private _epochVaultsByClass;
+    mapping(uint48 epoch => bool vaultsBucketed) private _epochVaultsBucketed;
+
+    // Caching flags and per-operator totals
+    mapping(uint48 epoch => mapping(uint96 collateralClass => bool attempted)) private _totalStakeCacheAttempted;
+    mapping(uint48 epoch => mapping(address operator => mapping(uint96 collateralClass => uint256 stake))) private _operatorActiveStake;
+    mapping(uint48 epoch => mapping(address operator => mapping(uint96 collateralClass => bool computed))) private _operatorActiveStakeComputed;
+
     // INITIALIZER
     function initialize(
         address admin_,
@@ -140,7 +159,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     }
 
     // EXTERNAL FUNCTIONS
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function distributeRewards(uint48 epoch, uint48 batchSize)
         external
         nonReentrant
@@ -165,15 +186,32 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             }
         }
 
+        // Snapshot registries once per epoch to avoid index drift
+        if (_epochOperators[epoch].length == 0) {
+            _epochOperators[epoch] = middleware.getAllOperators();
+        }
+        if (_epochVaults[epoch].length == 0) {
+            _epochVaults[epoch] = middlewareVaultManager.getVaults(epoch);
+        }
+        if (!_epochVaultsBucketed[epoch]) {
+            address[] storage vaults = _epochVaults[epoch];
+            for (uint256 i = 0; i < vaults.length; i++) {
+                address vault = vaults[i];
+                uint96 collateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
+                _epochVaultsByClass[epoch][collateralClass].push(vault);
+            }
+            _epochVaultsBucketed[epoch] = true;
+        }
+
         // Funding window: during [epoch, epoch+FUNDING_DEADLINE_OFFSET] require funded if operators exist
         bool fundingWindowOpen = epoch + FUNDING_DEADLINE_OFFSET >= currentEpoch;
         if (fundingWindowOpen && !st.funded) {
-            if (middleware.getAllOperators().length != 0) revert EpochNotFunded(epoch);
+            if (_epochOperators[epoch].length != 0) revert EpochNotFunded(epoch);
         }
 
         // Execute distribution in batches
         DistributionBatch storage batch = distributionBatches[epoch];
-        address[] memory operators = middleware.getAllOperators();
+        address[] storage operators = _epochOperators[epoch];
         uint256 operatorCount = operators.length;
         uint256 startIdx = batch.lastProcessedOperator;
         uint256 endIdx = Math.min(startIdx + batchSize, operatorCount);
@@ -192,7 +230,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         }
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function claimRewards(address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
@@ -217,11 +257,10 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
             uint256 epochAmt = epochRewards[epoch];
             if (epochAmt > 0) {
-                address[] memory vaults = _getStakerVaults(msg.sender, epoch);
                 uint48 epochTs = middleware.getEpochStartTs(epoch);
-
-                for (uint256 i = 0; i < vaults.length; i++) {
-                    address vault = vaults[i];
+                uint256 vCount = _epochVaultsWithShares[epoch].length();
+                for (uint256 i = 0; i < vCount; i++) {
+                    address vault = _epochVaultsWithShares[epoch].at(i);
                     uint256 vaultShare = vaultShares[epoch][vault];
                     if (vaultShare == 0) continue;
 
@@ -264,7 +303,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function claimOperatorFee(address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
@@ -311,7 +352,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function claimCuratorFee(address recipient) external nonReentrant {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
@@ -358,7 +401,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function claimProtocolFee(address recipient) external nonReentrant onlyRole(PROTOCOL_OWNER_ROLE) {
         if (recipient == address(0)) revert InvalidRecipient(recipient);
 
@@ -369,7 +414,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         IERC20(rewardsToken).safeTransfer(recipient, rewards);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function claimUndistributedRewards(
         uint48 epoch,
         address recipient
@@ -398,16 +445,17 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         // Calculate total distributed shares for the epoch
         uint256 totalDistributedShares = 0;
 
-        // Sum operator shares
-        address[] memory operators = middleware.getAllOperators();
+        // Sum operator shares (epoch snapshot)
+        address[] storage operators = _epochOperators[epoch];
         for (uint256 i = 0; i < operators.length; i++) {
             totalDistributedShares += operatorShares[epoch][operators[i]];
         }
 
-        // Sum vault shares
-        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
-        for (uint256 i = 0; i < vaults.length; i++) {
-            totalDistributedShares += vaultShares[epoch][vaults[i]];
+        // Sum vault shares (only vaults that received shares)
+        uint256 vCount = _epochVaultsWithShares[epoch].length();
+        for (uint256 i = 0; i < vCount; i++) {
+            address vault = _epochVaultsWithShares[epoch].at(i);
+            totalDistributedShares += vaultShares[epoch][vault];
         }
 
         // Sum curator shares
@@ -444,7 +492,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         emit UndistributedRewardsClaimed(epoch, rewardsToken, recipient, undistributedRewards);
     }
 
-    /// @notice Updates all fees at once to avoid order dependency issues
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function updateAllFees(
         uint16 newProtocolFee,
         uint16 newOperatorFee,
@@ -460,12 +510,14 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     }
 
     // Setter functions
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function setRewardsAmountForEpochs(
         uint48 startEpoch,
         uint48 numberOfEpochs,
         uint256 rewardsAmount
-    ) external onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
+    ) external nonReentrant onlyRole(REWARDS_DISTRIBUTOR_ROLE) {
         if (rewardsToken == address(0)) revert InvalidRewardsToken(rewardsToken);
         if (rewardsAmount == 0) revert InvalidRewardsAmount(rewardsAmount);
         if (numberOfEpochs == 0) revert InvalidNumberOfEpochs(numberOfEpochs);
@@ -498,7 +550,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         emit RewardsAmountSet(startEpoch, numberOfEpochs, rewardsToken, rewardsPerEpoch);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function setRewardsShareForCollateralClass(uint96 collateralClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
 
@@ -510,48 +564,62 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         emit RewardsShareUpdated(collateralClass, share);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function setRewardsManagerRole(address newRewardsManager) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newRewardsManager == address(0)) revert InvalidAdmin(newRewardsManager);
         _grantRole(REWARDS_MANAGER_ROLE, newRewardsManager);
         emit RewardsManagerRoleAssigned(newRewardsManager);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function setRewardsDistributorRole(address newRewardsDistributor) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (newRewardsDistributor == address(0)) revert InvalidAdmin(newRewardsDistributor);
         _grantRole(REWARDS_DISTRIBUTOR_ROLE, newRewardsDistributor);
         emit RewardsDistributorRoleAssigned(newRewardsDistributor);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function setProtocolOwner(address newProtocolOwner) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newProtocolOwner == address(0)) revert InvalidProtocolOwner(newProtocolOwner);
         _grantRole(PROTOCOL_OWNER_ROLE, newProtocolOwner);
         emit ProtocolOwnerUpdated(newProtocolOwner);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function setMinRequiredUptime(uint256 uptime) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (uptime > epochDuration) revert InvalidMinUptime(uptime);
         minRequiredUptime = uptime;
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function updateProtocolFee(uint16 newFee) external onlyRole(REWARDS_MANAGER_ROLE) {
         _checkFees(newFee, operatorFee, curatorFee);
         protocolFee = newFee;
         emit ProtocolFeeUpdated(newFee);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function updateOperatorFee(uint16 newFee) external onlyRole(REWARDS_MANAGER_ROLE) {
         _checkFees(protocolFee, newFee, curatorFee);
         operatorFee = newFee;
         emit OperatorFeeUpdated(newFee);
     }
 
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function updateCuratorFee(uint16 newFee) external onlyRole(REWARDS_MANAGER_ROLE) {
         _checkFees(protocolFee, operatorFee, newFee);
         curatorFee = newFee;
@@ -559,7 +627,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     }
 
     // Getter functions
-    /// @inheritdoc IRewardsNativeToken
+    /**
+     * @inheritdoc IRewardsNativeToken
+     */
     function getEpochRewards(uint48 epoch) external view override returns (uint256) {
         return epochRewards[epoch];
     }
@@ -572,16 +642,17 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     }
 
     /// @dev Reverts if fees exceed 100 % (10 000 bp)
-    function _checkFees(uint16 p, uint16 o, uint16 c) internal pure {
-        if (p + o + c > BASIS_POINTS_DENOMINATOR)
-            revert FeeConfigurationExceeds100(p + o + c);
+    function _checkFees(uint16 protocolFee_, uint16 operatorFee_, uint16 curatorFee_) internal pure {
+        if (protocolFee_ + operatorFee_ + curatorFee_ > BASIS_POINTS_DENOMINATOR)
+            revert FeeConfigurationExceeds100(protocolFee_ + operatorFee_ + curatorFee_);
     }
 
     // Calculation functions
     /// @dev Ensures the total stake cache is populated for the given epoch and asset class
     function _ensureStakeCache(uint48 epoch, uint96 collateralClass) internal returns (uint256 totalStake) {
         totalStake = middleware.totalStakeCache(epoch, collateralClass);
-        if (totalStake == 0) {
+        if (totalStake == 0 && !_totalStakeCacheAttempted[epoch][collateralClass]) {
+            _totalStakeCacheAttempted[epoch][collateralClass] = true;
             try middleware.calcAndCacheStakes(epoch, collateralClass) {} catch {}
             totalStake = middleware.totalStakeCache(epoch, collateralClass);
         }
@@ -610,8 +681,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         for (uint256 i = 0; i < collateralClasses.length; i++) {
             uint96 collateralClass = collateralClasses[i];
             uint16 collateralClassShare = rewardsSharePerCollateralClass[collateralClass];
+            if (collateralClassShare == 0) continue;
             uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
-            if (totalStake == 0 || collateralClassShare == 0) continue;
+            if (totalStake == 0) continue;
 
             uint256 operatorStake = middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass);
 
@@ -639,7 +711,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
      * @param operator The operator to calculate the vault shares for
      */
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
-        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
+        address[] storage vaults = _epochVaults[epoch];
         uint48 epochTs = middleware.getEpochStartTs(epoch);
 
         for (uint256 i = 0; i < vaults.length; i++) {
@@ -654,7 +726,13 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             );
 
             if (vaultStake > 0) {
-                uint256 operatorActiveStake = _totalDelegatedToOperator(epoch, vaultCollateralClass, operator);
+                uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][vaultCollateralClass];
+                if (!_operatorActiveStakeComputed[epoch][operator][vaultCollateralClass]) {
+                    uint256 sum = middleware.getOperatorStake(operator, epoch, vaultCollateralClass);
+                    _operatorActiveStakeComputed[epoch][operator][vaultCollateralClass] = true;
+                    _operatorActiveStake[epoch][operator][vaultCollateralClass] = sum;
+                    operatorActiveStake = sum;
+                }
                 if (operatorActiveStake == 0) continue;
                 
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
@@ -666,32 +744,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
                 _epochCurators[epoch].add(curator);
 
                 vaultShares[epoch][vault] += vaultShare - curatorShare;
+                _epochVaultsWithShares[epoch].add(vault);
             }
-        }
-    }
-
-    /**
-     * @dev Calculates the total delegated stake to an operator for a specific collateral class
-     * @param epoch The epoch to calculate for
-     * @param collateralClass The collateral class to calculate for
-     * @param operator The operator to calculate for
-     * @return sum The total delegated stake
-     */
-    function _totalDelegatedToOperator(
-        uint48 epoch,
-        uint96 collateralClass,
-        address operator
-    ) internal view returns (uint256 sum) {
-        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
-        uint48 epochTs = middleware.getEpochStartTs(epoch);
-        address balancer = middleware.BALANCER();
-        
-        for (uint256 i = 0; i < vaults.length; i++) {
-            address vault = vaults[i];
-            if (middlewareVaultManager.getVaultCollateralClass(vault) != collateralClass) continue;
-            
-            address delegator = IVaultTokenized(vault).delegator();
-            sum += BaseDelegator(delegator).stakeAt(balancer, collateralClass, operator, epochTs, new bytes(0));
         }
     }
 

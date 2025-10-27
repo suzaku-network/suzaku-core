@@ -435,6 +435,19 @@ interface IRewardsNativeToken {
     ) external;
 
     /**
+     * @notice Updates all fees at once to avoid order dependency issues
+     * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
+     * @param newProtocolFee New protocol fee percentage in basis points
+     * @param newOperatorFee New operator fee percentage in basis points
+     * @param newCuratorFee New curator fee percentage in basis points
+     */
+    function updateAllFees(
+        uint16 newProtocolFee,
+        uint16 newOperatorFee,
+        uint16 newCuratorFee
+    ) external;
+
+    /**
      * @notice Sets the rewards share percentage for a specific asset class
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
      * @param collateralClassId ID of the asset class
