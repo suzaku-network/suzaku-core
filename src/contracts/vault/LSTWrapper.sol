@@ -158,10 +158,10 @@ contract LSTWrapper is
         // Track balance before claim to compute actual claimed amount
         uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
         
-        // Claim rewards (native token), catch expected reverts.
+        // Claim rewards (native token). Avoid copying unbounded revert data.
         try lws.rewards.claimRewards(nativeTokenAddr, address(this)) { }
-        catch (bytes memory reason) {
-            emit RewardsClaimFailed(reason);
+        catch {
+            emit RewardsClaimFailed(bytes(""));
         }
 
         // Calculate actual claimed amount as the delta
