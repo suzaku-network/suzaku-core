@@ -111,6 +111,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     // Per-epoch vault buckets by collateral class
     mapping(uint48 epoch => mapping(uint96 collateralClass => address[] vaults)) private _epochVaultsByClass;
     mapping(uint48 epoch => bool vaultsBucketed) private _epochVaultsBucketed;
+    // Cursor to bucket vaults across calls
+    mapping(uint48 epoch => uint256 idx) private _vaultBucketCursor;
 
     // Caching flags and per-operator totals
     mapping(uint48 epoch => mapping(uint96 collateralClass => bool attempted)) private _totalStakeCacheAttempted;
@@ -196,20 +198,31 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         if (_epochVaults[epoch].length == 0) {
             _epochVaults[epoch] = middlewareVaultManager.getVaults(epoch);
         }
-        if (!_epochVaultsBucketed[epoch]) {
-            address[] storage vaults = _epochVaults[epoch];
-            for (uint256 i = 0; i < vaults.length; i++) {
-                address vault = vaults[i];
-                uint96 collateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
-                _epochVaultsByClass[epoch][collateralClass].push(vault);
-            }
-            _epochVaultsBucketed[epoch] = true;
-        }
 
         // Funding window: during [epoch, epoch+FUNDING_DEADLINE_OFFSET] require funded if operators exist
         bool fundingWindowOpen = epoch + FUNDING_DEADLINE_OFFSET >= currentEpoch;
         if (fundingWindowOpen && !st.funded) {
             if (_epochOperators[epoch].length != 0) revert EpochNotFunded(epoch);
+        }
+
+        // Bucket vaults by class in batches to avoid gas spikes
+        if (!_epochVaultsBucketed[epoch]) {
+            address[] storage vaults = _epochVaults[epoch];
+            uint256 start = _vaultBucketCursor[epoch];
+            uint256 effective = (batchSize == 0) ? 1 : uint256(batchSize);
+            uint256 end = Math.min(start + effective, vaults.length);
+            for (uint256 i = start; i < end; i++) {
+                address vault = vaults[i];
+                uint96 collateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
+                _epochVaultsByClass[epoch][collateralClass].push(vault);
+            }
+            _vaultBucketCursor[epoch] = end;
+            if (end == vaults.length) {
+                _epochVaultsBucketed[epoch] = true;
+            } else {
+                // continue bucketing on next call
+                return;
+            }
         }
 
         // Execute distribution in batches
@@ -221,6 +234,14 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
         for (uint256 i = startIdx; i < endIdx; i++) {
             _processOperator(epoch, operators[i]);
+            // finalize early if epoch cap is reached
+            if (_epochTotalDistributedShares[epoch] >= BASIS_POINTS_DENOMINATOR) {
+                batch.lastProcessedOperator = operatorCount;
+                batch.isComplete = true;
+                st.distributionComplete = true;
+                emit RewardsDistributed(epoch);
+                return;
+            }
         }
 
         batch.lastProcessedOperator = endIdx;
@@ -531,8 +552,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         if (rewardsAmount == 0) revert InvalidRewardsAmount(rewardsAmount);
         if (numberOfEpochs == 0) revert InvalidNumberOfEpochs(numberOfEpochs);
 
+        // Check if distribution has been initiated (vault bucketing started or operators processed)
         DistributionBatch storage startBatch = distributionBatches[startEpoch];
-        if (startBatch.lastProcessedOperator > 0 || startBatch.isComplete) {
+        if (_vaultBucketCursor[startEpoch] > 0 || startBatch.lastProcessedOperator > 0 || startBatch.isComplete) {
             revert DistributionAlreadyStarted(startEpoch);
         }
 
@@ -717,10 +739,13 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             totalBeneficiaryShare += rawShare - operatorFeeShare;
         }
 
-        operatorShares[epoch][operator] = totalOperatorFeeShare;
-        if (totalOperatorFeeShare > 0) {
-            // accumulate operator fee bp toward epoch-level distributed total
-            _epochTotalDistributedShares[epoch] += totalOperatorFeeShare;
+        // Cap per-epoch distributed shares at 10_000 bp
+        uint256 capRemaining = BASIS_POINTS_DENOMINATOR - _epochTotalDistributedShares[epoch];
+        uint256 operatorBpToAdd = totalOperatorFeeShare > capRemaining ? capRemaining : totalOperatorFeeShare;
+        // set once per operator; lastProcessedOperator prevents re-entry
+        operatorShares[epoch][operator] = operatorBpToAdd;
+        if (operatorBpToAdd > 0) {
+            _epochTotalDistributedShares[epoch] += operatorBpToAdd;
         }
     }
 
@@ -732,7 +757,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
         uint48 epochTs = middleware.getEpochStartTs(epoch);
         uint96[] memory classes = middleware.getCollateralClassIds();
-        uint256 addedBp; // bp actually credited in this call
+        uint256 addedBp; // bp actually credited in this call (stakers + curators)
 
         for (uint256 c = 0; c < classes.length; c++) {
             uint96 cls = classes[c];
@@ -742,6 +767,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             address[] storage vaultsForClass = _epochVaultsByClass[epoch][cls];
             for (uint256 i = 0; i < vaultsForClass.length; i++) {
                 address vault = vaultsForClass[i];
+                // stop if cap already reached by prior credits in this call
+                uint256 capRemainingLocal = BASIS_POINTS_DENOMINATOR - (_epochTotalDistributedShares[epoch] + addedBp);
+                if (capRemainingLocal == 0) { _epochTotalDistributedShares[epoch] += addedBp; return; }
 
                 // delegator() may revert → read defensively
                 address delegator;
@@ -770,20 +798,34 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
                 uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
                 vaultShare = Math.mulDiv(vaultShare, operatorClassShare, BASIS_POINTS_DENOMINATOR);
 
-                uint256 curatorShare = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
+                uint256 curatorBp = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
+                uint256 stakerBp = vaultShare - curatorBp;
 
-                address curator;
-                // tolerate vault owner read failure
-                try VaultTokenized(vault).owner() returns (address o) { curator = o; } catch { curator = address(0); }
-                if (curator != address(0)) {
-                    curatorShares[epoch][curator] += curatorShare;
-                    _epochCurators[epoch].add(curator);
-                    addedBp += curatorShare; // count only credited curator bp
+                // Stop when epoch cap would be exceeded. Leave remainder sweepable.
+                if (stakerBp + curatorBp > capRemainingLocal) {
+                    _epochTotalDistributedShares[epoch] += addedBp;
+                    return;
                 }
 
-                vaultShares[epoch][vault] += vaultShare - curatorShare;
-                _epochVaultsWithShares[epoch].add(vault);
-                addedBp += (vaultShare - curatorShare); // staker bp
+                // Credit curator if owner() available
+                if (curatorBp > 0) {
+                    address curator;
+                    try VaultTokenized(vault).owner() returns (address o) { curator = o; } catch { curator = address(0); }
+                    if (curator != address(0)) {
+                        curatorShares[epoch][curator] += curatorBp;
+                        _epochCurators[epoch].add(curator);
+                        addedBp += curatorBp;
+                    } else {
+                        curatorBp = 0; // not credited; remains sweepable
+                    }
+                }
+
+                // Credit stakers only if positive to keep claim set small
+                if (stakerBp > 0) {
+                    vaultShares[epoch][vault] += stakerBp;
+                    _epochVaultsWithShares[epoch].add(vault);
+                    addedBp += stakerBp;
+                }
             }
         }
         if (addedBp > 0) {
