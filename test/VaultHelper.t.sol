@@ -409,8 +409,13 @@ contract VaultHelperTest is MiddlewareTestBase {
         assertGt(futureWithdraws.length, 0, "Should have future withdrawals");
     }
     
-    function test_GetUserPendingWithdrawsInRange() public view {
-        // Test with a valid range
+    function test_GetUserPendingWithdrawsInRange() public {
+        // Move forward to ensure toEpoch is in the valid future (advance to at least epoch 10)
+        uint256 epochsNeeded = 10 - vault.currentEpoch();
+        if (epochsNeeded > 0) {
+            vm.warp(block.timestamp + vault.epochDuration() * epochsNeeded + 1);
+        }
+
         uint256 fromEpoch = 0;
         uint256 toEpoch = 10;
         
