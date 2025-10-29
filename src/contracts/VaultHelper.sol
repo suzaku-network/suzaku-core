@@ -4,7 +4,7 @@
     pragma solidity 0.8.25;
 
     import {IVaultTokenized} from "../interfaces/vault/IVaultTokenized.sol";
-    import {Rewards} from "../contracts/rewards/Rewards.sol";
+    import {RewardsNativeToken} from "../contracts/rewards/RewardsNativeToken.sol";
     import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
     import {IDefaultCollateral} from "../interfaces/defaultCollateral/IDefaultCollateral.sol";
     import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -265,12 +265,12 @@
             if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
             if (rewardsToken == address(0)) revert VaultHelper__ZeroAddress("rewardsToken");
             if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
-            uint48 currentEpoch = Rewards(rewards).middleware().getCurrentEpoch();
-            uint48 lastClaimedEpoch = Rewards(rewards).lastEpochClaimedStaker(staker, rewardsToken);
+            uint48 currentEpoch = RewardsNativeToken(rewards).middleware().getCurrentEpoch();
+            uint48 lastClaimedEpoch = RewardsNativeToken(rewards).lastEpochClaimedStaker(staker);
 
             // Nothing to claim -> return empty array
             if (currentEpoch <= lastClaimedEpoch + 1) {
-                return ClaimAmountsPerToken({token: rewardsToken, amount: 0});
+                return ClaimAmountsPerToken({token: RewardsNativeToken(rewards).rewardsToken(), amount: 0});
             }
             
             uint256 span = uint256(currentEpoch) - uint256(lastClaimedEpoch + 1);
@@ -279,11 +279,11 @@
 
             // Iterate through epochs after last claimed and before current epoch
             for (uint48 epoch = lastClaimedEpoch + 1; epoch < currentEpoch; epoch++) {
-                uint48 epochTs = Rewards(rewards).middleware().getEpochStartTs(epoch);
+                uint48 epochTs = RewardsNativeToken(rewards).middleware().getEpochStartTs(epoch);
 
-                uint256 rewardsAmount = Rewards(rewards).getRewardsAmountPerTokenFromEpoch(epoch, rewardsToken);
+                uint256 rewardsAmount = RewardsNativeToken(rewards).getEpochRewards(epoch);
 
-                uint256 vaultShare = Rewards(rewards).vaultShares(epoch, vault);
+                uint256 vaultShare = RewardsNativeToken(rewards).vaultShares(epoch, vault);
                 if (vaultShare == 0) continue;
                 if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
 
@@ -301,7 +301,7 @@
                 totalAmount += stakerRewardsAmount;
             }
 
-            return ClaimAmountsPerToken({token: rewardsToken, amount: totalAmount});
+            return ClaimAmountsPerToken({token: RewardsNativeToken(rewards).rewardsToken(), amount: totalAmount});
         }
 
         /**
@@ -328,16 +328,16 @@
             if (toEpoch <= fromEpoch) revert VaultHelper__InvalidRange();
             if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
             
-            uint48 currentEpoch = Rewards(rewards).middleware().getCurrentEpoch();
+            uint48 currentEpoch = RewardsNativeToken(rewards).middleware().getCurrentEpoch();
             if (toEpoch > currentEpoch) toEpoch = currentEpoch;
             uint256 span = uint256(toEpoch) - uint256(fromEpoch);
             if (span > MAX_EPOCH_SPAN) revert VaultHelper__InvalidRange();
             
             uint256 totalAmount;
             for (uint48 epoch = fromEpoch; epoch < toEpoch; epoch++) {
-                uint48 epochTs = Rewards(rewards).middleware().getEpochStartTs(epoch);
-                uint256 rewardsAmount = Rewards(rewards).getRewardsAmountPerTokenFromEpoch(epoch, rewardsToken);
-                uint256 vaultShare = Rewards(rewards).vaultShares(epoch, vault);
+                uint48 epochTs = RewardsNativeToken(rewards).middleware().getEpochStartTs(epoch);
+                uint256 rewardsAmount = RewardsNativeToken(rewards).getEpochRewards(epoch);
+                uint256 vaultShare = RewardsNativeToken(rewards).vaultShares(epoch, vault);
                 if (vaultShare == 0) continue;
                 if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
                 
@@ -354,6 +354,6 @@
                 totalAmount += stakerRewardsAmount;
             }
             
-            return ClaimAmountsPerToken({token: rewardsToken, amount: totalAmount});
+            return ClaimAmountsPerToken({token: RewardsNativeToken(rewards).rewardsToken(), amount: totalAmount});
         }
     }

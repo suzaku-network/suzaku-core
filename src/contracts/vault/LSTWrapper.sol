@@ -13,7 +13,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
-import {IRewards} from "../../interfaces/rewards/IRewards.sol";
+import {IRewardsNativeToken} from "../../interfaces/rewards/IRewardsNativeToken.sol";
 import {IVaultHelper} from "../../interfaces/IVaultHelper.sol";
 import {ICollateral} from "../../interfaces/ICollateral.sol";
 
@@ -39,7 +39,7 @@ contract LSTWrapper is
         /// @notice The underlying VaultTokenized contract instance being wrapped. Its shares are the asset.
         IVaultTokenized vault;
         /// @notice The Rewards contract associated with the underlying vault.
-        IRewards rewards;
+        IRewardsNativeToken rewards;
         /// @notice The collateral token used by the vault.
         IERC20 collateral;
         /// @notice The native token (underlying of collateral) paid by Rewards contract.
@@ -88,7 +88,7 @@ contract LSTWrapper is
         // Set State Variables
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.vault = IVaultTokenized(vault_);
-        lws.rewards = IRewards(rewards_);
+        lws.rewards = IRewardsNativeToken(rewards_);
 
         // Determine the collateral token
         address collateralAddr = lws.vault.collateral();
@@ -159,7 +159,7 @@ contract LSTWrapper is
         uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
         
         // Claim rewards (native token). Avoid copying unbounded revert data.
-        try lws.rewards.claimRewards(nativeTokenAddr, address(this)) { }
+        try lws.rewards.claimRewards(address(this)) { }
         catch {
             emit RewardsClaimFailed(bytes(""));
         }

@@ -817,6 +817,7 @@ contract LSTWrapperTest is RewardsIntegrationTestBase {
         // Set claimable amount in mock rewards
         address nat = MockCollateral(address(collateral)).asset();
         Token(nat).transfer(address(mockRewards), 10 ether);
+        mockRewards.setRewardsToken(nat);
         mockRewards.setClaimableAmount(10 ether);
         
         // Harvest
@@ -1155,13 +1156,18 @@ contract MockToken is IERC20 {
 
 contract MockRewardsWithClaim {
     uint256 private claimableAmount;
+    address private rewardsToken;
     
     function setClaimableAmount(uint256 amount) external {
         claimableAmount = amount;
     }
     
-    function claimRewards(address rewardsToken, address recipient) external {
-        if (claimableAmount > 0) {
+    function setRewardsToken(address token) external {
+        rewardsToken = token;
+    }
+    
+    function claimRewards(address recipient) external {
+        if (claimableAmount > 0 && rewardsToken != address(0)) {
             Token(rewardsToken).transfer(recipient, claimableAmount);
             claimableAmount = 0;
         }
@@ -1169,7 +1175,7 @@ contract MockRewardsWithClaim {
 }
 
 contract MockRewardsAlwaysReverts {
-    function claimRewards(address, address) external pure {
+    function claimRewards(address) external pure {
         revert("Mock revert");
     }
 }
