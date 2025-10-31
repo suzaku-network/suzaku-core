@@ -1246,6 +1246,7 @@
 //     //     rewards.claimRewards(address(rewardsToken), staker);
 //     //     assertGt(rewardsToken.balanceOf(staker), 0, "Staker should receive rewardsToken");
 
+
 //     //     // Try to claim for rewardsToken2 (should revert)
 //     //     vm.prank(staker);
 //     //     vm.expectRevert(abi.encodeWithSelector(IRewards.AlreadyClaimedForLatestEpoch.selector, staker, numberOfEpochs));

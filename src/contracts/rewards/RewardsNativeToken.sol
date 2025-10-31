@@ -89,7 +89,6 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     mapping(address staker => uint48 epoch) public lastEpochClaimedStaker;
     mapping(address curator => uint48 epoch) public lastEpochClaimedCurator;
     mapping(address operator => uint48 epoch) public lastEpochClaimedOperator;
-    mapping(address protocolOwner => uint48 epoch) public lastEpochClaimedProtocol;
 
     // Asset class configuration
     mapping(uint96 collateralClass => uint16 rewardsShare) public rewardsSharePerCollateralClass;
@@ -195,7 +194,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         if (_epochOperators[epoch].length == 0) {
             _epochOperators[epoch] = middleware.getAllOperators();
         }
-        if (_epochVaults[epoch].length == 0) {
+        if (_epochVaults[epoch].length == 0 && _epochOperators[epoch].length != 0) {
             _epochVaults[epoch] = middlewareVaultManager.getVaults(epoch);
         }
 
@@ -475,25 +474,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
         // O(1): use accumulated bp; fallback to legacy enumeration if zero (old epochs)
         uint256 totalDistributedShares = _epochTotalDistributedShares[epoch];
-        if (totalDistributedShares == 0) {
-            // Operators
-            address[] storage operators = _epochOperators[epoch];
-            for (uint256 i = 0; i < operators.length; i++) {
-                totalDistributedShares += operatorShares[epoch][operators[i]];
-            }
-            // Vaults
-            uint256 vCount = _epochVaultsWithShares[epoch].length();
-            for (uint256 i = 0; i < vCount; i++) {
-                address vault = _epochVaultsWithShares[epoch].at(i);
-                totalDistributedShares += vaultShares[epoch][vault];
-            }
-            // Curators
-            uint256 curatorsCount = _epochCurators[epoch].length();
-            for (uint256 i = 0; i < curatorsCount; i++) {
-                address curator = _epochCurators[epoch].at(i);
-                totalDistributedShares += curatorShares[epoch][curator];
-            }
-        }
+        // Treat cache as source of truth. If zero, sweep full epoch without enumeration.
 
         // If no shares were distributed, sweep all rewards
         if (totalDistributedShares == 0) {
@@ -683,9 +664,12 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     function _ensureStakeCache(uint48 epoch, uint96 collateralClass) internal returns (uint256 totalStake) {
         totalStake = middleware.totalStakeCache(epoch, collateralClass);
         if (totalStake == 0 && !_totalStakeCacheAttempted[epoch][collateralClass]) {
-            _totalStakeCacheAttempted[epoch][collateralClass] = true;
-            try middleware.calcAndCacheStakes(epoch, collateralClass) {} catch {}
-            totalStake = middleware.totalStakeCache(epoch, collateralClass);
+            try middleware.calcAndCacheStakes(epoch, collateralClass) {
+                totalStake = middleware.totalStakeCache(epoch, collateralClass);
+                _totalStakeCacheAttempted[epoch][collateralClass] = true; // mark only after a successful attempt
+            } catch {
+                // leave attempted=false; allow future retries
+            }
         }
     }
 

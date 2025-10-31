@@ -3,7 +3,7 @@ pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
-import {RewardsIntegrationTestBase} from "../rewards/RewardsIntegrationTestBase.t.sol";
+import {RewardsNativeTokenIntegrationTestBase} from "../rewards/RewardsNativeTokenIntegrationTestBase.t.sol";
 import {LSTWrapper} from "../../src/contracts/vault/LSTWrapper.sol";
 import {ILSTWrapper} from "../../src/interfaces/vault/ILSTWrapper.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
@@ -17,7 +17,7 @@ import {Token} from "../mocks/MockToken.sol";
 import {MockCollateral} from "../mocks/MockCollateral.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 
-contract LSTWrapperTest is RewardsIntegrationTestBase {
+contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
 
     LSTWrapper public lstWrapper;
     LSTWrapper public lstWrapperImplementation;
