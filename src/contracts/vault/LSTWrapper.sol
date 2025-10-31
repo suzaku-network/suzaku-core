@@ -208,6 +208,7 @@ contract LSTWrapper is
     /**
      * @notice Deposit assets into the vault with zero-share protection.
      * @dev Overrides ERC4626 to prevent zero-share mints from donation attacks.
+     * @dev Also reverts if deposits are paused (except owner-only first mint) or if the first mint is attempted by a non-owner.
      * @param assets Amount of assets to deposit
      * @param receiver Address to receive the shares
      * @return shares Amount of shares minted
@@ -229,12 +230,20 @@ contract LSTWrapper is
         if (isFirstMint && msg.sender != owner()) revert LSTWrapper__OnlyOwnerFirstMint();
         // Note: Deposit limit enforcement is handled by the underlying vault
         
+        // For owner first mint, bypass maxDeposit check by calling _deposit directly
+        // Otherwise, use super.deposit() which checks maxDeposit()
+        if (isFirstMint && msg.sender == owner()) {
+            _deposit(_msgSender(), receiver, assets, shares);
+            return shares;
+        }
+        
         return super.deposit(assets, receiver);
     }
 
     /**
      * @notice Mint shares with zero-share protection.
      * @dev Overrides ERC4626 to prevent zero-share mints from donation attacks.
+     * @dev Also reverts if deposits are paused (except owner-only first mint) or if the first mint is attempted by a non-owner.
      * @param shares Amount of shares to mint
      * @param receiver Address to receive the shares
      * @return assets Amount of assets required
@@ -411,7 +420,32 @@ contract LSTWrapper is
         }
     }
 
-    /// @inheritdoc IERC4626
+    /**
+     * @inheritdoc IERC4626
+     * @dev Returns 0 while paused. Also returns 0 during the seed phase (totalSupply==0) to avoid
+     *      misleading integrators, since owner-only seeding depends on msg.sender which a view cannot know.
+     */
+    function maxDeposit(address) public view override(ERC4626Upgradeable, IERC4626) returns (uint256) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (lws.depositsPaused) return 0;
+        if (totalSupply() == 0) return 0;
+        return type(uint256).max;
+    }
+
+    /**
+     * @inheritdoc IERC4626
+     * @dev Mirrors {maxDeposit} gating.
+     */
+    function maxMint(address) public view override(ERC4626Upgradeable, IERC4626) returns (uint256) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        if (lws.depositsPaused) return 0;
+        if (totalSupply() == 0) return 0;
+        return type(uint256).max;
+    }
+
+    /**
+     * @inheritdoc IERC4626
+     */
     function convertToShares(uint256 assets)
         public
         view
@@ -421,7 +455,9 @@ contract LSTWrapper is
         return _convertToShares(assets, Math.Rounding.Floor);
     }
 
-    /// @inheritdoc IERC4626
+    /**
+     * @inheritdoc IERC4626
+     */
     function convertToAssets(uint256 shares)
         public
         view
@@ -461,7 +497,9 @@ contract LSTWrapper is
         return Math.mulDiv(shares, totalAssetsAmount + virtualOffset, supply + virtualOffset, rounding);
     }
 
-    // Apply virtual offset only for the first mint (supply == 0) to avoid leftover yield.
+    /**
+     * @dev Apply virtual offset only for the first mint (supply == 0) to avoid leftover yield.
+     */
     function _virtualOffset(uint256 supply) internal view returns (uint256) {
         if (supply != 0) return 0;
         uint8 assetDecimals;
@@ -474,30 +512,44 @@ contract LSTWrapper is
         return _safePow10(assetDecimals);
     }
 
+    /**
+     * @dev Calculate 10^exponent safely. Exponent <= 36 by construction.
+     */
     function _safePow10(uint8 exponent) internal pure returns (uint256) {
-        // exponent <= 36 by construction
         return 10 ** uint256(exponent);
     }
 
+    /**
+     * @dev Calculate maximum allowed collateral dust for sweeping.
+     * @dev Percentage cap: 0.0001% of local balance, always defined.
+     * @dev Absolute cap: 1 whole token unit if decimals known, else allow 1 base unit.
+     * @dev If decimals unknown, rely on percentageCap only.
+     */
     function _maxCollateralDust(LSTWrapperStorageStruct storage lws) internal view returns (uint256) {
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
-        // Percentage cap: 0.0001% of local balance, always defined
         uint256 percentageCap = collateralBalance / 1_000_000;
-        // Absolute cap: 1 whole token unit if decimals known, else allow 1 base unit
         uint256 unitCap = 1; // Allow sweeping at most 1 base unit if decimals() is unknown
         try IERC20Metadata(address(lws.collateral)).decimals() returns (uint8 collateralDecimals) {
             if (collateralDecimals > 36) collateralDecimals = 36;
             unitCap = _safePow10(collateralDecimals);
         } catch { }
-        // If decimals unknown, rely on percentageCap only
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
     }
 
-    /// @notice Owner can pause or resume deposits/mints. Required for rescue.
-    function setDepositsPaused(bool paused) external onlyOwner {
+    /**
+     * @notice Returns true if deposits/mints are paused.
+     * @return true if deposits are paused, false otherwise
+     */
+    function paused() external view returns (bool) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.depositsPaused = paused;
-        emit DepositsPaused(paused);
+        return lws.depositsPaused;
+    }
+
+    /// @notice Owner can pause or resume deposits/mints. Required for rescue.
+    function setDepositsPaused(bool paused_) external onlyOwner {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.depositsPaused = paused_;
+        emit DepositsPaused(paused_);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

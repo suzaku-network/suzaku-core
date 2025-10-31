@@ -144,6 +144,12 @@ interface ILSTWrapper is IERC4626 {
     // Admin
     function setVaultHelper(address helper_) external;
     function setDepositsPaused(bool paused) external;
+    
+    /**
+     * @notice Check if deposits are currently paused.
+     * @return true if deposits are paused, false otherwise
+     */
+    function paused() external view returns (bool);
 
     /**
      * @notice Recovers collateral dust that was accidentally sent to the wrapper.
