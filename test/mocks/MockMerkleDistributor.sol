@@ -48,7 +48,7 @@ contract MockMerkleDistributor is IMerkleDistributor {
      */
     function fund(address token, uint256 amount) external {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-        tokenBalances[address(token)] += amount;
+        tokenBalances[token] += amount;
     }
     
     /**
@@ -75,9 +75,10 @@ contract MockMerkleDistributor is IMerkleDistributor {
             
             // Verify Merkle proof (simplified - in real Merkl this would verify against merkleRoot)
             if (!allowDirectClaims) {
-                bytes32 leaf = keccak256(abi.encodePacked(user, token, amount));
-                // Simplified proof verification for testing
+                // Verify proof length (simplified proof verification for testing)
                 require(proofs[i].length > 0, "Invalid proof");
+                // In production, would verify: leaf = keccak256(abi.encodePacked(user, token, amount))
+                // and reconstruct path from proofs[i] to merkleRoot
             }
             
             // Calculate claimable (amount - already claimed)
@@ -124,7 +125,7 @@ contract MockMerkleDistributor is IMerkleDistributor {
         uint256[] calldata amounts,
         bytes32[][] calldata proofs,
         address[] calldata recipients,
-        bytes[] memory datas
+        bytes[] calldata datas
     ) external override {
         require(users.length == recipients.length && users.length == datas.length, "Invalid lengths");
         

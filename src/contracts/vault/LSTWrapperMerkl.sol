@@ -131,9 +131,10 @@ contract LSTWrapperMerkl is
      * @return address of the Merkl Distributor contract
      */
     function merkleDistributor() external view returns (address) {
-        return this.rewards();
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return lws.rewards;
     }
-
+    
     /**
      * @inheritdoc ILSTWrapper
      */
@@ -202,10 +203,10 @@ contract LSTWrapperMerkl is
         amounts[0] = amount;
         proofs[0] = proof;
         
-        // Claim rewards (native token). Avoid copying unbounded revert data.
+        // Claim rewards (native token). Propagate errors from distributor.
         try distributor.claim(users, tokens, amounts, proofs) { }
-        catch {
-            emit RewardsClaimFailed(bytes(""));
+        catch (bytes memory reason) {
+            assembly { revert(add(32, reason), mload(reason)) }
         }
 
         // Calculate actual claimed amount as the delta
@@ -594,6 +595,42 @@ contract LSTWrapperMerkl is
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.depositsPaused = paused_;
         emit DepositsPaused(paused_);
+    }
+
+    /**
+     * @notice Post-upgrade initializer to set the Merkl distributor.
+     * @dev Call via ProxyAdmin.upgradeAndCall. Version bumped to 2.
+     *      During upgradeAndCall, msg.sender is ProxyAdmin (which enforces onlyOwner).
+     *      For direct calls after upgrade, we check owner to prevent unauthorized reinitialization.
+     * @param distributor Address of the Merkl Distributor contract
+     */
+    function postUpgradeInit(address distributor) external reinitializer(2) {
+        if (distributor == address(0)) revert LSTWrapper__ZeroAddress("rewards");
+        
+        // During upgradeAndCall, msg.sender is ProxyAdmin, which already enforces onlyOwner.
+        // For direct calls after upgrade, we need to check owner.
+        // Read the EIP-1967 admin slot to get ProxyAdmin address
+        bytes32 ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+        address proxyAdmin = address(uint160(uint256(_getAddressSlot(ADMIN_SLOT))));
+        
+        // Allow if caller is owner OR caller is ProxyAdmin (during upgradeAndCall)
+        if (msg.sender != owner() && msg.sender != proxyAdmin) {
+            revert OwnableUnauthorizedAccount(msg.sender);
+        }
+        
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.rewards = distributor; // same slot as v1 'rewards'
+    }
+    
+    /**
+     * @dev Internal helper to read address from storage slot
+     */
+    function _getAddressSlot(bytes32 slot) internal view returns (bytes32) {
+        bytes32 value;
+        assembly {
+            value := sload(slot)
+        }
+        return value;
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

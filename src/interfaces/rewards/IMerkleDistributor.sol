@@ -38,7 +38,7 @@ interface IMerkleDistributor {
         uint256[] calldata amounts,
         bytes32[][] calldata proofs,
         address[] calldata recipients,
-        bytes[] memory datas
+        bytes[] calldata datas
     ) external;
 
     /**
@@ -46,6 +46,12 @@ interface IMerkleDistributor {
      * @return The current Merkle root
      */
     function getMerkleRoot() external view returns (bytes32);
+    
+    /**
+     * @notice Optional getter for Merkle root (for compatibility with deployments exposing a public variable)
+     * @return The current Merkle root
+     */
+    function merkleRoot() external view returns (bytes32);
 }
 
 

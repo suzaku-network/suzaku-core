@@ -62,6 +62,7 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         lstWrapperImplementation = new LSTWrapper();
         
         // Deploy proxy with LSTWrapper initialization
+        // TransparentUpgradeableProxy creates its own ProxyAdmin internally
         bytes memory initData = abi.encodeWithSelector(
             LSTWrapper.initialize.selector,
             lstAdmin,
@@ -72,8 +73,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
             "lstVT"
         );
         
-        // Use TransparentUpgradeableProxy - it creates its own ProxyAdmin internally
-        // Pass lstAdmin as initialOwner so the internal ProxyAdmin is owned by lstAdmin
         TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
             address(lstWrapperImplementation),
             lstAdmin, // initialOwner - ProxyAdmin will be created internally and owned by lstAdmin
@@ -83,7 +82,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         lstWrapper = LSTWrapper(address(proxy));
         
         // Get the internal ProxyAdmin that was created by the proxy
-        // The admin slot is at keccak256("eip1967.proxy.admin") - 1 = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103
         bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
         address internalProxyAdminAddr = address(uint160(uint256(vm.load(address(proxy), adminSlot))));
         proxyAdmin = ProxyAdmin(internalProxyAdminAddr);
@@ -106,43 +104,22 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     
     /**
      * @notice Upgrade LSTWrapper proxy to LSTWrapperMerkl implementation
-     * @dev Uses ProxyAdmin to upgrade the TransparentUpgradeableProxy
+     * @dev Uses ProxyAdmin to upgrade the TransparentUpgradeableProxy and calls postUpgradeInit
      */
     function _upgradeToMerkl() internal {
         // Deploy new LSTWrapperMerkl implementation
         lstWrapperMerklImplementation = new LSTWrapperMerkl();
         
-        // Upgrade the proxy using ProxyAdmin
-        // In production, ProxyAdmin would be owned by a multisig/governance
-        vm.prank(lstAdmin); // ProxyAdmin owner calls upgrade
+        // Upgrade and run v2 post-upgrade init to set distributor
+        bytes memory callData =
+            abi.encodeWithSelector(LSTWrapperMerkl.postUpgradeInit.selector, address(merkleDistributor));
+        vm.prank(lstAdmin);
         proxyAdmin.upgradeAndCall(
             ITransparentUpgradeableProxy(payable(address(lstWrapper))),
             address(lstWrapperMerklImplementation),
-            "" // Empty bytes - no function call during upgrade
+            callData
         );
-        
-        // Cast to LSTWrapperMerkl (storage is compatible)
         lstWrapperMerkl = LSTWrapperMerkl(address(lstWrapper));
-        
-        // After upgrade, rewards() still returns old address (storage preserved)
-        // merkleDistributor() is an alias that calls rewards()
-        // For testing, we'll update the storage slot directly to point to MockMerkleDistributor
-        // In production, you'd need a migration function
-        _updateRewardsAddressInStorage(address(merkleDistributor));
-    }
-    
-    /**
-     * @notice Update rewards address in storage (simulates migration)
-     * @dev Directly updates storage slot - in production use a proper migration function
-     */
-    function _updateRewardsAddressInStorage(address newRewards) internal {
-        // Storage slot for rewards is at offset 1 in LSTWrapperStorageStruct
-        // bytes32 slot = _LSTWRAPPER_STORAGE_SLOT = 0x799f344bf9d1b9145d63579fefcda32172d8d3c9b295fe5dc25c088a9f94f700
-        bytes32 storageSlot = 0x799f344bf9d1b9145d63579fefcda32172d8d3c9b295fe5dc25c088a9f94f700;
-        bytes32 rewardsSlot = bytes32(uint256(storageSlot) + 1); // rewards is 2nd field (after vault)
-        
-        // Update storage directly
-        vm.store(address(lstWrapperMerkl), rewardsSlot, bytes32(uint256(uint160(newRewards))));
     }
     
     /**
@@ -402,6 +379,8 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     function test_SetDepositsPaused() public {
         vm.prank(lstAdmin);
         lstWrapperMerkl.setDepositsPaused(true);
+        assertEq(lstWrapperMerkl.maxDeposit(lstUser1), 0);
+        assertEq(lstWrapperMerkl.maxMint(lstUser1), 0);
         
         // Try to deposit - should revert
         vm.startPrank(lstUser1);
@@ -413,11 +392,33 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         // Unpause
         vm.prank(lstAdmin);
         lstWrapperMerkl.setDepositsPaused(false);
+        assertEq(lstWrapperMerkl.maxDeposit(lstUser1), type(uint256).max);
+        assertEq(lstWrapperMerkl.maxMint(lstUser1), type(uint256).max);
+    }
+    
+    function test_MaxDeposit_SeedPhaseIsZero() public {
+        // Deploy a fresh wrapper to test seed phase
+        LSTWrapper freshImpl = new LSTWrapper();
+        bytes memory initData = abi.encodeWithSelector(
+            LSTWrapper.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(rewards),
+            address(vaultHelper),
+            "Test Wrapper",
+            "TEST"
+        );
+        TransparentUpgradeableProxy freshProxy = new TransparentUpgradeableProxy(
+            address(freshImpl),
+            lstAdmin,
+            initData
+        );
+        LSTWrapper freshWrapper = LSTWrapper(address(freshProxy));
         
-        // Now deposit should work
-        vm.startPrank(lstUser1);
-        lstWrapperMerkl.deposit(100 ether, lstUser1);
-        vm.stopPrank();
+        // Verify seed phase introspection
+        assertEq(freshWrapper.totalSupply(), 0, "Should be in seed phase");
+        assertEq(freshWrapper.maxDeposit(address(this)), 0, "maxDeposit should return 0 in seed phase");
+        assertEq(freshWrapper.maxMint(address(this)), 0, "maxMint should return 0 in seed phase");
     }
     
     // ========== Merkl-Specific Tests ==========
