@@ -9,7 +9,9 @@ import {ILSTWrapper} from "../../src/interfaces/vault/ILSTWrapper.sol";
 import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {TransparentUpgradeableProxy, ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
@@ -22,6 +24,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     LSTWrapper public lstWrapper;
     LSTWrapper public lstWrapperImplementation;
     VaultHelper public vaultHelper;
+    ProxyAdmin public proxyAdmin;
     
     address public lstAdmin;
     address public lstUser1;
@@ -46,23 +49,28 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         // Deploy LSTWrapper implementation
         lstWrapperImplementation = new LSTWrapper();
         
-            // Deploy proxy and initialize
-            bytes memory initData = abi.encodeWithSelector(
-                LSTWrapper.initialize.selector,
-                lstAdmin,
-                address(vault),
-                address(rewards),
-                address(vaultHelper), // helper
-                "LST Wrapped VaultTokenized",
-                "lstVT"
-            );
+        // Deploy proxy and initialize (following deployment script pattern)
+        bytes memory initData = abi.encodeWithSelector(
+            LSTWrapper.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(rewards),
+            address(vaultHelper),
+            "LST Wrapped VaultTokenized",
+            "lstVT"
+        );
         
-        ERC1967Proxy proxy = new ERC1967Proxy(
+        // Deploy TransparentUpgradeableProxy (creates its own ProxyAdmin internally)
+        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
             address(lstWrapperImplementation),
+            lstAdmin, // initialOwner of the internally created ProxyAdmin
             initData
         );
         
         lstWrapper = LSTWrapper(address(proxy));
+        
+        // Get the internal ProxyAdmin using OZ utilities
+        proxyAdmin = ProxyAdmin(Upgrades.getAdminAddress(address(proxy)));
         
         // Setup initial deposits to vault for testing
         _setupInitialVaultDeposits();
@@ -148,7 +156,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             "TST"
         );
         vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__ZeroAddress.selector, "admin"));
-        new ERC1967Proxy(address(impl1), initData1);
+        new TransparentUpgradeableProxy(address(impl1), lstAdmin, initData1);
         
         // Test zero vault
         LSTWrapper impl2 = new LSTWrapper();
@@ -162,7 +170,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             "TST"
         );
         vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__ZeroAddress.selector, "vault"));
-        new ERC1967Proxy(address(impl2), initData2);
+        new TransparentUpgradeableProxy(address(impl2), lstAdmin, initData2);
         
         // Test zero rewards
         LSTWrapper impl3 = new LSTWrapper();
@@ -176,7 +184,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             "TST"
         );
         vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__ZeroAddress.selector, "rewards"));
-        new ERC1967Proxy(address(impl3), initData3);
+        new TransparentUpgradeableProxy(address(impl3), lstAdmin, initData3);
         
         // Test zero helper
         LSTWrapper impl4 = new LSTWrapper();
@@ -190,7 +198,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             "TST"
         );
         vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector);
-        new ERC1967Proxy(address(impl4), initData4);
+        new TransparentUpgradeableProxy(address(impl4), lstAdmin, initData4);
         
     }
     
@@ -209,7 +217,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             "TST"
         );
         vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidVaultCollateral.selector);
-        new ERC1967Proxy(address(impl), initData);
+        new TransparentUpgradeableProxy(address(impl), lstAdmin, initData);
     }
     
     function test_Initialize_RevertInvalidRewardsToken() public {
@@ -227,7 +235,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             "TST"
         );
         vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidRewardsToken.selector);
-        new ERC1967Proxy(address(impl), initData);
+        new TransparentUpgradeableProxy(address(impl), lstAdmin, initData);
     }
     
     // Deposit tests
@@ -279,7 +287,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin, address(mockVault), address(rewards), address(vaultHelper),
             "Test","TST"
         );
-        LSTWrapper w = LSTWrapper(address(new ERC1967Proxy(address(impl), init)));
+        LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
 
         // fund wrapper with native token
         address nat = MockCollateral(address(collateral)).asset();
@@ -501,23 +509,38 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     function test_SetVaultHelper() public {
         address newHelper = makeAddr("newHelper");
         
+        // Call setVaultHelper via ProxyAdmin's upgradeAndCall
         vm.prank(lstAdmin);
-        vm.expectEmit(true, false, false, false);
+        vm.expectEmit(true, false, false, false, address(lstWrapper));
         emit ILSTWrapper.VaultHelperUpdated(newHelper);
-        lstWrapper.setVaultHelper(newHelper);
+        
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(lstWrapper)),
+            address(lstWrapperImplementation), // same implementation
+            abi.encodeWithSelector(ILSTWrapper.setVaultHelper.selector, newHelper)
+        );
         
         assertEq(lstWrapper.vaultHelper(), newHelper);
     }
     
     function test_SetVaultHelper_RevertZeroAddress() public {
+        // Try to set zero address via ProxyAdmin's upgradeAndCall
         vm.prank(lstAdmin);
-        vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector);
-        lstWrapper.setVaultHelper(address(0));
+        vm.expectRevert(
+            abi.encodeWithSelector(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector)
+        );
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(address(lstWrapper)),
+            address(lstWrapperImplementation),
+            abi.encodeWithSelector(ILSTWrapper.setVaultHelper.selector, address(0))
+        );
     }
     
-    function test_SetVaultHelper_OnlyOwner() public {
-        vm.prank(lstUser1);
-        vm.expectRevert();
+    function test_SetVaultHelper_OnlyProxyAdmin() public {
+        // Try to call directly (not via ProxyAdmin), should revert
+        vm.expectRevert(
+            abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(this))
+        );
         lstWrapper.setVaultHelper(makeAddr("newHelper"));
     }
     
@@ -812,7 +835,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin, address(vault), address(mockRewards), address(vaultHelper),
             "Test","TST"
         );
-        LSTWrapper w = LSTWrapper(address(new ERC1967Proxy(address(impl), init)));
+        LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
         
         // Set claimable amount in mock rewards
         address nat = MockCollateral(address(collateral)).asset();
@@ -841,7 +864,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin, address(vault), address(mockRewards), address(vaultHelper),
             "Test","TST"
         );
-        LSTWrapper w = LSTWrapper(address(new ERC1967Proxy(address(impl), init)));
+        LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
         
         // Send native token to wrapper manually
         address nat = MockCollateral(address(collateral)).asset();
@@ -873,7 +896,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin, address(vault), address(mockRewards), address(vaultHelper),
             "Test","TST"
         );
-        LSTWrapper w = LSTWrapper(address(new ERC1967Proxy(address(impl), init)));
+        LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
         
         // Set up scenario: rewards will claim 0 tokens
         mockRewards.setClaimableAmount(0);
@@ -957,9 +980,21 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         // Create new helper that is NOT whitelisted
         VaultHelper newHelper = new VaultHelper(address(vaultFactory));
         
-        // Set new helper
-        vm.prank(lstAdmin);
+        // For testing, we'll directly set the helper by bypassing the ProxyAdmin check
+        // In production, this would be done via ProxyAdmin.upgradeAndCall()
+        
+        // Get the proxy admin address and store it in the admin slot to bypass the check
+        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+        address currentAdmin = address(uint160(uint256(vm.load(address(lstWrapper), adminSlot))));
+        
+        // Temporarily set this test contract as the ProxyAdmin
+        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(address(this)))));
+        
+        // Now we can call setVaultHelper as the ProxyAdmin
         lstWrapper.setVaultHelper(address(newHelper));
+        
+        // Restore the original admin
+        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(currentAdmin))));
         
         // Send native to wrapper
         address nat = MockCollateral(address(collateral)).asset();
@@ -970,9 +1005,10 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         vm.expectRevert(ILSTWrapper.LSTWrapper__DepositRestricted.selector);
         lstWrapper.harvest(0, new bytes32[](0));
         
-        // Set helper back to whitelisted one
-        vm.prank(lstAdmin);
+        // Set helper back to whitelisted one via ProxyAdmin
+        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(address(this)))));
         lstWrapper.setVaultHelper(address(vaultHelper));
+        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(currentAdmin))));
         
         // harvest() succeeds
         vm.prank(lstAdmin);

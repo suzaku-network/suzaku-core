@@ -4,6 +4,7 @@ pragma solidity 0.8.25;
 import {Script, console2} from "forge-std/Script.sol";
 import {LSTWrapper} from "../../src/contracts/vault/LSTWrapper.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 
 import {LSTWrapperConfig} from "./LSTWrapperTypes.s.sol";
 
@@ -35,9 +36,8 @@ contract DeployLSTWrapper is Script {
 
         proxy = address(p);
         implementation = address(impl);
-        // Read the EIP-1967 admin slot to get the internally created ProxyAdmin
-        bytes32 ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        proxyAdminAddr = address(uint160(uint256(vm.load(proxy, ADMIN_SLOT))));
+        // Get the ProxyAdmin address using OZ utilities
+        proxyAdminAddr = Upgrades.getAdminAddress(proxy);
 
         console2.log("LSTWrapper proxy:", proxy);
         console2.log("Implementation:", implementation);

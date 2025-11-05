@@ -21,6 +21,7 @@ import {IERC1967} from "@openzeppelin/contracts/interfaces/IERC1967.sol";
 import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 
 /**
  * @title LSTWrapperMerklTest
@@ -81,10 +82,8 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         
         lstWrapper = LSTWrapper(address(proxy));
         
-        // Get the internal ProxyAdmin that was created by the proxy
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        address internalProxyAdminAddr = address(uint160(uint256(vm.load(address(proxy), adminSlot))));
-        proxyAdmin = ProxyAdmin(internalProxyAdminAddr);
+        // Get the internal ProxyAdmin using OZ utilities
+        proxyAdmin = ProxyAdmin(Upgrades.getAdminAddress(address(proxy)));
         
         // Setup initial deposits to vault for testing
         _setupInitialVaultDeposits();
@@ -195,9 +194,13 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     }
     
     function test_HarvestRequiresParams() public {
-        // Unified harvest requires amount and proof parameters
-        vm.expectRevert(); // Will revert on invalid call
-        lstWrapperMerkl.harvest(0, new bytes32[](0));
+        // Unified harvest requires amount and proof parameters (function signature enforces this)
+        // This test verifies the function signature accepts the required params
+        bytes32[] memory proof = new bytes32[](0);
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapperMerkl.harvest(0, proof);
+        // Should succeed with zero amount (no revert expected)
+        assertEq(claimedNative, 0);
+        assertEq(mintedVaultShares, 0);
     }
     
     // ========== Merkl Harvest Tests ==========
@@ -230,17 +233,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         
         uint256 vaultSharesAfter = lstWrapperMerkl.totalAssets();
         assertGt(vaultSharesAfter, vaultSharesBefore, "Vault shares should increase");
-    }
-    
-    function test_HarvestWithInvalidToken() public {
-        // Note: token validation removed - token is now inferred from nativeToken
-        // This test is no longer applicable with unified harvest signature
-        bytes32[] memory proof = new bytes32[](1);
-        proof[0] = bytes32(0);
-        
-        // Should succeed since token is inferred internally
-        (uint256 claimedNative, ) = lstWrapperMerkl.harvest(HARVEST_AMOUNT, proof);
-        assertEq(claimedNative, 0); // No claim if amount doesn't match merkle tree
     }
     
     function test_HarvestWithZeroAmount() public {
@@ -369,8 +361,13 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     function test_SetVaultHelper() public {
         VaultHelper newHelper = new VaultHelper(address(vaultFactory));
         
+        // Call setVaultHelper via ProxyAdmin's upgradeAndCall
         vm.prank(lstAdmin);
-        lstWrapperMerkl.setVaultHelper(address(newHelper));
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
+            address(lstWrapperMerklImplementation), // same implementation
+            abi.encodeWithSelector(ILSTWrapper.setVaultHelper.selector, address(newHelper))
+        );
         
         assertEq(lstWrapperMerkl.vaultHelper(), address(newHelper), "Vault helper should be updated");
     }

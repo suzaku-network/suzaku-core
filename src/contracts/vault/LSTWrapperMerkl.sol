@@ -423,7 +423,7 @@ contract LSTWrapperMerkl is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function setVaultHelper(address helper_) external onlyOwner {
+    function setVaultHelper(address helper_) external {
         if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
         // ProxyAdmin-only (during upgradeAndCall)
         if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);

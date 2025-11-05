@@ -349,9 +349,9 @@ contract LSTWrapper is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function setVaultHelper(address helper_) external onlyOwner {
-        // Deprecated to owner; gate to ProxyAdmin so it can only be called during upgradeAndCall
+    function setVaultHelper(address helper_) external {
         if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
+        // ProxyAdmin-only (typically via upgradeAndCall)
         if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.vaultHelper = IVaultHelper(helper_);
