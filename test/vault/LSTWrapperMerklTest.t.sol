@@ -195,8 +195,8 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     }
     
     function test_OldHarvestReverts() public {
-        // Old harvest() signature should revert with helpful message
-        vm.expectRevert("Use harvest(address token, uint256 amount, bytes32[] calldata proof) - Merkl requires Merkle proofs");
+        // Old harvest() signature should revert with declared error
+        vm.expectRevert(ILSTWrapper.LSTWrapper__HarvestSignatureChanged.selector);
         lstWrapperMerkl.harvest();
     }
     

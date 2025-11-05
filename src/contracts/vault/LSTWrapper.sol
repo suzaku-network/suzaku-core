@@ -522,13 +522,12 @@ contract LSTWrapper is
     /**
      * @dev Calculate maximum allowed collateral dust for sweeping.
      * @dev Percentage cap: 0.0001% of local balance, always defined.
-     * @dev Absolute cap: 1 whole token unit if decimals known, else allow 1 base unit.
-     * @dev If decimals unknown, rely on percentageCap only.
+     * @dev Absolute cap: 1 whole token unit if decimals known, else 1 base unit as fallback.
      */
     function _maxCollateralDust(LSTWrapperStorageStruct storage lws) internal view returns (uint256) {
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
         uint256 percentageCap = collateralBalance / 1_000_000;
-        uint256 unitCap = 1; // Allow sweeping at most 1 base unit if decimals() is unknown
+        uint256 unitCap = 1; // Fallback: 1 base unit if decimals() is unknown
         try IERC20Metadata(address(lws.collateral)).decimals() returns (uint8 collateralDecimals) {
             if (collateralDecimals > 36) collateralDecimals = 36;
             unitCap = _safePow10(collateralDecimals);

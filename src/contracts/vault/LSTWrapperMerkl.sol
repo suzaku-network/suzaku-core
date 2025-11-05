@@ -16,6 +16,7 @@ import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
 import {IMerkleDistributor} from "../../interfaces/rewards/IMerkleDistributor.sol";
 import {IVaultHelper} from "../../interfaces/IVaultHelper.sol";
 import {ICollateral} from "../../interfaces/ICollateral.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 /**
  * @title LSTWrapperMerkl
@@ -23,7 +24,7 @@ import {ICollateral} from "../../interfaces/ICollateral.sol";
  * @dev Users deposit VaultTokenized shares (asset). The wrapper claims rewards from Merkl Distributor
  * using Merkle proofs and auto-compounds them back into the underlying VaultTokenized instance,
  * increasing the value per share (PPS) of this LSTWrapperMerkl token over time.
- * @dev Implements ILSTWrapper for upgrade compatibility - old harvest() signature reverts with helpful error.
+ * @dev Implements ILSTWrapper for upgrade compatibility - old harvest() signature reverts with error.
  */
 contract LSTWrapperMerkl is
     Initializable,
@@ -161,10 +162,10 @@ contract LSTWrapperMerkl is
 
     /**
      * @inheritdoc ILSTWrapper
-     * @dev Old harvest() signature - reverts with helpful error directing to new signature
+     * @dev Old harvest() signature - reverts with error directing to new signature
      */
     function harvest() external pure returns (uint256, uint256) {
-        revert("Use harvest(address token, uint256 amount, bytes32[] calldata proof) - Merkl requires Merkle proofs");
+        revert LSTWrapper__HarvestSignatureChanged();
     }
 
     /**
@@ -567,13 +568,12 @@ contract LSTWrapperMerkl is
     /**
      * @dev Calculate maximum allowed collateral dust for sweeping.
      * @dev Percentage cap: 0.0001% of local balance, always defined.
-     * @dev Absolute cap: 1 whole token unit if decimals known, else allow 1 base unit.
-     * @dev If decimals unknown, rely on percentageCap only.
+     * @dev Absolute cap: 1 whole token unit if decimals known, else 1 base unit as fallback.
      */
     function _maxCollateralDust(LSTWrapperStorageStruct storage lws) internal view returns (uint256) {
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
         uint256 percentageCap = collateralBalance / 1_000_000;
-        uint256 unitCap = 1; // Allow sweeping at most 1 base unit if decimals() is unknown
+        uint256 unitCap = 1; // Fallback: 1 base unit if decimals() is unknown
         try IERC20Metadata(address(lws.collateral)).decimals() returns (uint8 collateralDecimals) {
             if (collateralDecimals > 36) collateralDecimals = 36;
             unitCap = _safePow10(collateralDecimals);
@@ -599,38 +599,23 @@ contract LSTWrapperMerkl is
 
     /**
      * @notice Post-upgrade initializer to set the Merkl distributor.
-     * @dev Call via ProxyAdmin.upgradeAndCall. Version bumped to 2.
-     *      During upgradeAndCall, msg.sender is ProxyAdmin (which enforces onlyOwner).
-     *      For direct calls after upgrade, we check owner to prevent unauthorized reinitialization.
+     * @dev Call via ProxyAdmin.upgradeAndCall or directly by owner after upgrade.
+     *      During upgradeAndCall, msg.sender is ProxyAdmin (which enforces ownership).
+     *      reinitializer(2) ensures this can only be called once.
      * @param distributor Address of the Merkl Distributor contract
      */
     function postUpgradeInit(address distributor) external reinitializer(2) {
         if (distributor == address(0)) revert LSTWrapper__ZeroAddress("rewards");
         
-        // During upgradeAndCall, msg.sender is ProxyAdmin, which already enforces onlyOwner.
-        // For direct calls after upgrade, we need to check owner.
-        // Read the EIP-1967 admin slot to get ProxyAdmin address
-        bytes32 ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        address proxyAdmin = address(uint160(uint256(_getAddressSlot(ADMIN_SLOT))));
-        
-        // Allow if caller is owner OR caller is ProxyAdmin (during upgradeAndCall)
+        // During upgradeAndCall, msg.sender is ProxyAdmin. ProxyAdmin already checks ownership.
+        // For direct calls, require owner.
+        address proxyAdmin = ERC1967Utils.getAdmin();
         if (msg.sender != owner() && msg.sender != proxyAdmin) {
             revert OwnableUnauthorizedAccount(msg.sender);
         }
         
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.rewards = distributor; // same slot as v1 'rewards'
-    }
-    
-    /**
-     * @dev Internal helper to read address from storage slot
-     */
-    function _getAddressSlot(bytes32 slot) internal view returns (bytes32) {
-        bytes32 value;
-        assembly {
-            value := sload(slot)
-        }
-        return value;
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

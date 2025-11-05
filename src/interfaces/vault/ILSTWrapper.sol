@@ -23,6 +23,7 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__SlippageProtection();
     error LSTWrapper__DepositsPaused();
     error LSTWrapper__OnlyOwnerFirstMint();
+    error LSTWrapper__HarvestSignatureChanged();
 
     // Events
     /**
