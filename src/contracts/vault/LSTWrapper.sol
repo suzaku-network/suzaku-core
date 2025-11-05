@@ -10,6 +10,7 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
@@ -39,7 +40,7 @@ contract LSTWrapper is
         /// @notice The underlying VaultTokenized contract instance being wrapped. Its shares are the asset.
         IVaultTokenized vault;
         /// @notice The Rewards contract associated with the underlying vault.
-        IRewardsNativeToken rewards;
+        address rewards;
         /// @notice The collateral token used by the vault.
         IERC20 collateral;
         /// @notice The native token (underlying of collateral) paid by Rewards contract.
@@ -88,7 +89,7 @@ contract LSTWrapper is
         // Set State Variables
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.vault = IVaultTokenized(vault_);
-        lws.rewards = IRewardsNativeToken(rewards_);
+        lws.rewards = rewards_;
 
         // Determine the collateral token
         address collateralAddr = lws.vault.collateral();
@@ -119,7 +120,7 @@ contract LSTWrapper is
      */
     function rewards() external view returns (address) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        return address(lws.rewards);
+        return lws.rewards;
     }
 
     /**
@@ -149,60 +150,12 @@ contract LSTWrapper is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function harvest() external nonReentrant returns (uint256 claimedNative, uint256 mintedVaultShares) {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-
-        // Use cached native token (validated at initialization)
-        address nativeTokenAddr = address(lws.nativeToken);
-        
-        // Track balance before claim to compute actual claimed amount
-        uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
-        
-        // Claim rewards (native token). Avoid copying unbounded revert data.
-        try lws.rewards.claimRewards(address(this)) { }
-        catch {
-            emit RewardsClaimFailed(bytes(""));
-        }
-
-        // Calculate actual claimed amount as the delta
-        uint256 nativeBalanceAfter = lws.nativeToken.balanceOf(address(this));
-        claimedNative = nativeBalanceAfter - nativeBalanceBefore;
-        
-        // Use total balance for processing (includes any pre-existing dust)
-        uint256 totalNativeBalance = nativeBalanceAfter;
-        if (totalNativeBalance == 0) {
-            emit Harvest(msg.sender, 0, 0);
-            return (0, 0);
-        }
-
-        // Gate by underlying vault whitelist only when depositing
-        if (lws.vault.depositWhitelist()) {
-            if (!lws.vault.isDepositorWhitelisted(msg.sender)) revert LSTWrapper__DepositRestricted();
-            if (!lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) revert LSTWrapper__DepositRestricted();
-        }
-        // Deposit limit check only when depositing
-        if (lws.vault.isDepositLimit()) {
-            uint256 active  = lws.vault.activeStake();
-            uint256 limit   = lws.vault.depositLimit();
-            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
-        }
-
-        // Approve helper to pull native token exactly once (use total balance to include dust)
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), totalNativeBalance);
-        (, mintedVaultShares) = lws.vaultHelper.stakeAssetInVault(
-            address(lws.vault),
-            address(this),
-            address(lws.collateral),
-            nativeTokenAddr,
-            totalNativeBalance
-        );
-        // Prevent silent value loss on rounding
-        if (mintedVaultShares == 0) revert LSTWrapper__ZeroSharesMinted();
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
-        emit Harvest(msg.sender, claimedNative, mintedVaultShares);
-
-        return (claimedNative, mintedVaultShares);
+    function harvest(uint256 /*amount*/, bytes32[] calldata /*proof*/)
+        external
+        nonReentrant
+        returns (uint256 claimedNative, uint256 mintedVaultShares)
+    {
+        return _harvestNative();
     }
 
     /**
@@ -370,6 +323,7 @@ contract LSTWrapper is
         // Allow only very small "dust": min(1 whole token unit, 0.0001% of balance).
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
         uint256 maxDustAmount = _maxCollateralDust(lws);
+
         if (amount == 0 || amount > maxDustAmount || amount > collateralBalance) {
             revert LSTWrapper__ExcessiveAmount();
         }
@@ -396,16 +350,52 @@ contract LSTWrapper is
      * @inheritdoc ILSTWrapper
      */
     function setVaultHelper(address helper_) external onlyOwner {
+        // Deprecated to owner; gate to ProxyAdmin so it can only be called during upgradeAndCall
         if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
+        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.vaultHelper = IVaultHelper(helper_);
         emit VaultHelperUpdated(helper_);
     }
 
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function setRewards(address rewards_) external {
+        if (rewards_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
+        // ProxyAdmin-only (typically via upgradeAndCall)
+        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.rewards = rewards_;
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function paused() external view returns (bool) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return lws.depositsPaused;
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function setDepositsPaused(bool paused_) external onlyOwner {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.depositsPaused = paused_;
+        emit DepositsPaused(paused_);
+    }
+
+    /**
+     * @inheritdoc IERC4626
+     */
     function totalAssets() public view virtual override(ERC4626Upgradeable, IERC4626) returns (uint256) {
         return IERC20(asset()).balanceOf(address(this));
     }
 
+    /**
+     * @inheritdoc IERC20Metadata
+     */
     function decimals()
         public
         view
@@ -520,6 +510,63 @@ contract LSTWrapper is
     }
 
     /**
+     * @dev Internal harvest implementation for native rewards.
+     */
+    function _harvestNative() internal returns (uint256 claimedNative, uint256 mintedVaultShares) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        address nativeTokenAddr = address(lws.nativeToken);
+        
+        // Track balance before claim to compute actual claimed amount
+        uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
+        
+        // Legacy distributor claim
+        try IRewardsNativeToken(lws.rewards).claimRewards(address(this)) { }
+        catch {
+            emit RewardsClaimFailed(bytes(""));
+        }
+
+        // Calculate actual claimed amount as the delta
+        uint256 nativeBalanceAfter = lws.nativeToken.balanceOf(address(this));
+        claimedNative = nativeBalanceAfter - nativeBalanceBefore;
+        
+        // Use total balance for processing (includes any pre-existing dust)
+        uint256 totalNativeBalance = nativeBalanceAfter;
+        if (totalNativeBalance == 0) {
+            emit Harvest(msg.sender, 0, 0);
+            return (0, 0);
+        }
+
+        // Gate by underlying vault whitelist only when depositing
+        if (lws.vault.depositWhitelist()) {
+            if (!lws.vault.isDepositorWhitelisted(msg.sender)) revert LSTWrapper__DepositRestricted();
+            if (!lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) revert LSTWrapper__DepositRestricted();
+        }
+        // Deposit limit check only when depositing
+        if (lws.vault.isDepositLimit()) {
+            uint256 active  = lws.vault.activeStake();
+            uint256 limit   = lws.vault.depositLimit();
+            if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
+        }
+
+        // Approve helper to pull native token exactly once (use total balance to include dust)
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), totalNativeBalance);
+        (, mintedVaultShares) = lws.vaultHelper.stakeAssetInVault(
+            address(lws.vault),
+            address(this),
+            address(lws.collateral),
+            nativeTokenAddr,
+            totalNativeBalance
+        );
+        // Prevent silent value loss on rounding
+        if (mintedVaultShares == 0) revert LSTWrapper__ZeroSharesMinted();
+        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
+        emit Harvest(msg.sender, claimedNative, mintedVaultShares);
+
+        return (claimedNative, mintedVaultShares);
+    }
+
+    /**
      * @dev Calculate maximum allowed collateral dust for sweeping.
      * @dev Percentage cap: 0.0001% of local balance, always defined.
      * @dev Absolute cap: 1 whole token unit if decimals known, else 1 base unit as fallback.
@@ -533,22 +580,6 @@ contract LSTWrapper is
             unitCap = _safePow10(collateralDecimals);
         } catch { }
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
-    }
-
-    /**
-     * @notice Returns true if deposits/mints are paused.
-     * @return true if deposits are paused, false otherwise
-     */
-    function paused() external view returns (bool) {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        return lws.depositsPaused;
-    }
-
-    /// @notice Owner can pause or resume deposits/mints. Required for rescue.
-    function setDepositsPaused(bool paused_) external onlyOwner {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.depositsPaused = paused_;
-        emit DepositsPaused(paused_);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

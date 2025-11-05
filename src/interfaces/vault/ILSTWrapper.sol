@@ -23,7 +23,6 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__SlippageProtection();
     error LSTWrapper__DepositsPaused();
     error LSTWrapper__OnlyOwnerFirstMint();
-    error LSTWrapper__HarvestSignatureChanged();
 
     // Events
     /**
@@ -125,13 +124,15 @@ interface ILSTWrapper is IERC4626 {
     ) external;
 
     /**
-     * @notice Harvest rewards and reinvest into the vault.
-     * @dev Permissionless. If the underlying vault enforces a depositor whitelist,
-     *      the caller must be whitelisted. The helper must also be whitelisted.
+     * @notice Unified harvest. Native wrappers ignore inputs. Merkl uses both.
+     * @param amount Amount to claim (ignored for native, required for Merkl)
+     * @param proof Merkle proof (ignored for native, required for Merkl)
      * @return claimedNative amount of native token claimed from rewards
      * @return mintedVaultShares amount of vault shares minted from reinvestment
      */
-    function harvest() external returns (uint256 claimedNative, uint256 mintedVaultShares);
+    function harvest(uint256 amount, bytes32[] calldata proof)
+        external
+        returns (uint256 claimedNative, uint256 mintedVaultShares);
 
     /**
      * @notice Sweep unexpected tokens from the contract.
@@ -143,7 +144,24 @@ interface ILSTWrapper is IERC4626 {
     function sweep(address token, address recipient, uint256 amount) external;
 
     // Admin
+    /**
+     * @notice Set the vault helper contract.
+     * @dev ProxyAdmin-only (via upgradeAndCall). Init sets it on fresh deploy.
+     * @param helper_ Address of the new vault helper
+     */
     function setVaultHelper(address helper_) external;
+    
+    /**
+     * @notice Set the rewards contract address.
+     * @dev ProxyAdmin-only (via upgradeAndCall). Init sets it on fresh deploy.
+     * @param rewards_ Address of the rewards contract
+     */
+    function setRewards(address rewards_) external;
+    
+    /**
+     * @notice Pause or unpause deposits and mints.
+     * @param paused true to pause, false to unpause
+     */
     function setDepositsPaused(bool paused) external;
     
     /**

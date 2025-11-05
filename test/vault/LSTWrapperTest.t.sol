@@ -287,7 +287,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
 
         vm.prank(lstAdmin);
         vm.expectRevert(ILSTWrapper.LSTWrapper__DepositRestricted.selector);
-        w.harvest();
+        w.harvest(0, new bytes32[](0));
 
         assertEq(Token(nat).balanceOf(address(w)), 1 ether);
     }
@@ -313,7 +313,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
 
         vm.prank(lstUser1); // Use permissionless harvest
         vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__DepositLimitExceeded.selector, 0));
-        lstWrapper.harvest();
+        lstWrapper.harvest(0, new bytes32[](0));
 
         // native still on wrapper
         assertEq(Token(nat).balanceOf(address(lstWrapper)), 5 ether);
@@ -323,7 +323,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         vault.setDepositLimit(limitAtStake + 10 ether); // Add headroom
 
         vm.prank(lstUser1);
-        (uint256 claimed, uint256 minted) = lstWrapper.harvest();
+        (uint256 claimed, uint256 minted) = lstWrapper.harvest(0, new bytes32[](0));
         assertEq(claimed, 0);        // claim path still 0 here; we invested pre‑existing 5 ether
         assertGt(minted, 0);
     }
@@ -397,7 +397,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // Harvest - this should convert native token to collateral via vaultHelper and deposit into the vault
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         
         // Verify harvest increased vault balance
         uint256 vaultBalanceAfter = vault.balanceOf(address(lstWrapper));
@@ -411,7 +411,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     function test_Harvest_Permissionless() public {
         // Harvest is now permissionless - anyone can call it
         vm.prank(lstUser1);
-        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         // Should succeed without reverting (no rewards expected, so returns 0,0)
         assertEq(claimedNative, 0, "Should harvest 0 native when no rewards");
         assertEq(mintedVaultShares, 0, "Should mint 0 shares when no rewards");
@@ -420,7 +420,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     function test_Harvest_NoRewards() public {
         // Harvest without any rewards should return 0, 0 successfully
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         assertEq(claimedNative, 0, "Should harvest 0 native when no rewards");
         assertEq(mintedVaultShares, 0, "Should mint 0 shares when no rewards");
     }
@@ -698,7 +698,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // Harvest rewards - this deposits collateral into vault
         vm.prank(lstAdmin);
-        (, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         assertGt(mintedVaultShares, 0, "Should mint shares from rewards");
         
         // Check exchange rate increased
@@ -750,7 +750,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // 3. Admin harvests rewards (auto-compounds)
         vm.prank(lstAdmin);
-        (, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         assertGt(mintedVaultShares, 0, "Should mint shares from rewards");
         
         // 4. User withdraws - should get back more than deposited
@@ -792,7 +792,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // Harvest
         vm.prank(lstAdmin);
-        lstWrapper.harvest();
+        lstWrapper.harvest(0, new bytes32[](0));
         
         // User B redeems and gets > initial stake
         vm.prank(lstUser2);
@@ -822,7 +822,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // Harvest
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = w.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = w.harvest(0, new bytes32[](0));
         
         // Assert claimed > 0 and minted > 0
         assertGt(claimedNative, 0, "Should claim native tokens");
@@ -852,7 +852,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         emit ILSTWrapper.RewardsClaimFailed("Mock revert");
         
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = w.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = w.harvest(0, new bytes32[](0));
         
         assertEq(claimedNative, 0, "Should not claim any native due to revert");
         assertGt(mintedVaultShares, 0, "Should still mint shares from dust");
@@ -884,7 +884,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // harvest() should return (0, 0) when there's nothing to harvest
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = w.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = w.harvest(0, new bytes32[](0));
         
         assertEq(claimedNative, 0, "No native claimed");
         assertEq(mintedVaultShares, 0, "No shares minted");
@@ -905,7 +905,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // Harvest should succeed
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         
         assertEq(claimedNative, 0, "No rewards to claim");
         assertGt(mintedVaultShares, 0, "Should mint vault shares");
@@ -968,7 +968,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         // harvest() reverts DepositRestricted because new helper is not whitelisted
         vm.prank(lstAdmin);
         vm.expectRevert(ILSTWrapper.LSTWrapper__DepositRestricted.selector);
-        lstWrapper.harvest();
+        lstWrapper.harvest(0, new bytes32[](0));
         
         // Set helper back to whitelisted one
         vm.prank(lstAdmin);
@@ -976,7 +976,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // harvest() succeeds
         vm.prank(lstAdmin);
-        (, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         assertGt(mintedVaultShares, 0, "Should mint shares with whitelisted helper");
         
         // Reset whitelist
@@ -995,7 +995,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // harvest() should still mint vault shares to wrapper successfully
         vm.prank(lstAdmin);
-        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest();
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
         
         assertEq(claimedNative, 0, "No rewards to claim");
         assertGt(mintedVaultShares, 0, "Should mint vault shares");

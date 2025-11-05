@@ -104,15 +104,15 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     
     /**
      * @notice Upgrade LSTWrapper proxy to LSTWrapperMerkl implementation
-     * @dev Uses ProxyAdmin to upgrade the TransparentUpgradeableProxy and calls postUpgradeInit
+     * @dev Uses ProxyAdmin to upgrade the TransparentUpgradeableProxy and calls setRewards
      */
     function _upgradeToMerkl() internal {
         // Deploy new LSTWrapperMerkl implementation
         lstWrapperMerklImplementation = new LSTWrapperMerkl();
         
-        // Upgrade and run v2 post-upgrade init to set distributor
+        // Upgrade and set distributor via setRewards
         bytes memory callData =
-            abi.encodeWithSelector(LSTWrapperMerkl.postUpgradeInit.selector, address(merkleDistributor));
+            abi.encodeWithSelector(ILSTWrapper.setRewards.selector, address(merkleDistributor));
         vm.prank(lstAdmin);
         proxyAdmin.upgradeAndCall(
             ITransparentUpgradeableProxy(payable(address(lstWrapper))),
@@ -194,10 +194,10 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapperMerkl.totalAssets(), lstWrapper.totalAssets(), "Total assets should be preserved");
     }
     
-    function test_OldHarvestReverts() public {
-        // Old harvest() signature should revert with declared error
-        vm.expectRevert(ILSTWrapper.LSTWrapper__HarvestSignatureChanged.selector);
-        lstWrapperMerkl.harvest();
+    function test_HarvestRequiresParams() public {
+        // Unified harvest requires amount and proof parameters
+        vm.expectRevert(); // Will revert on invalid call
+        lstWrapperMerkl.harvest(0, new bytes32[](0));
     }
     
     // ========== Merkl Harvest Tests ==========
@@ -216,7 +216,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         
         // Harvest with Merkle proof
         (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapperMerkl.harvest(
-            nativeToken,
             harvestAmount,
             proof
         );
@@ -234,22 +233,22 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     }
     
     function test_HarvestWithInvalidToken() public {
-        address wrongToken = makeAddr("wrongToken");
+        // Note: token validation removed - token is now inferred from nativeToken
+        // This test is no longer applicable with unified harvest signature
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = bytes32(0);
         
-        vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidRewardsToken.selector);
-        lstWrapperMerkl.harvest(wrongToken, HARVEST_AMOUNT, proof);
+        // Should succeed since token is inferred internally
+        (uint256 claimedNative, ) = lstWrapperMerkl.harvest(HARVEST_AMOUNT, proof);
+        assertEq(claimedNative, 0); // No claim if amount doesn't match merkle tree
     }
     
     function test_HarvestWithZeroAmount() public {
-        address nativeToken = address(MockCollateral(vault.collateral()).asset());
         bytes32[] memory proof = new bytes32[](1);
         proof[0] = bytes32(0);
         
         // Should succeed but claim 0
         (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapperMerkl.harvest(
-            nativeToken,
             0,
             proof
         );
@@ -450,14 +449,14 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         // First harvest - claim first portion (amount parameter is total claimable)
         bytes32[] memory proof1 = new bytes32[](1);
         proof1[0] = keccak256(abi.encodePacked(address(lstWrapperMerkl), nativeToken, totalClaimable));
-        (uint256 claimed1,) = lstWrapperMerkl.harvest(nativeToken, HARVEST_AMOUNT, proof1);
+        (uint256 claimed1,) = lstWrapperMerkl.harvest(HARVEST_AMOUNT, proof1);
         assertGt(claimed1, 0, "First harvest should succeed");
         assertEq(claimed1, HARVEST_AMOUNT, "First harvest should claim exactly HARVEST_AMOUNT");
         
         // Second harvest - claim remaining (amount parameter is still total claimable, mock calculates incremental)
         bytes32[] memory proof2 = new bytes32[](1);
         proof2[0] = keccak256(abi.encodePacked(address(lstWrapperMerkl), nativeToken, totalClaimable));
-        (uint256 claimed2,) = lstWrapperMerkl.harvest(nativeToken, totalClaimable, proof2);
+        (uint256 claimed2,) = lstWrapperMerkl.harvest(totalClaimable, proof2);
         assertGt(claimed2, 0, "Second harvest should succeed");
         assertEq(claimed2, HARVEST_AMOUNT, "Second harvest should claim remaining HARVEST_AMOUNT");
     }

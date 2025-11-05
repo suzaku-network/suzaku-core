@@ -10,13 +10,13 @@ import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeE
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
 import {IMerkleDistributor} from "../../interfaces/rewards/IMerkleDistributor.sol";
 import {IVaultHelper} from "../../interfaces/IVaultHelper.sol";
 import {ICollateral} from "../../interfaces/ICollateral.sol";
-import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 /**
  * @title LSTWrapperMerkl
@@ -120,7 +120,6 @@ contract LSTWrapperMerkl is
 
     /**
      * @inheritdoc ILSTWrapper
-     * @dev Returns the Merkl Distributor address (same as rewards() for compatibility)
      */
     function rewards() external view returns (address) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
@@ -162,32 +161,14 @@ contract LSTWrapperMerkl is
 
     /**
      * @inheritdoc ILSTWrapper
-     * @dev Old harvest() signature - reverts with error directing to new signature
-     */
-    function harvest() external pure returns (uint256, uint256) {
-        revert LSTWrapper__HarvestSignatureChanged();
-    }
-
-    /**
-     * @notice Harvest rewards from Merkl using Merkle proofs and reinvest into the vault.
-     * @dev Claims rewards from Merkl Distributor using Merkle proofs and reinvests them.
-     * @param token Address of the reward token to claim (must match nativeToken)
-     * @param amount Amount of tokens to claim according to the Merkle tree
-     * @param proof Merkle proof for the claim
-     * @return claimedNative amount of native token claimed from rewards
-     * @return mintedVaultShares amount of vault shares minted from reinvestment
      */
     function harvest(
-        address token,
         uint256 amount,
         bytes32[] calldata proof
     ) external nonReentrant returns (uint256 claimedNative, uint256 mintedVaultShares) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        IMerkleDistributor distributor = IMerkleDistributor(lws.rewards); // Cast address to interface
-
-        // Validate token matches expected native token
+        IMerkleDistributor distributor = IMerkleDistributor(lws.rewards);
         address nativeTokenAddr = address(lws.nativeToken);
-        if (token != nativeTokenAddr) revert LSTWrapper__InvalidRewardsToken();
         
         // Track balance before claim to compute actual claimed amount
         uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
@@ -200,7 +181,7 @@ contract LSTWrapperMerkl is
         bytes32[][] memory proofs = new bytes32[][](1);
         
         users[0] = address(this);
-        tokens[0] = token;
+        tokens[0] = nativeTokenAddr;
         amounts[0] = amount;
         proofs[0] = proof;
         
@@ -416,6 +397,7 @@ contract LSTWrapperMerkl is
         // Allow only very small "dust": min(1 whole token unit, 0.0001% of balance).
         uint256 collateralBalance = lws.collateral.balanceOf(address(this));
         uint256 maxDustAmount = _maxCollateralDust(lws);
+
         if (amount == 0 || amount > maxDustAmount || amount > collateralBalance) {
             revert LSTWrapper__ExcessiveAmount();
         }
@@ -443,15 +425,51 @@ contract LSTWrapperMerkl is
      */
     function setVaultHelper(address helper_) external onlyOwner {
         if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
+        // ProxyAdmin-only (during upgradeAndCall)
+        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         lws.vaultHelper = IVaultHelper(helper_);
         emit VaultHelperUpdated(helper_);
     }
 
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function setRewards(address rewards_) external {
+        if (rewards_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
+        // ProxyAdmin-only (during upgradeAndCall)
+        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.rewards = rewards_;
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function paused() external view returns (bool) {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        return lws.depositsPaused;
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function setDepositsPaused(bool paused_) external onlyOwner {
+        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
+        lws.depositsPaused = paused_;
+        emit DepositsPaused(paused_);
+    }
+
+    /**
+     * @inheritdoc IERC4626
+     */
     function totalAssets() public view virtual override(ERC4626Upgradeable, IERC4626) returns (uint256) {
         return IERC20(asset()).balanceOf(address(this));
     }
 
+    /**
+     * @inheritdoc IERC20Metadata
+     */
     function decimals()
         public
         view
@@ -579,43 +597,6 @@ contract LSTWrapperMerkl is
             unitCap = _safePow10(collateralDecimals);
         } catch { }
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
-    }
-
-    /**
-     * @notice Returns true if deposits/mints are paused.
-     * @return true if deposits are paused, false otherwise
-     */
-    function paused() external view returns (bool) {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        return lws.depositsPaused;
-    }
-
-    /// @notice Owner can pause or resume deposits/mints. Required for rescue.
-    function setDepositsPaused(bool paused_) external onlyOwner {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.depositsPaused = paused_;
-        emit DepositsPaused(paused_);
-    }
-
-    /**
-     * @notice Post-upgrade initializer to set the Merkl distributor.
-     * @dev Call via ProxyAdmin.upgradeAndCall or directly by owner after upgrade.
-     *      During upgradeAndCall, msg.sender is ProxyAdmin (which enforces ownership).
-     *      reinitializer(2) ensures this can only be called once.
-     * @param distributor Address of the Merkl Distributor contract
-     */
-    function postUpgradeInit(address distributor) external reinitializer(2) {
-        if (distributor == address(0)) revert LSTWrapper__ZeroAddress("rewards");
-        
-        // During upgradeAndCall, msg.sender is ProxyAdmin. ProxyAdmin already checks ownership.
-        // For direct calls, require owner.
-        address proxyAdmin = ERC1967Utils.getAdmin();
-        if (msg.sender != owner() && msg.sender != proxyAdmin) {
-            revert OwnableUnauthorizedAccount(msg.sender);
-        }
-        
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.rewards = distributor; // same slot as v1 'rewards'
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {
