@@ -190,6 +190,18 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             }
         }
 
+        // only auto-complete when there are no operators.
+        bool fundingWindowClosedUnfunded = (currentEpoch > epoch + FUNDING_DEADLINE_OFFSET) && !st.funded;
+        if (fundingWindowClosedUnfunded) {
+            address[] memory opsNow = middleware.getAllOperators();
+            if (opsNow.length == 0) {
+                distributionBatches[epoch].isComplete = true;
+                st.distributionComplete = true;
+                emit RewardsDistributed(epoch);
+                return;
+            }
+        }
+
         // Snapshot registries once per epoch to avoid index drift
         if (_epochOperators[epoch].length == 0) {
             _epochOperators[epoch] = middleware.getAllOperators();
