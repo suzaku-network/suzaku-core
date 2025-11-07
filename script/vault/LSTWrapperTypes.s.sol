@@ -2,6 +2,7 @@
 pragma solidity 0.8.25;
 
 struct LSTWrapperConfig {
+    string implementation;  // "LSTWrapper" or "LSTWrapperMerkl"
     address admin;
     address vault;
     address rewards;

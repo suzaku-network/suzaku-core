@@ -22,6 +22,8 @@ import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.s
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
+import {DeployLSTWrapper} from "../../script/vault/LSTWrapperDeploy.s.sol";
+import {LSTWrapperConfig} from "../../script/vault/LSTWrapperTypes.s.sol";
 
 /**
  * @title LSTWrapperMerklTest
@@ -59,31 +61,24 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         // Deploy Mock Merkl Distributor
         merkleDistributor = new MockMerkleDistributor();
         
-        // Deploy LSTWrapper implementation (original)
-        lstWrapperImplementation = new LSTWrapper();
+        // Deploy LSTWrapper using the deployment script
+        DeployLSTWrapper deployer = new DeployLSTWrapper();
+        LSTWrapperConfig memory config = LSTWrapperConfig({
+            implementation: "LSTWrapper",
+            admin: lstAdmin,
+            vault: address(vault),
+            rewards: address(rewards), // Use original rewards for initial setup
+            helper: address(vaultHelper),
+            name: "LST Wrapped VaultTokenized",
+            symbol: "lstVT"
+        });
         
-        // Deploy proxy with LSTWrapper initialization
-        // TransparentUpgradeableProxy creates its own ProxyAdmin internally
-        bytes memory initData = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin,
-            address(vault),
-            address(rewards), // Use original rewards for initial setup
-            address(vaultHelper),
-            "LST Wrapped VaultTokenized",
-            "lstVT"
-        );
+        // Don't use prank since deployment script handles broadcast
+        (address proxyAddr, address implAddr, address proxyAdminAddr) = deployer.executeLSTWrapperDeployment(config);
         
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            address(lstWrapperImplementation),
-            lstAdmin, // initialOwner - ProxyAdmin will be created internally and owned by lstAdmin
-            initData
-        );
-        
-        lstWrapper = LSTWrapper(address(proxy));
-        
-        // Get the internal ProxyAdmin using OZ utilities
-        proxyAdmin = ProxyAdmin(Upgrades.getAdminAddress(address(proxy)));
+        lstWrapper = LSTWrapper(proxyAddr);
+        lstWrapperImplementation = LSTWrapper(implAddr);
+        proxyAdmin = ProxyAdmin(proxyAdminAddr);
         
         // Setup initial deposits to vault for testing
         _setupInitialVaultDeposits();
@@ -119,6 +114,8 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
             callData
         );
         lstWrapperMerkl = LSTWrapperMerkl(address(lstWrapper));
+        
+        // Note: In production, use the UpgradeLSTWrapper script instead of direct upgrade
     }
     
     /**

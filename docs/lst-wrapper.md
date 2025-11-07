@@ -1,6 +1,6 @@
-# LSTWrapper - Liquid Staking Token Wrapper
+# LSTWrapper & LSTWrapperMerkl - Liquid Staking Token Wrappers
 
-The LSTWrapper is an ERC-4626 compliant auto-compounding yield wrapper for VaultTokenized shares, providing a liquid staking token experience with automated reward harvesting and reinvestment.
+ERC-4626 compliant auto-compounding yield wrappers for VaultTokenized shares, providing a liquid staking token experience with reward harvesting and reinvestment. Two implementations support different reward distribution mechanisms.
 
 ---
 
@@ -10,6 +10,9 @@ The LSTWrapper is an ERC-4626 compliant auto-compounding yield wrapper for Vault
 - [Architecture](#architecture)
   - [ERC-4626 Compliance](#erc-4626-compliance)
   - [Auto-Compounding Mechanism](#auto-compounding-mechanism)
+- [ILSTWrapper Interface](#ilstwrapper-interface)
+  - [Implementation Differences](#implementation-differences)
+  - [Upgrading Between Implementations](#upgrading-between-implementations)
 - [Key Features](#key-features)
   - [Permissionless Harvest](#permissionless-harvest)
   - [Donation Attack Protection](#donation-attack-protection)
@@ -24,6 +27,10 @@ The LSTWrapper is an ERC-4626 compliant auto-compounding yield wrapper for Vault
   - [Slippage-Protected Helpers](#slippage-protected-helpers)
   - [Admin Functions](#admin-functions)
 - [Integration](#integration)
+  - [Initial Deployment Flow](#initial-deployment-flow)
+  - [Deployment Pattern](#deployment-pattern)
+  - [Upgrading Between Implementations](#upgrading-between-implementations)
+  - [Usage Patterns](#usage-patterns)
 - [Security Considerations](#security-considerations)
 - [Related Documentation](#related-documentation)
 
@@ -31,7 +38,12 @@ The LSTWrapper is an ERC-4626 compliant auto-compounding yield wrapper for Vault
 
 ## Overview
 
-**LSTWrapper** transforms VaultTokenized shares into a liquid staking token (LST) that automatically compounds rewards. Users deposit VaultTokenized shares and receive LSTWrapper tokens that appreciate in value as rewards are harvested and reinvested.
+**LSTWrapper** transforms VaultTokenized shares into a liquid staking token (LST) that automatically compounds rewards. There are **two implementations** available:
+
+1. **LSTWrapper** - For RewardsNativeToken (direct claims)
+2. **LSTWrapperMerkl** - For Merkle Distributor rewards (proof-based claims)
+
+Both implement the same `ILSTWrapper` interface and are **upgrade-compatible** with each other.
 
 **Key Value Proposition:**
 - **Set-and-forget staking**: No manual reward claiming or reinvestment required
@@ -76,6 +88,46 @@ The wrapper integrates with three core components:
 4. LSTWrapper now owns more VaultTokenized shares → increased value per token
 ```
 
+---
+
+## ILSTWrapper Interface
+
+Both implementations share the same interface (`ILSTWrapper`) which includes:
+
+- **ERC-4626 Standard**: Full tokenized vault functionality
+- **Harvest Function**: `harvest(uint256 amount, bytes32[] calldata proof)`
+- **Admin Functions**: sweep, pause, configuration updates
+- **Slippage Protection**: deposit/mint/withdraw/redeem with bounds
+- **View Functions**: vault(), rewards(), collateral(), nativeToken(), vaultHelper()
+
+### Implementation Differences
+
+| Feature | LSTWrapper | LSTWrapperMerkl |
+|---------|------------|-----------------|
+| **Rewards Source** | RewardsNativeToken | Merkle Distributor |
+| **Harvest Parameters** | Ignores amount/proof | Requires valid proof |
+| **Claim Method** | Direct `claimRewards()` | Merkle `claim()` with proof |
+| **Storage Slot** | Same (`0x...700`) | Same (`0x...700`) |
+
+### Upgrading Between Implementations
+
+Since both contracts use the **same storage layout**:
+
+1. **Direct Upgrade**: Use proxy upgrade to switch implementations
+2. **No Migration**: Users keep their positions
+3. **Update Integrations**: Harvest callers must provide proof params after upgrade
+
+Example upgrade:
+```solidity
+// Deploy new implementation
+LSTWrapperMerkl newImpl = new LSTWrapperMerkl();
+
+// Upgrade proxy (ProxyAdmin only)
+proxy.upgradeToAndCall(
+    address(newImpl),
+    abi.encodeCall(ILSTWrapper.setRewards, merkleDistributor)
+);
+```
 ---
 
 ## Key Features
@@ -139,10 +191,36 @@ All state-changing functions protected with `nonReentrant`:
   - `sweep()`: Sweep unexpected tokens (cannot sweep asset, collateral, or native token)
   - `sweepCollateralDust()`: Recover small collateral amounts with strict limits
   - `rescueAssetWhenNoSupply()`: Recover donated assets only when no shares exist
+  - `setDepositsPaused()`: Pause or unpause deposits for emergency response
+  - **First Mint Privilege**: Owner can deposit even when paused (for initial seed)
+- **ProxyAdmin-Only Functions** (via upgradeAndCall):
   - `setVaultHelper()`: Update the vault helper contract
+  - `setRewards()`: Update the rewards contract address
+  - Contract implementation upgrades
 - **Permissionless Functions**:
   - `harvest()`: Anyone can harvest (subject to vault whitelist rules)
   - All ERC-4626 functions: Standard deposit/withdraw/mint/redeem operations
+  - All view functions and getters
+
+### Roles and Access Control
+
+LSTWrapper has two roles:
+
+#### **Owner**
+Can do:
+- Pause/unpause deposits (`setDepositsPaused`)
+- Sweep non-critical tokens (`sweep`) - but NOT the vault shares, collateral, or native token
+- Sweep tiny amounts of collateral dust (`sweepCollateralDust`) - max 0.0001% of balance
+- Rescue vault shares when totalSupply == 0 (`rescueAssetWhenNoSupply`)
+- Perform first mint even when paused
+
+#### **ProxyAdmin** 
+Can do (only via upgradeAndCall):
+- Update vault helper address (`setVaultHelper`)
+- Update rewards contract address (`setRewards`) 
+- Upgrade the implementation contract
+
+The owner can't upgrade the contract or change critical infrastructure. The ProxyAdmin can't pause deposits or sweep tokens. This separation prevents the owner from upgrading and stealing funds.
 
 ---
 
@@ -164,13 +242,21 @@ function redeem(uint256 shares, address receiver, address owner) public returns 
 // Virtual offset protection for accurate conversions
 function convertToShares(uint256 assets) public view returns (uint256)
 function convertToAssets(uint256 shares) public view returns (uint256)
+
+// Deposit availability checks
+function maxDeposit(address) public view returns (uint256) // Returns 0 when paused or totalSupply == 0
+function maxMint(address) public view returns (uint256) // Returns 0 when paused or totalSupply == 0
 ```
 
 ### Harvest Function
 
 ```solidity
-function harvest() external returns (uint256 claimedNative, uint256 mintedVaultShares)
+function harvest(uint256 amount, bytes32[] calldata proof) external returns (uint256 claimedNative, uint256 mintedVaultShares)
 ```
+
+**Implementation Notes**: 
+- **LSTWrapper**: Ignores `amount` and `proof` parameters, claims all available rewards
+- **LSTWrapperMerkl**: Requires valid `amount` and `proof` from Merkle tree
 
 **Process:**
 1. Claims rewards from Rewards contract (catches and logs failures)
@@ -194,14 +280,15 @@ All revert with `LSTWrapper__SlippageProtection()` if bounds are violated.
 ### Admin Functions
 
 ```solidity
-// Token management
+// Token management (Owner only)
 function sweep(address token, address recipient, uint256 amount) external onlyOwner
 function sweepCollateralDust(address recipient, uint256 amount) external onlyOwner  
 function rescueAssetWhenNoSupply(address recipient, uint256 amount) external onlyOwner
-
-// Configuration
-function setVaultHelper(address helper_) external onlyOwner
 function setDepositsPaused(bool paused) external onlyOwner
+
+// Configuration (ProxyAdmin only via upgradeAndCall)
+function setVaultHelper(address helper_) external
+function setRewards(address rewards_) external
 ```
 
 **Security Features:**
@@ -213,27 +300,128 @@ function setDepositsPaused(bool paused) external onlyOwner
 
 ## Integration
 
+### Initial Deployment Flow
+
+1. Contract deploys with `depositsPaused = true`
+2. Only owner can perform first mint (when `totalSupply == 0`)
+3. Owner seeds the vault with initial deposit **while still paused**
+   - The contract allows: `depositsPaused && isFirstMint && msg.sender == owner()`
+   - Deposits remain paused after this initial mint
+4. Owner must manually call `setDepositsPaused(false)` to open public deposits
+5. Regular users can now deposit/mint
+
 ### Deployment Pattern
 
-```solidity
-// 1. Deploy implementation
-LSTWrapper implementation = new LSTWrapper();
+**Using Deployment Scripts:**
 
-// 2. Prepare initialization data
-bytes memory initData = abi.encodeWithSelector(
-    LSTWrapper.initialize.selector,
-    admin,           // Owner address
-    vault,           // VaultTokenized address
-    rewards,         // Rewards contract address  
-    vaultHelper,     // VaultHelper address
-    "Liquid Vault",  // ERC20 name
-    "liqVAULT"      // ERC20 symbol
-);
+Create a JSON configuration file specifying the implementation type:
 
-// 3. Deploy proxy
-ERC1967Proxy proxy = new ERC1967Proxy(address(implementation), initData);
-LSTWrapper wrapper = LSTWrapper(address(proxy));
+```json
+// configs/lstwrapper.json
+{
+  "implementation": "LSTWrapper",     // or "LSTWrapperMerkl"
+  "admin": "0x1234...",              // Becomes both owner AND ProxyAdmin
+  "vault": "0xABCD...",              // VaultTokenized to wrap
+  "rewards": "0xDEAD...",            // RewardsNativeToken or Merkle Distributor
+  "helper": "0xBEEF...",             // VaultHelper for conversions
+  "name": "Liquid Token Vault",
+  "symbol": "lsToken"
+}
 ```
+
+Deploy using the deployment script:
+```bash
+forge script script/vault/LSTWrapperDeploy.s.sol:DeployLSTWrapper \
+  --sig "run(string)" "lstwrapper.json" \
+  --broadcast \
+  --rpc-url $RPC_URL \
+  --private-key $PRIVATE_KEY \
+  --verify
+```
+
+The script will:
+- Deploy the specified implementation (LSTWrapper or LSTWrapperMerkl)
+- Create a transparent proxy
+- Initialize with provided configuration
+- Log all deployed addresses
+
+For suzaku-deployer integration, use:
+```bash
+forge script script/curator/DeployCurator.s.sol:DeployLSTWrapper \
+  --sig "run(string)" "lstwrapper.json" \
+  --broadcast \
+  --rpc-url $RPC_URL \
+  --private-key $PRIVATE_KEY \
+  --verify
+```
+
+**Important Security Note**: The deployment script uses `config.admin` as BOTH:
+- The contract owner (operational control)
+- The ProxyAdmin (upgrade control)
+
+This is convenient for testing but **NOT recommended for production**. Instead:
+1. Deploy with a temporary admin address
+2. Transfer ProxyAdmin to a high-security multisig/DAO (via `ProxyAdmin.transferOwnership`)
+3. Transfer contract ownership to operational multisig (via `LSTWrapper.transferOwnership`)
+
+### Upgrading Between Implementations
+
+Since both contracts share the same storage layout, you can upgrade between implementations using the unified upgrade script.
+
+Create an upgrade configuration:
+```json
+// configs/lstwrapper-upgrade.json
+{
+  "newImplementation": "LSTWrapperMerkl",   // Target implementation type
+  "proxyAddress": "0x1234...",              // Existing proxy address
+  "newRewards": "0x5678..."                 // New rewards contract address
+}
+```
+
+Run the upgrade:
+```bash
+forge script script/vault/LSTWrapperUpgrade.s.sol:UpgradeLSTWrapper \
+  --sig "run(string)" "lstwrapper-upgrade.json" \
+  --broadcast \
+  --rpc-url $RPC_URL \
+  --private-key $PROXY_ADMIN_KEY \
+  --verify
+```
+
+**Examples:**
+
+To upgrade from LSTWrapper to LSTWrapperMerkl:
+```json
+{
+  "newImplementation": "LSTWrapperMerkl",
+  "proxyAddress": "0x1234...",
+  "newRewards": "0x5678..."    // Merkle Distributor address
+}
+```
+
+To downgrade from LSTWrapperMerkl to LSTWrapper:
+```json
+{
+  "newImplementation": "LSTWrapper",
+  "proxyAddress": "0x1234...",
+  "newRewards": "0xABCD..."    // RewardsNativeToken address
+}
+```
+
+The script will:
+1. Deploy the new implementation contract
+2. Upgrade the proxy to point to it
+3. Update the rewards contract address
+4. Verify the upgrade succeeded
+
+**Note**: This script must be run by the ProxyAdmin owner.
+
+**Important Upgrade Considerations:**
+- Users keep their positions (no migration needed)
+- Storage layout is preserved
+- After upgrading to Merkl, harvest callers must provide valid Merkle proofs
+- Consider pausing deposits during upgrade for safety
+- Test the upgrade on testnet first
 
 ### Usage Patterns
 
@@ -247,7 +435,11 @@ uint256 shares = wrapper.depositWithMinShares(1000e18, 950e18, user);
 uint256 assets = wrapper.redeemWithMinAssets(shares, 1050e18, user, user);
 
 // Community harvest
-(uint256 claimed, uint256 minted) = wrapper.harvest();
+// For LSTWrapper (ignores params):
+(uint256 claimed, uint256 minted) = wrapper.harvest(0, new bytes32[](0));
+
+// For LSTWrapperMerkl (requires valid proof):
+(uint256 claimed, uint256 minted) = wrapper.harvest(claimAmount, merkleProof);
 ```
 
 ---
@@ -265,7 +457,8 @@ uint256 assets = wrapper.redeemWithMinAssets(shares, 1050e18, user, user);
 
 ### Trust Assumptions
 
-- **Owner Trust**: Can sweep unexpected tokens and update vault helper
+- **Owner Trust**: Can pause deposits and sweep unexpected tokens (but not critical ones)
+- **ProxyAdmin Trust**: Can upgrade contract and update critical infrastructure (vault helper, rewards)
 - **VaultHelper Trust**: Handles native token conversion and vault deposits
 - **Underlying Vault**: Must be legitimate VaultTokenized instance
 - **Rewards Contract**: Must distribute rewards fairly
@@ -292,8 +485,10 @@ The LSTWrapper design builds upon established, battle-tested patterns from leadi
 
 ## Related Documentation
 
+- [LSTWrapper vs LSTWrapperMerkl Comparison](./lst-wrapper-merkl-comparison.md) - Detailed technical comparison
 - [VaultTokenized](./vault.md) - Underlying vault mechanics
-- [Rewards System](./rewards.md) - Reward distribution and claiming
+- [Rewards System](./rewards.md) - RewardsNativeToken distribution
+- [RewardsNativeToken](./rewardsNativeToken.md) - Native token rewards (used by LSTWrapper)
 - [Protocol Overview](./overview.md) - High-level architecture
 - [Middleware](./middleware.md) - L1 validation orchestration
 
@@ -318,8 +513,12 @@ event RewardsClaimFailed(bytes reason);
 
 ## Errors
 
+Both implementations use the same error names with different prefixes:
+- **LSTWrapper**: `LSTWrapper__*`
+- **LSTWrapperMerkl**: `LSTWrapperMerkl__*`
+
 ```solidity
-// Input validation
+// Input validation (showing LSTWrapper prefix)
 error LSTWrapper__ZeroAddress(string param);
 error LSTWrapper__InvalidRecipient();
 error LSTWrapper__InvalidVaultCollateral();
@@ -332,6 +531,7 @@ error LSTWrapper__DepositLimitExceeded(uint256 headroom);
 error LSTWrapper__ZeroSharesMinted();
 error LSTWrapper__SlippageProtection();
 error LSTWrapper__DepositsPaused();
+error LSTWrapper__OnlyOwnerFirstMint();
 
 // Admin restrictions
 error LSTWrapper__CannotSweepAsset();
