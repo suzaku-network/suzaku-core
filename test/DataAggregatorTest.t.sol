@@ -17,15 +17,15 @@ import {IAvalancheL1Middleware} from "../src/interfaces/middleware/IAvalancheL1M
 import {IMiddlewareVaultManager} from "../src/interfaces/middleware/IMiddlewareVaultManager.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../src/interfaces/delegator/IL1RestakeDelegator.sol";
-import {IAssetClassRegistry} from "../src/interfaces/middleware/IAssetClassRegistry.sol";
+import {ICollateralClassRegistry} from "../src/interfaces/middleware/ICollateralClassRegistry.sol";
 
 contract DataAggregatorTest is Test {
     DataAggregator public dataAggregator;
 
-    address constant L1_REGISTRY = 0xB9826Bbf0deB10cC3924449B93F418db6b16be36;
-    address constant L1_ADDRESS = 0x84F2B4D4cF8DA889701fBe83d127896880c04325;
-    address constant VAULT_ADDRESS = 0x85F212C69f0C567011E1eCFf956dCc0014754A2c;
-    address constant OPERATOR_ADDRESS = 0xfFF4224c953682C0866cb45643512D8Eee6eB608;
+    address constant L1_REGISTRY = 0xbB2ab0Ae2DdbC302eF4947435E881d5A95E882FE;
+    address constant L1_ADDRESS = 0x46a2C23826caA714d5E298aDF7E0eeEadc087d2d;
+    address constant VAULT_ADDRESS = 0xc2BC5788A769F3BF4C37255eF301c08D641416D4;
+    address constant OPERATOR_ADDRESS = 0x50cA76a4f5b0C9ac02E0a6E0C286C29D367aF650;
 
     // Fork Fuji testnet
     uint256 fuji;
@@ -47,7 +47,7 @@ contract DataAggregatorTest is Test {
         emit log_named_address("L1 Middleware", l1Data.l1Middleware);
         emit log_named_address("Vault Manager", l1Data.vaultManager);
         emit log_named_string("L1 Metadata", l1Data.l1Metadata);
-        emit log_named_uint("Current Epoch", l1Data.currentEpoch);
+        emit log_named_uint("Current Epoch", l1Data.epochSettings.currentEpoch);
         emit log_named_uint("Number of Operators", l1Data.operators.length);
         for (uint256 i = 0; i < l1Data.operators.length; i++) {
             emit log_named_address("Operator", l1Data.operators[i]);
@@ -56,10 +56,14 @@ contract DataAggregatorTest is Test {
         for (uint256 i = 0; i < l1Data.vaults.length; i++) {
             emit log_named_address("Vault", l1Data.vaults[i]);
         }
-        emit log_named_uint("Number of Asset Class Stakes", l1Data.assetClassStakes.length);
-        for (uint256 i = 0; i < l1Data.assetClassStakes.length; i++) {
-            emit log_named_uint("Asset Class", l1Data.assetClassStakes[i].assetClass);
-            emit log_named_uint("Stake", l1Data.assetClassStakes[i].stake);
+        emit log_named_uint("Number of Collateral Class Stakes", l1Data.collateralClassStakes.length);
+        for (uint256 i = 0; i < l1Data.collateralClassStakes.length; i++) {
+            emit log_named_uint("Collateral Class", l1Data.collateralClassStakes[i].collateralClass);
+            emit log_named_uint("Number of Assets", l1Data.collateralClassStakes[i].assetsInClass.length);
+            for (uint256 j = 0; j < l1Data.collateralClassStakes[i].assetsInClass.length; j++) {
+                emit log_named_address("Asset", l1Data.collateralClassStakes[i].assetsInClass[j]);
+            }
+            emit log_named_uint("Stake", l1Data.collateralClassStakes[i].stake);
         }
     }
 
@@ -94,13 +98,32 @@ contract DataAggregatorTest is Test {
         for (uint256 i = 0; i < operatorData.trustedVaults.length; i++) {
             emit log_named_address("Trusted Vault", operatorData.trustedVaults[i]);
         }
-        emit log_named_uint("Number of Assets Stakes", operatorData.assetsStakes.length);
-        for (uint256 i = 0; i < operatorData.assetsStakes.length; i++) {
-            emit log_named_uint("Number of Assets", operatorData.assetsStakes[i].assets.length);
-            for (uint256 j = 0; j < operatorData.assetsStakes[i].assets.length; j++) {
-                emit log_named_address("Asset", operatorData.assetsStakes[i].assets[j]);
+        emit log_named_uint("Number of Collateral Class Stakes", operatorData.collateralClassStakeMap.length);
+        for (uint256 i = 0; i < operatorData.collateralClassStakeMap.length; i++) {
+            emit log_named_address("Middleware", operatorData.collateralClassStakeMap[i].middleware);
+            emit log_named_uint(
+                "Number of Collateral Class Stakes",
+                operatorData.collateralClassStakeMap[i].collateralClassStakes.length
+            );
+            for (uint256 j = 0; j < operatorData.collateralClassStakeMap[i].collateralClassStakes.length; j++) {
+                emit log_named_uint(
+                    "Collateral Class", operatorData.collateralClassStakeMap[i].collateralClassStakes[j].collateralClass
+                );
+                emit log_named_uint(
+                    "Number of Assets",
+                    operatorData.collateralClassStakeMap[i].collateralClassStakes[j].assetsInClass.length
+                );
+                for (
+                    uint256 k = 0;
+                    k < operatorData.collateralClassStakeMap[i].collateralClassStakes[j].assetsInClass.length;
+                    k++
+                ) {
+                    emit log_named_address(
+                        "Asset", operatorData.collateralClassStakeMap[i].collateralClassStakes[j].assetsInClass[k]
+                    );
+                }
+                emit log_named_uint("Stake", operatorData.collateralClassStakeMap[i].collateralClassStakes[j].stake);
             }
-            emit log_named_uint("Stake", operatorData.assetsStakes[i].stake);
         }
     }
 }

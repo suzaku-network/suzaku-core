@@ -4,20 +4,27 @@
 pragma solidity 0.8.25;
 
 import {IL1Registry} from "../interfaces/IL1Registry.sol";
-import {IAvalancheL1Middleware} from "../interfaces/middleware/IAvalancheL1Middleware.sol";
+import {AvalancheL1Middleware} from "../contracts/middleware/AvalancheL1Middleware.sol";
 import {IMiddlewareVaultManager} from "../interfaces/middleware/IMiddlewareVaultManager.sol";
 import {IVaultTokenized} from "../interfaces/vault/IVaultTokenized.sol";
 import {IL1RestakeDelegator} from "../interfaces/delegator/IL1RestakeDelegator.sol";
-import {IAssetClassRegistry} from "../interfaces/middleware/IAssetClassRegistry.sol";
+import {ICollateralClassRegistry} from "../interfaces/middleware/ICollateralClassRegistry.sol";
 
-struct AssetClassStake {
-    uint96 assetClass;
+struct CollateralClassStake {
+    uint96 collateralClass;
+    address[] assetsInClass;
     uint256 stake;
 }
 
-struct AssetsStake {
-    address[] assets;
-    uint256 stake;
+struct CollateralClassStakeMap {
+    address middleware;
+    CollateralClassStake[] collateralClassStakes;
+}
+
+struct EpochSettings {
+    uint48 currentEpoch;
+    uint48 epochDuration;
+    uint48 currentEpochStartTs;
 }
 
 struct L1Data {
@@ -25,10 +32,10 @@ struct L1Data {
     address l1Middleware;
     address vaultManager;
     string l1Metadata;
-    uint48 currentEpoch;
+    EpochSettings epochSettings;
     address[] operators;
     address[] vaults;
-    AssetClassStake[] assetClassStakes;
+    CollateralClassStake[] collateralClassStakes;
 }
 
 struct VaultData {
@@ -44,7 +51,7 @@ struct OperatorData {
     address operator;
     address[] securedL1s;
     address[] trustedVaults;
-    AssetsStake[] assetsStakes;
+    CollateralClassStakeMap[] collateralClassStakeMap;
 }
 
 contract DataAggregator {
@@ -77,10 +84,10 @@ contract DataAggregator {
                 l1Middleware: address(0),
                 vaultManager: address(0),
                 l1Metadata: "",
-                currentEpoch: 0,
+                epochSettings: EpochSettings({currentEpoch: 0, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                assetClassStakes: new AssetClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0)
             });
         }
 
@@ -88,7 +95,7 @@ contract DataAggregator {
             IL1Registry(L1_REGISTRY).getL1At(l1Index);
 
         address vaultManager;
-        try IAvalancheL1Middleware(l1MiddlewareAddress).getVaultManager() returns (address _vaultManager) {
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getVaultManager() returns (address _vaultManager) {
             vaultManager = _vaultManager;
         } catch {
             return L1Data({
@@ -96,15 +103,15 @@ contract DataAggregator {
                 l1Middleware: l1MiddlewareAddress,
                 vaultManager: address(0),
                 l1Metadata: l1Metadata,
-                currentEpoch: 0,
+                epochSettings: EpochSettings({currentEpoch: 0, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                assetClassStakes: new AssetClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0)
             });
         }
 
         uint48 currentEpoch;
-        try IAvalancheL1Middleware(l1MiddlewareAddress).getCurrentEpoch() returns (uint48 _currentEpoch) {
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getCurrentEpoch() returns (uint48 _currentEpoch) {
             currentEpoch = _currentEpoch;
         } catch {
             return L1Data({
@@ -112,65 +119,138 @@ contract DataAggregator {
                 l1Middleware: l1MiddlewareAddress,
                 vaultManager: vaultManager,
                 l1Metadata: l1Metadata,
-                currentEpoch: 0,
+                epochSettings: EpochSettings({currentEpoch: 0, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                assetClassStakes: new AssetClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0)
             });
         }
 
-        address[] memory allOperators;
-        try IAvalancheL1Middleware(l1MiddlewareAddress).getAllOperators() returns (address[] memory _operators) {
-            allOperators = _operators;
-        } catch {
-            allOperators = new address[](0);
-        }
-
-        address[] memory allVaults;
-        try IMiddlewareVaultManager(vaultManager).getVaults(currentEpoch) returns (address[] memory _vaults) {
-            allVaults = _vaults;
-        } catch {
-            allVaults = new address[](0);
-        }
-
-        uint256 primaryAssetClass;
-        uint256[] memory secondaryAssetClasses;
-        try IAvalancheL1Middleware(l1MiddlewareAddress).getActiveAssetClasses() returns (
-            uint256 _primaryAssetClass, uint256[] memory _secondaryAssetClasses
-        ) {
-            primaryAssetClass = _primaryAssetClass;
-            secondaryAssetClasses = _secondaryAssetClasses;
+        uint48 epochDuration;
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).EPOCH_DURATION() returns (uint48 _epochDuration) {
+            epochDuration = _epochDuration;
         } catch {
             return L1Data({
                 l1: l1Address,
                 l1Middleware: l1MiddlewareAddress,
                 vaultManager: vaultManager,
                 l1Metadata: l1Metadata,
-                currentEpoch: currentEpoch,
-                operators: allOperators,
-                vaults: allVaults,
-                assetClassStakes: new AssetClassStake[](0)
+                epochSettings: EpochSettings({currentEpoch: currentEpoch, epochDuration: 0, currentEpochStartTs: 0}),
+                operators: new address[](0),
+                vaults: new address[](0),
+                collateralClassStakes: new CollateralClassStake[](0)
             });
         }
 
-        AssetClassStake[] memory assetClassStakes = new AssetClassStake[](secondaryAssetClasses.length + 1);
-
-        try IAvalancheL1Middleware(l1MiddlewareAddress).getTotalStake(currentEpoch, uint96(primaryAssetClass)) returns (
-            uint256 stake
+        uint48 currentEpochStartTs;
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getEpochStartTs(currentEpoch) returns (
+            uint48 _currentEpochStartTs
         ) {
-            assetClassStakes[0] = AssetClassStake({assetClass: uint96(primaryAssetClass), stake: stake});
+            currentEpochStartTs = _currentEpochStartTs;
         } catch {
-            assetClassStakes[0] = AssetClassStake({assetClass: uint96(primaryAssetClass), stake: 0});
+            return L1Data({
+                l1: l1Address,
+                l1Middleware: l1MiddlewareAddress,
+                vaultManager: vaultManager,
+                l1Metadata: l1Metadata,
+                epochSettings: EpochSettings({
+                    currentEpoch: currentEpoch,
+                    epochDuration: epochDuration,
+                    currentEpochStartTs: 0
+                }),
+                operators: new address[](0),
+                vaults: new address[](0),
+                collateralClassStakes: new CollateralClassStake[](0)
+            });
         }
 
-        for (uint256 i = 0; i < secondaryAssetClasses.length; i++) {
-            try IAvalancheL1Middleware(l1MiddlewareAddress).getTotalStake(
-                currentEpoch, uint96(secondaryAssetClasses[i])
-            ) returns (uint256 stake) {
-                assetClassStakes[i + 1] = AssetClassStake({assetClass: uint96(secondaryAssetClasses[i]), stake: stake});
+        address[] memory allOperators;
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getAllOperators() returns (address[] memory _operators)
+        {
+            allOperators = _operators;
+        } catch {
+            allOperators = new address[](0);
+        }
+
+        address[] memory allVaults;
+        try IMiddlewareVaultManager(payable(vaultManager)).getVaults(currentEpoch) returns (address[] memory _vaults) {
+            allVaults = _vaults;
+        } catch {
+            allVaults = new address[](0);
+        }
+
+        uint256 primaryCollateralClass;
+        uint256[] memory secondaryCollateralClasses;
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getActiveCollateralClasses() returns (
+            uint256 _primaryCollateralClass, uint256[] memory _secondaryCollateralClasses
+        ) {
+            primaryCollateralClass = _primaryCollateralClass;
+            secondaryCollateralClasses = _secondaryCollateralClasses;
+        } catch {
+            return L1Data({
+                l1: l1Address,
+                l1Middleware: l1MiddlewareAddress,
+                vaultManager: vaultManager,
+                l1Metadata: l1Metadata,
+                epochSettings: EpochSettings({
+                    currentEpoch: currentEpoch,
+                    epochDuration: epochDuration,
+                    currentEpochStartTs: currentEpochStartTs
+                }),
+                operators: allOperators,
+                vaults: allVaults,
+                collateralClassStakes: new CollateralClassStake[](0)
+            });
+        }
+
+        CollateralClassStake[] memory collateralClassStakes =
+            new CollateralClassStake[](secondaryCollateralClasses.length + 1);
+
+        // Fetch tokens in the primary collateral class and its stake
+        address[] memory primaryAssets;
+        uint256 primaryStake;
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getClassAssets(primaryCollateralClass) returns (
+            address[] memory _assets
+        ) {
+            primaryAssets = _assets;
+        } catch {
+            primaryAssets = new address[](0);
+        }
+        try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getTotalStake(
+            currentEpoch, uint96(primaryCollateralClass)
+        ) returns (uint256 stake) {
+            primaryStake = stake;
+        } catch {
+            primaryStake = 0;
+        }
+        collateralClassStakes[0] = CollateralClassStake({
+            collateralClass: uint96(primaryCollateralClass),
+            assetsInClass: primaryAssets,
+            stake: primaryStake
+        });
+
+        // Fetch tokens and stake for each secondary collateral class
+        for (uint256 i = 0; i < secondaryCollateralClasses.length; i++) {
+            address[] memory assetsInClass;
+            uint256 stakeInClass;
+            try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getClassAssets(secondaryCollateralClasses[i])
+            returns (address[] memory _assets) {
+                assetsInClass = _assets;
             } catch {
-                assetClassStakes[i + 1] = AssetClassStake({assetClass: uint96(secondaryAssetClasses[i]), stake: 0});
+                assetsInClass = new address[](0);
             }
+            try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getTotalStake(
+                currentEpoch, uint96(secondaryCollateralClasses[i])
+            ) returns (uint256 stake) {
+                stakeInClass = stake;
+            } catch {
+                stakeInClass = 0;
+            }
+            collateralClassStakes[i + 1] = CollateralClassStake({
+                collateralClass: uint96(secondaryCollateralClasses[i]),
+                assetsInClass: assetsInClass,
+                stake: stakeInClass
+            });
         }
 
         return L1Data({
@@ -178,10 +258,14 @@ contract DataAggregator {
             l1Middleware: l1MiddlewareAddress,
             vaultManager: vaultManager,
             l1Metadata: l1Metadata,
-            currentEpoch: currentEpoch,
+            epochSettings: EpochSettings({
+                currentEpoch: currentEpoch,
+                epochDuration: epochDuration,
+                currentEpochStartTs: currentEpochStartTs
+            }),
             operators: allOperators,
             vaults: allVaults,
-            assetClassStakes: assetClassStakes
+            collateralClassStakes: collateralClassStakes
         });
     }
 
@@ -199,7 +283,7 @@ contract DataAggregator {
         address l1Middleware,
         uint48 currentEpoch
     ) private view returns (bool) {
-        try IAvalancheL1Middleware(l1Middleware).getVaultManager() returns (address l1VaultManager) {
+        try AvalancheL1Middleware(payable(l1Middleware)).getVaultManager() returns (address l1VaultManager) {
             try IMiddlewareVaultManager(l1VaultManager).getVaults(currentEpoch) returns (address[] memory vaults) {
                 for (uint256 i = 0; i < vaults.length; i++) {
                     if (vaults[i] == vault) {
@@ -223,24 +307,26 @@ contract DataAggregator {
         address l1,
         address l1Middleware
     ) private view returns (uint256) {
-        (uint256 primaryAssetClass, uint256[] memory secondaryAssetClasses) =
-            IAvalancheL1Middleware(l1Middleware).getActiveAssetClasses();
+        (uint256 primaryCollateralClass, uint256[] memory secondaryCollateralClasses) =
+            AvalancheL1Middleware(payable(l1Middleware)).getActiveCollateralClasses();
 
-        address[] memory operators = IAvalancheL1Middleware(l1Middleware).getAllOperators();
+        address[] memory operators = AvalancheL1Middleware(payable(l1Middleware)).getAllOperators();
 
         for (uint256 i = 0; i < operators.length; i++) {
             // Check primary asset class
             if (
-                IL1RestakeDelegator(context.delegator).operatorL1Shares(l1, uint96(primaryAssetClass), operators[i]) > 0
+                IL1RestakeDelegator(context.delegator).operatorL1Shares(
+                    l1, uint96(primaryCollateralClass), operators[i]
+                ) > 0
             ) {
                 return 1;
             }
 
             // Check secondary asset classes
-            for (uint256 j = 0; j < secondaryAssetClasses.length; j++) {
+            for (uint256 j = 0; j < secondaryCollateralClasses.length; j++) {
                 if (
                     IL1RestakeDelegator(context.delegator).operatorL1Shares(
-                        l1, uint96(secondaryAssetClasses[j]), operators[i]
+                        l1, uint96(secondaryCollateralClasses[j]), operators[i]
                     ) > 0
                 ) {
                     return 1;
@@ -256,24 +342,26 @@ contract DataAggregator {
         address l1,
         address l1Middleware
     ) private view returns (address) {
-        (uint256 primaryAssetClass, uint256[] memory secondaryAssetClasses) =
-            IAvalancheL1Middleware(l1Middleware).getActiveAssetClasses();
+        (uint256 primaryCollateralClass, uint256[] memory secondaryCollateralClasses) =
+            AvalancheL1Middleware(payable(l1Middleware)).getActiveCollateralClasses();
 
-        address[] memory operators = IAvalancheL1Middleware(l1Middleware).getAllOperators();
+        address[] memory operators = AvalancheL1Middleware(payable(l1Middleware)).getAllOperators();
 
         for (uint256 i = 0; i < operators.length; i++) {
             // Check primary asset class
             if (
-                IL1RestakeDelegator(context.delegator).operatorL1Shares(l1, uint96(primaryAssetClass), operators[i]) > 0
+                IL1RestakeDelegator(context.delegator).operatorL1Shares(
+                    l1, uint96(primaryCollateralClass), operators[i]
+                ) > 0
             ) {
                 return operators[i];
             }
 
             // Check secondary asset classes
-            for (uint256 j = 0; j < secondaryAssetClasses.length; j++) {
+            for (uint256 j = 0; j < secondaryCollateralClasses.length; j++) {
                 if (
                     IL1RestakeDelegator(context.delegator).operatorL1Shares(
-                        l1, uint96(secondaryAssetClasses[j]), operators[i]
+                        l1, uint96(secondaryCollateralClasses[j]), operators[i]
                     ) > 0
                 ) {
                     return operators[i];
@@ -300,7 +388,7 @@ contract DataAggregator {
         uint256 delegatedOperatorCount = 0;
 
         for (uint256 i = 0; i < l1Middlewares.length; i++) {
-            try IAvalancheL1Middleware(l1Middlewares[i]).getCurrentEpoch() returns (uint48 currentEpoch) {
+            try AvalancheL1Middleware(payable(l1Middlewares[i])).getCurrentEpoch() returns (uint48 currentEpoch) {
                 if (_isVaultDelegatedToL1(vault, l1Middlewares[i], currentEpoch)) {
                     delegatedL1Count++;
                     delegatedOperatorCount += _isDelegatedOperator(context, l1s[i], l1Middlewares[i]);
@@ -319,7 +407,7 @@ contract DataAggregator {
 
         // Fill arrays with actual data
         for (uint256 i = 0; i < l1Middlewares.length; i++) {
-            try IAvalancheL1Middleware(l1Middlewares[i]).getCurrentEpoch() returns (uint48 currentEpoch) {
+            try AvalancheL1Middleware(payable(l1Middlewares[i])).getCurrentEpoch() returns (uint48 currentEpoch) {
                 if (_isVaultDelegatedToL1(vault, l1Middlewares[i], currentEpoch)) {
                     delegatedL1s[l1Index++] = l1s[i];
 
@@ -353,7 +441,7 @@ contract DataAggregator {
 
     // Helper function to check if an operator secures an L1
     function _isOperatorSecuringL1(address operator, address l1Middleware) private view returns (bool) {
-        try IAvalancheL1Middleware(l1Middleware).getAllOperators() returns (address[] memory operators) {
+        try AvalancheL1Middleware(payable(l1Middleware)).getAllOperators() returns (address[] memory operators) {
             for (uint256 i = 0; i < operators.length; i++) {
                 if (operators[i] == operator) {
                     return true;
@@ -370,10 +458,10 @@ contract DataAggregator {
         address operator,
         address l1Middleware,
         uint48 currentEpoch,
-        uint256 primaryAssetClass
+        uint96 primaryCollateralClass
     ) private view returns (uint256) {
-        try IAvalancheL1Middleware(l1Middleware).getOperatorUsedStakeCachedPerEpoch(
-            currentEpoch, operator, uint96(primaryAssetClass)
+        try AvalancheL1Middleware(payable(l1Middleware)).getOperatorUsedStakeCachedPerEpoch(
+            currentEpoch, operator, primaryCollateralClass
         ) returns (uint256 stake) {
             return stake;
         } catch {
@@ -385,12 +473,11 @@ contract DataAggregator {
     function _isOperatorTrustedByVault(
         OperatorContext memory context,
         address l1,
-        address,
         address vault,
-        uint96 vaultAssetClass
+        uint96 vaultCollateralClass
     ) private view returns (bool) {
         try IL1RestakeDelegator(IVaultTokenized(vault).delegator()).operatorL1Shares(
-            l1, vaultAssetClass, context.operator
+            l1, vaultCollateralClass, context.operator
         ) returns (uint256 shares) {
             return shares > 0;
         } catch {
@@ -408,13 +495,14 @@ contract DataAggregator {
         // First pass: count everything
         uint256 securedL1Count = 0;
         uint256 trustedVaultCount = 0;
-        uint256 assetsStakesCount = 0;
+        uint256[] memory collateralClassStakesCountPerMiddleware = new uint256[](l1Middlewares.length);
+        CollateralClassStakeMap[] memory collateralClassStakeMap = new CollateralClassStakeMap[](l1Middlewares.length);
 
         for (uint256 i = 0; i < l1Middlewares.length; i++) {
-            try IAvalancheL1Middleware(l1Middlewares[i]).getCurrentEpoch() returns (uint48 currentEpoch) {
-                try IAvalancheL1Middleware(l1Middlewares[i]).getVaultManager() returns (address vaultManager) {
-                    try IAvalancheL1Middleware(l1Middlewares[i]).getActiveAssetClasses() returns (
-                        uint256 primaryAssetClass, uint256[] memory
+            try AvalancheL1Middleware(payable(l1Middlewares[i])).getCurrentEpoch() returns (uint48 currentEpoch) {
+                try AvalancheL1Middleware(payable(l1Middlewares[i])).getVaultManager() returns (address vaultManager) {
+                    try AvalancheL1Middleware(payable(l1Middlewares[i])).getActiveCollateralClasses() returns (
+                        uint256 primaryCollateralClass, uint256[] memory secondaryCollateralClasses
                     ) {
                         // Check if operator secures this L1
                         if (_isOperatorSecuringL1(operator, l1Middlewares[i])) {
@@ -422,10 +510,20 @@ contract DataAggregator {
                         }
 
                         // Check operator stake
-                        uint256 operatorStake =
-                            _getOperatorStakeInL1(operator, l1Middlewares[i], currentEpoch, primaryAssetClass);
+                        uint256 operatorStake = _getOperatorStakeInL1(
+                            operator, l1Middlewares[i], currentEpoch, uint96(primaryCollateralClass)
+                        );
                         if (operatorStake > 0) {
-                            assetsStakesCount++;
+                            collateralClassStakesCountPerMiddleware[i]++;
+                        }
+                        for (uint256 j = 0; j < secondaryCollateralClasses.length; j++) {
+                            operatorStake = 0;
+                            operatorStake += _getOperatorStakeInL1(
+                                operator, l1Middlewares[i], currentEpoch, uint96(secondaryCollateralClasses[j])
+                            );
+                            if (operatorStake > 0) {
+                                collateralClassStakesCountPerMiddleware[i]++;
+                            }
                         }
 
                         // Check trusted vaults
@@ -433,14 +531,10 @@ contract DataAggregator {
                             address[] memory vaults
                         ) {
                             for (uint256 j = 0; j < vaults.length; j++) {
-                                try IMiddlewareVaultManager(vaultManager).getVaultAssetClass(vaults[j]) returns (
-                                    uint96 vaultAssetClass
+                                try IMiddlewareVaultManager(vaultManager).getVaultCollateralClass(vaults[j]) returns (
+                                    uint96 vaultCollateralClass
                                 ) {
-                                    if (
-                                        _isOperatorTrustedByVault(
-                                            context, l1s[i], vaultManager, vaults[j], vaultAssetClass
-                                        )
-                                    ) {
+                                    if (_isOperatorTrustedByVault(context, l1s[i], vaults[j], vaultCollateralClass)) {
                                         trustedVaultCount++;
                                         break;
                                     }
@@ -465,17 +559,18 @@ contract DataAggregator {
         // Initialize arrays with correct sizes
         address[] memory securedL1s = new address[](securedL1Count);
         address[] memory trustedVaults = new address[](trustedVaultCount);
-        AssetsStake[] memory assetsStakes = new AssetsStake[](assetsStakesCount);
         uint256 securedL1sIndex = 0;
         uint256 trustedVaultsIndex = 0;
-        uint256 assetsStakesIndex = 0;
+        uint256 collateralClassStakesIndex = 0;
 
         // Second pass: fill arrays
         for (uint256 i = 0; i < l1Middlewares.length; i++) {
-            try IAvalancheL1Middleware(l1Middlewares[i]).getCurrentEpoch() returns (uint48 currentEpoch) {
-                try IAvalancheL1Middleware(l1Middlewares[i]).getVaultManager() returns (address vaultManager) {
-                    try IAvalancheL1Middleware(l1Middlewares[i]).getActiveAssetClasses() returns (
-                        uint256 primaryAssetClass, uint256[] memory
+            try AvalancheL1Middleware(payable(l1Middlewares[i])).getCurrentEpoch() returns (uint48 currentEpoch) {
+                CollateralClassStake[] memory collateralClassStakes =
+                    new CollateralClassStake[](collateralClassStakesCountPerMiddleware[i]);
+                try AvalancheL1Middleware(payable(l1Middlewares[i])).getVaultManager() returns (address vaultManager) {
+                    try AvalancheL1Middleware(payable(l1Middlewares[i])).getActiveCollateralClasses() returns (
+                        uint256 primaryCollateralClass, uint256[] memory secondaryCollateralClasses
                     ) {
                         // Add secured L1s
                         if (_isOperatorSecuringL1(operator, l1Middlewares[i])) {
@@ -483,28 +578,57 @@ contract DataAggregator {
                         }
 
                         // Add asset stakes
-                        uint256 operatorStake =
-                            _getOperatorStakeInL1(operator, l1Middlewares[i], currentEpoch, primaryAssetClass);
+                        uint256 operatorStake = _getOperatorStakeInL1(
+                            operator, l1Middlewares[i], currentEpoch, uint96(primaryCollateralClass)
+                        );
                         if (operatorStake > 0) {
-                            try IAssetClassRegistry(l1Middlewares[i]).getClassAssets(uint96(primaryAssetClass))
-                            returns (address[] memory assets) {
-                                assetsStakes[assetsStakesIndex++] = AssetsStake({assets: assets, stake: operatorStake});
+                            try AvalancheL1Middleware(payable(l1Middlewares[i])).getClassAssets(
+                                uint96(primaryCollateralClass)
+                            ) returns (address[] memory assets) {
+                                collateralClassStakes[collateralClassStakesIndex++] = CollateralClassStake({
+                                    collateralClass: uint96(primaryCollateralClass),
+                                    assetsInClass: assets,
+                                    stake: operatorStake
+                                });
                             } catch {
                                 continue;
                             }
                         }
+
+                        for (uint256 j = 0; j < secondaryCollateralClasses.length; j++) {
+                            uint256 operatorSecondaryStake = _getOperatorStakeInL1(
+                                operator, l1Middlewares[i], currentEpoch, uint96(secondaryCollateralClasses[j])
+                            );
+                            if (operatorSecondaryStake > 0) {
+                                try AvalancheL1Middleware(payable(l1Middlewares[i])).getClassAssets(
+                                    uint96(secondaryCollateralClasses[j])
+                                ) returns (address[] memory assets) {
+                                    collateralClassStakes[collateralClassStakesIndex++] = CollateralClassStake({
+                                        collateralClass: uint96(secondaryCollateralClasses[j]),
+                                        assetsInClass: assets,
+                                        stake: operatorSecondaryStake
+                                    });
+                                } catch {
+                                    continue;
+                                }
+                            }
+                        }
+
+                        collateralClassStakeMap[i] = CollateralClassStakeMap({
+                            middleware: l1Middlewares[i],
+                            collateralClassStakes: collateralClassStakes
+                        });
 
                         // Add trusted vaults
                         try IMiddlewareVaultManager(vaultManager).getVaults(currentEpoch) returns (
                             address[] memory vaults
                         ) {
                             for (uint256 j = 0; j < vaults.length; j++) {
-                                try IMiddlewareVaultManager(vaultManager).getVaultAssetClass(vaults[j]) returns (
-                                    uint96 vaultAssetClass
-                                ) {
+                                try IMiddlewareVaultManager(payable(vaultManager)).getVaultCollateralClass(vaults[j])
+                                returns (uint96 vaultCollateralClass) {
                                     if (
                                         _isOperatorTrustedByVault(
-                                            context, l1s[i], vaultManager, vaults[j], vaultAssetClass
+                                            context, l1s[i], vaults[j], uint96(vaultCollateralClass)
                                         )
                                     ) {
                                         trustedVaults[trustedVaultsIndex++] = vaults[j];
@@ -532,7 +656,7 @@ contract DataAggregator {
             operator: operator,
             securedL1s: securedL1s,
             trustedVaults: trustedVaults,
-            assetsStakes: assetsStakes
+            collateralClassStakeMap: collateralClassStakeMap
         });
     }
 }
