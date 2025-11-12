@@ -38,8 +38,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     ///      It has to wait for state to be finalized across all contracts.
     uint48 public constant DISTRIBUTION_EARLIEST_OFFSET = 2;
 
-    /// @dev The number of epochs after distribution is possible that users have to claim
-    ///      before undistributed rewards can be swept.
+    /// @dev Grace period after distribution completes before undistributed rewards can be swept.
+    ///      This ensures distribution is fully settled before reclaiming unallocated rewards.
+    ///      Note: This does NOT affect user claims - allocated rewards can always be claimed.
     uint48 public constant CLAIM_GRACE_PERIOD_EPOCHS = 1;
     
     /// @dev Cap epochs processed in a single claim to prevent out-of-gas on long histories

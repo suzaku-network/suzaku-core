@@ -220,7 +220,14 @@ Can do (only via upgradeAndCall):
 - Update rewards contract address (`setRewards`) 
 - Upgrade the implementation contract
 
-The owner can't upgrade the contract or change critical infrastructure. The ProxyAdmin can't pause deposits or sweep tokens. This separation prevents the owner from upgrading and stealing funds.
+**Why ProxyAdmin instead of Owner for `setVaultHelper` and `setRewards`?**
+
+These functions require ProxyAdmin (not Owner) because they control critical infrastructure that could be exploited to steal funds:
+
+- **`setVaultHelper`**: If compromised, owner could point to a malicious helper that steals funds during `harvest()`
+- **`setRewards`**: If compromised, owner could point to a malicious rewards contract
+
+By requiring the same authority as contract upgrades (ProxyAdmin), these changes get the same security level. The ProxyAdmin should be a multisig or timelock for production deployments. The owner handles day-to-day operations (pausing, sweeping dust) but cannot modify the core infrastructure. This separation of powers prevents a compromised owner key from stealing user funds.
 
 ---
 

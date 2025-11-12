@@ -104,15 +104,15 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
 
 ```
                    ← past                                  now →
-…  N-5  N-4  N-3  N-2  N-1   N   N+1  N+2  N+3  currentEpoch
+…  N-5  N-4  N-3  N-2  N-1   N   N+1  N+2  N+3  N+4 ... currentEpoch (e.g., N+2)
       └──── funding window ────┘
-                    └─ earliest distribution for N is when currentEpoch ≥ N+2
+                    └─ earliest distribution for N is when currentEpoch == N+2
 sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplete
 ```
 
 **Key Time Constraints:**
-- **Funding Window**: Epochs N-4 to N can be funded
-- **Earliest Distribution**: When currentEpoch ≥ N+2
+- **Funding Window**: Epochs N-4 to N can be funded (when currentEpoch = N)
+- **Earliest Distribution**: When currentEpoch == N+2 (code checks currentEpoch ≥ N+2)
 - **Sweep Allowed**: When currentEpoch ≥ N+3 and distributionComplete
 
 * Unfunded epochs:
@@ -156,7 +156,7 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
 * Fees: `protocolFee + operatorFee + curatorFee ≤ 10_000`. Update singly or `updateAllFees`.
 * Min uptime: `≤ epochDuration`.
 * Reentrancy: all external mutating flows are `nonReentrant`.
-* Sequential enforcement: cannot distribute `epoch+1` before `epoch` completes.
+* Sequential enforcement: cannot distribute rewards for epoch N if distribution was not completed for epoch N-1.
 
 ---
 
@@ -188,12 +188,20 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
 Current epoch: 100
 Last distributed: 97
 
-→ Distribute epochs 98, 99 (now eligible)
+→ Distribute epoch 98. Eligible because currentEpoch 100 >= epoch 98 + 2 (which is the DISTRIBUTION_EARLIEST_OFFSET)
 → Change weights: PRIMARY 6000→7000, SECONDARY 4000→3000
 → Fund epochs 101-110
 
-Result: Epoch 100+ will use new weights when distributed
+Result: 
+- Epoch 99 cannot be distributed yet (needs currentEpoch >= 101)
+- Epochs 100+ will use new weights when distributed
 ```
+
+**Distribution eligibility rule:** Epoch N can be distributed when `currentEpoch >= N + DISTRIBUTION_EARLIEST_OFFSET` (where `DISTRIBUTION_EARLIEST_OFFSET = 2`)
+
+**Examples:**
+- Epoch 98: needs currentEpoch >= 100 ✅ (eligible now)
+- Epoch 99: needs currentEpoch >= 101 ❌ (not yet eligible)
 
 **If you must change mid-stream:** Document which historical epochs will be affected. Changes are permanent once distribution runs.
 
