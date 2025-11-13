@@ -23,7 +23,7 @@ import {ICollateral} from "../../interfaces/ICollateral.sol";
  * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares, integrated with Merkl rewards.
  * @dev Users deposit VaultTokenized shares (asset). The wrapper claims rewards from Merkl Distributor
  * using Merkle proofs and auto-compounds them back into the underlying VaultTokenized instance,
- * increasing the value per share (PPS) of this LSTWrapperMerkl token over time.
+ * increasing the price per share (PPS) of this LSTWrapperMerkl token over time.
  * @dev Implements ILSTWrapper for upgrade compatibility - old harvest() signature reverts with error.
  */
 contract LSTWrapperMerkl is
