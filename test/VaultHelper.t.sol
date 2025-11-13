@@ -11,15 +11,15 @@ import {MockFeeOnTransferToken} from "./mocks/MockFeeOnTransferToken.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Token} from "./mocks/MockToken.sol";
-import {MockRewards} from "./mocks/MockRewards.sol";
-import {Rewards} from "../src/contracts/rewards/Rewards.sol";
+import {MockRewardsNativeToken} from "./mocks/MockRewardsNativeToken.sol";
+import {RewardsNativeToken} from "../src/contracts/rewards/RewardsNativeToken.sol";
 import {DefaultCollateralFactory} from "../src/contracts/defaultCollateral/DefaultCollateralFactory.sol";
 import {IDefaultCollateral} from "../src/interfaces/defaultCollateral/IDefaultCollateral.sol";
 import {VaultTokenized} from "../src/contracts/vault/VaultTokenized.sol";
 
 contract VaultHelperTest is MiddlewareTestBase {
     VaultHelper public vaultHelper;
-    MockRewards public rewards;
+    MockRewardsNativeToken public rewards;
     Token public rewardsToken;
     Token public rewardsToken2;
     
@@ -115,9 +115,9 @@ contract VaultHelperTest is MiddlewareTestBase {
         vaultWithDC2 = VaultTokenized(vaultAddress2);
         
         // Deploy mock rewards for the rewards tests
-        rewards = new MockRewards(address(middleware), address(vault));
         rewardsToken = new Token("Rewards");
         rewardsToken2 = new Token("Rewards2");
+        rewards = new MockRewardsNativeToken(address(middleware), address(vault), address(rewardsToken));
         
         // Give staker some underlying tokens to work with
         underlyingToken1.transfer(staker, 100_000 ether);
@@ -410,7 +410,12 @@ contract VaultHelperTest is MiddlewareTestBase {
     }
     
     function test_GetUserPendingWithdrawsInRange() public {
-        // Test with a valid range
+        // Move forward to ensure toEpoch is in the valid future (advance to at least epoch 10)
+        uint256 epochsNeeded = 10 - vault.currentEpoch();
+        if (epochsNeeded > 0) {
+            vm.warp(block.timestamp + vault.epochDuration() * epochsNeeded + 1);
+        }
+
         uint256 fromEpoch = 0;
         uint256 toEpoch = 10;
         
@@ -474,7 +479,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         // Mock lastEpochClaimedStaker on rewards
         vm.mockCall(
             mockRewards,
-            abi.encodeWithSignature("lastEpochClaimedStaker(address,address)", alice, rewardToken),
+            abi.encodeWithSignature("lastEpochClaimedStaker(address)", alice),
             abi.encode(lastClaimedEpoch)
         );
         
@@ -492,7 +497,7 @@ contract VaultHelperTest is MiddlewareTestBase {
             // Mock rewards amount for this epoch (1000 tokens per epoch)
             vm.mockCall(
                 mockRewards,
-                abi.encodeWithSignature("getRewardsAmountPerTokenFromEpoch(uint48,address)", epoch, rewardToken),
+                abi.encodeWithSignature("getEpochRewards(uint48)", epoch),
                 abi.encode(1000 ether)
             );
             
@@ -517,6 +522,13 @@ contract VaultHelperTest is MiddlewareTestBase {
                 abi.encode(1000 ether)
             );
         }
+        
+        // Mock rewardsToken() getter
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("rewardsToken()"),
+            abi.encode(rewardToken)
+        );
         
         // Test single vault reward calculation
         ClaimAmountsPerToken memory claimAmount = vaultHelper.getStakerClaimableReward(
@@ -589,7 +601,7 @@ contract VaultHelperTest is MiddlewareTestBase {
             // Mock rewards amount for this epoch (200 tokens per epoch)
             vm.mockCall(
                 mockRewards,
-                abi.encodeWithSignature("getRewardsAmountPerTokenFromEpoch(uint48,address)", epoch, rewardToken),
+                abi.encodeWithSignature("getEpochRewards(uint48)", epoch),
                 abi.encode(200 ether)
             );
             
@@ -614,6 +626,13 @@ contract VaultHelperTest is MiddlewareTestBase {
                 abi.encode(1000 ether)
             );
         }
+        
+        // Mock rewardsToken() getter
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("rewardsToken()"),
+            abi.encode(rewardToken)
+        );
         
         // Get claimable reward in range
         ClaimAmountsPerToken memory claimAmount = vaultHelper.getStakerClaimableRewardInRange(

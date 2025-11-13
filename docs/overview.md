@@ -33,7 +33,9 @@ Suzaku enables Avalanche L1 builders to decentralize their networks by orchestra
   - **Proof of Stake (PoS)**: Native L1 token staking
   - **Liquid Staking & Restaking**: Enable liquid staking tokens for additional yield opportunities
   - **Dual Staking Model**: Require both native tokens and whitelisted collateral, mitigating token volatility risks
+- **Auto-Compounding LST Wrappers**: ERC-4626 compliant wrappers that automatically reinvest rewards from VaultTokenized shares
 - **Epoch-Based Rewards**: Fair reward distribution based on uptime, stake, and collateral class weights
+- **Native Token Support**: RewardsNativeToken enables native currency (ETH/AVAX) rewards distribution
 - **Security Modules**: Modular architecture supporting multiple validator management strategies via the BalancerValidatorManager
 - **Role-Based Access Control**: Granular permissions for protocol administration
 - **No Slashing on Principal**: Currently, only validation rewards can be lost for poor uptime (principal remains safe)
@@ -84,6 +86,10 @@ Suzaku enables Avalanche L1 builders to decentralize their networks by orchestra
   - **Claims**: Process up to 64 epochs per call to prevent out-of-gas conditions
   - **Sweep**: Recover undistributed rewards after grace period
   - Time windows ensure proper funding and settlement
+- **RewardsNativeToken**: Rewards distributor for native tokens (ETH, AVAX)
+  - Inherits base Rewards functionality
+  - Handles native token transfers with reentrancy protection
+  - Supports both ERC20 and native token rewards distribution
 - **UptimeTracker**: Tracks validator uptime across epochs
   - Validates against epochs before validator start
   - Sources data from middleware's balancer for validator manager access
@@ -160,7 +166,7 @@ The middleware acts as a security module, initiating validator operations throug
 4. Curators deploy vaults and set delegation shares for operators
 
 ### 3. Staking & Validation
-1. Stakers deposit collateral into vaults
+1. Stakers deposit collateral into vaults (directly or through LST wrappers for auto-compounding)
 2. Vaults track active stake with epoch-based withdrawals (`EPOCH+2` delay)
 3. Delegators assign operator shares within L1 limits
 4. Operators add/remove/update validator nodes through middleware
@@ -206,6 +212,24 @@ The middleware acts as a security module, initiating validator operations throug
   - **IS_DEPOSIT_LIMIT_SET_ROLE**: Enable/disable the deposit limit
 
 > **📖 For complete vault implementation details and usage examples, see [Vault Documentation](./vault.md)**
+
+### LST Wrappers (Owner: Curator / L1)
+
+The protocol includes auto-compounding yield wrappers for VaultTokenized shares:
+
+#### LSTWrapper & LSTWrapperMerkl
+- **Purpose**: ERC-4626 compliant wrappers that auto-compound rewards from VaultTokenized shares
+- **Two Implementations**:
+  - **LSTWrapper**: Claims rewards from `RewardsNativeToken` contracts
+  - **LSTWrapperMerkl**: Claims rewards using Merkle proofs from a `MerkleDistributor`
+- **Upgradeable**: Deployed behind TransparentUpgradeableProxy, can switch between implementations
+- **Auto-Compounding**: `harvest()` claims rewards and deposits back into the underlying vault
+- **Yield Distribution**: Increased vault shares are distributed proportionally to all LST holders
+- **Access Control**:
+  - **Owner**: Can pause/unpause deposits, set vault helper, sweep tokens
+  - **ProxyAdmin**: Can upgrade implementation and call `setRewards`
+
+> **📖 For complete LST wrapper mechanics, deployment patterns, and upgrade procedures, see [LST Wrapper Documentation](./lst-wrapper.md)**
 
 ### Delegators (Owner: Curator)
 

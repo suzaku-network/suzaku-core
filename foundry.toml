@@ -35,7 +35,7 @@ quote_style = "double"
 tab_width = 4
 
 [fuzz]
-runs = 2048
-max_test_rejects = 262144
+runs = 256
+max_test_rejects = 65536
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

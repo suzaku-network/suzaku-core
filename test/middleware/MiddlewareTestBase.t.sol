@@ -48,6 +48,7 @@ import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/Valida
 import {IWarpMessenger, WarpMessage} from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
 
 import {Token} from "../mocks/MockToken.sol";
+import {MockCollateral} from "../mocks/MockCollateral.sol";
 import {ERC20WithDecimals} from "../mocks/MockERC20WithDecimals.sol";
 
 import {IBaseDelegator} from "../../src/interfaces/delegator/IBaseDelegator.sol";
@@ -207,9 +208,13 @@ abstract contract MiddlewareTestBase is Test {
         vm.prank(protocolOwner);
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
 
-        // Create a test collateral token
-        collateral = new Token("MockCollateral");
-        collateral2 = new Token("MockCollateral2");
+        // Create native tokens and collateral tokens
+        Token nativeToken1 = new Token("Native Token 1");
+        Token nativeToken2 = new Token("Native Token 2");
+        
+        // Create collateral tokens that wrap the native tokens
+        collateral = Token(address(new MockCollateral("MockCollateral", address(nativeToken1))));
+        collateral2 = Token(address(new MockCollateral("MockCollateral2", address(nativeToken2))));
         primaryCollateral = address(collateral);
 
         uint256 blockTimestamp = block.timestamp * block.timestamp / block.timestamp * block.timestamp / block.timestamp;

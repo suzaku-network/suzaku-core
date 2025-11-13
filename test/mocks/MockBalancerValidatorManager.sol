@@ -118,9 +118,9 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
 
     function initiateValidatorRegistration(
         bytes memory nodeID,
-        bytes memory blsPublicKey,
-        PChainOwner memory remainingBalanceOwner,
-        PChainOwner memory disableOwner,
+        bytes memory /* blsPublicKey */,
+        PChainOwner memory /* remainingBalanceOwner */,
+        PChainOwner memory /* disableOwner */,
         uint64 weight
     ) external override returns (bytes32 validationID) {
         validationID = keccak256(abi.encodePacked(nodeID, weight, block.timestamp));
@@ -313,11 +313,11 @@ contract MockBalancerValidatorManager is IBalancerValidatorManager, Ownable {
         return 1000; // Mock value
     }
     
-    function migrateFromV1(bytes32 validationID, uint32 receivedNonce) external pure override {
+    function migrateFromV1(bytes32 /* validationID */, uint32 /* receivedNonce */) external pure override {
         revert("migrateFromV1 not implemented in mock");
     }
     
-    function resendValidatorRemovalMessage(bytes32 validationID) external pure override {
+    function resendValidatorRemovalMessage(bytes32 /* validationID */) external pure override {
         revert("resendValidatorRemovalMessage not implemented in mock");
     }
     

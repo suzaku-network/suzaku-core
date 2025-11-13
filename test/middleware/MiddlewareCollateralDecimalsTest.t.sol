@@ -442,7 +442,7 @@ contract MiddlewareCollateralDecimalsTest is Test {
         Token(primaryToken).transfer(staker, 2 ether);
         vm.startPrank(staker);
         Token(primaryToken).approve(primaryVaultAddress, 2 ether);
-        (uint256 primaryDepositUsed, uint256 primaryMintedShares) = primaryVault.deposit(staker, 2 ether);
+        (, uint256 primaryMintedShares) = primaryVault.deposit(staker, 2 ether);
         vm.stopPrank();
         
         vm.startPrank(bob);
