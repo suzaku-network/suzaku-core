@@ -55,24 +55,68 @@ contract VaultFull is Script {
 
         console2.log("Deploying core contracts...", vaultConfig.factoryConfig.vaultFactory);
 
-        // Whitelist VaultTokenized implementation
-        address vaultTokenizedImpl = address(new VaultTokenized(vaultConfig.factoryConfig.vaultFactory));
-        vaultFactory.whitelist(vaultTokenizedImpl);
-        console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
+        // Check if we need to deploy and whitelist a new VaultTokenized implementation
+        uint64 currentVersion = vaultFactory.lastVersion();
+        if (vaultConfig.initialVaultVersion > currentVersion) {
+            // User wants a version that doesn't exist yet
+            if (vaultConfig.initialVaultVersion == currentVersion + 1) {
+                // Deploy the next sequential version
+                console2.log("Deploying new VaultTokenized implementation...");
+                address vaultTokenizedImpl = address(new VaultTokenized(vaultConfig.factoryConfig.vaultFactory));
+                vaultFactory.whitelist(vaultTokenizedImpl);
+                console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
+            } else {
+                // User is trying to skip versions - this will fail
+                revert(
+                    string.concat(
+                        "Invalid version: requested ",
+                        vm.toString(vaultConfig.initialVaultVersion),
+                        " but current version is ",
+                        vm.toString(currentVersion),
+                        ". Can only deploy version ",
+                        vm.toString(currentVersion + 1)
+                    )
+                );
+            }
+        } else {
+            console2.log("Using existing VaultTokenized implementation at version:", vaultConfig.initialVaultVersion);
+        }
 
-        // Whitelist L1RestakeDelegator
-        address l1RestakeDelegatorImpl = address(
-            new L1RestakeDelegator(
-                vaultConfig.factoryConfig.l1Registry,
-                vaultConfig.factoryConfig.vaultFactory,
-                vaultConfig.factoryConfig.operatorVaultOptInService,
-                vaultConfig.factoryConfig.operatorL1OptInService,
-                vaultConfig.factoryConfig.delegatorFactory,
-                delegatorFactory.totalTypes()
-            )
-        );
-        delegatorFactory.whitelist(l1RestakeDelegatorImpl);
-        console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
+        // Check if we need to deploy and whitelist a new L1RestakeDelegator implementation
+        uint256 currentDelegatorTypes = delegatorFactory.totalTypes();
+        if (vaultConfig.delegatorConfig.delegatorIndex >= currentDelegatorTypes) {
+            // User wants a delegator type that doesn't exist yet
+            if (vaultConfig.delegatorConfig.delegatorIndex == currentDelegatorTypes) {
+                // Deploy the next sequential type
+                console2.log("Deploying new L1RestakeDelegator implementation...");
+                address l1RestakeDelegatorImpl = address(
+                    new L1RestakeDelegator(
+                        vaultConfig.factoryConfig.l1Registry,
+                        vaultConfig.factoryConfig.vaultFactory,
+                        vaultConfig.factoryConfig.operatorVaultOptInService,
+                        vaultConfig.factoryConfig.operatorL1OptInService,
+                        vaultConfig.factoryConfig.delegatorFactory,
+                        delegatorFactory.totalTypes()
+                    )
+                );
+                delegatorFactory.whitelist(l1RestakeDelegatorImpl);
+                console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
+            } else {
+                // User is trying to skip types - this will fail
+                revert(
+                    string.concat(
+                        "Invalid delegator index: requested ",
+                        vm.toString(vaultConfig.delegatorConfig.delegatorIndex),
+                        " but current total types is ",
+                        vm.toString(currentDelegatorTypes),
+                        ". Can only deploy type ",
+                        vm.toString(currentDelegatorTypes)
+                    )
+                );
+            }
+        } else {
+            console2.log("Using existing L1RestakeDelegator implementation at type:", vaultConfig.delegatorConfig.delegatorIndex);
+        }
 
         console2.log("Initializing VaultTokenized with factory:", vaultConfig.factoryConfig.vaultFactory);
         console2.log("Collateral:", vaultConfig.collateralAsset);
