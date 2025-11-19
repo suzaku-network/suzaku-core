@@ -4,6 +4,10 @@
 pragma solidity 0.8.25;
 
 import {ERC4626Upgradeable, IERC4626} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {ERC20VotesUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20VotesUpgradeable.sol";
+import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -31,6 +35,8 @@ contract LSTWrapper is
     ERC4626Upgradeable,
     ReentrancyGuardUpgradeable,
     OwnableUpgradeable,
+    ERC20PermitUpgradeable,
+    ERC20VotesUpgradeable,
     ILSTWrapper
 {
     using SafeERC20 for IERC20;
@@ -85,6 +91,8 @@ contract LSTWrapper is
         __ERC4626_init(IERC20(vault_)); // set VaultTokenized shares as asset
         __ReentrancyGuard_init();
         __Ownable_init(admin); // Initialize OwnableUpgradeable with the admin address
+        __ERC20Permit_init(name_);
+        __ERC20Votes_init();
 
         // Set State Variables
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
@@ -105,6 +113,15 @@ contract LSTWrapper is
         // Start paused
         lws.depositsPaused = true;
         // No infinite approvals; per‑harvest allowances only.
+    }
+
+    /**
+     * @notice Initializes ERC20Permit / ERC20Votes after deployment.
+     * @dev For already-deployed proxies, call this once via upgradeAndCall or a separate transaction.
+     */
+    function initializeVotes() external reinitializer(2) {
+        __ERC20Permit_init(name());
+        __ERC20Votes_init();
     }
 
     /**
@@ -400,7 +417,7 @@ contract LSTWrapper is
         public
         view
         virtual
-        override(ERC4626Upgradeable, IERC20Metadata)
+        override(ERC4626Upgradeable, ERC20Upgradeable, IERC20Metadata)
         returns (uint8)
     {
         try IERC20Metadata(address(asset())).decimals() returns (uint8 assetDecimals) {
@@ -580,6 +597,28 @@ contract LSTWrapper is
             unitCap = _safePow10(collateralDecimals);
         } catch { }
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
+    }
+
+    /**
+     * @dev ERC20 + ERC20Votes hook for transfers, mints and burns.
+     */
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20Upgradeable, ERC20VotesUpgradeable)
+    {
+        super._update(from, to, value);
+    }
+
+    /**
+     * @dev Required override for ERC20Permit / Nonces in the inheritance graph.
+     */
+    function nonces(address owner)
+        public
+        view
+        override(ERC20PermitUpgradeable, NoncesUpgradeable)
+        returns (uint256)
+    {
+        return super.nonces(owner);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

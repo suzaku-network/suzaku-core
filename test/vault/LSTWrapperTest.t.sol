@@ -14,6 +14,7 @@ import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.s
 import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
 import {Token} from "../mocks/MockToken.sol";
 import {MockCollateral} from "../mocks/MockCollateral.sol";
@@ -33,6 +34,8 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     
     uint256 constant INITIAL_DEPOSIT = 100 ether;
     uint256 constant HARVEST_AMOUNT = 10 ether;
+    bytes32 internal constant _PERMIT_TYPEHASH =
+        keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
     
     function setUp() public override {
         super.setUp();
@@ -126,6 +129,30 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         
         // Note: We keep the seed to prevent totalSupply from going back to 0
         // Tests need to account for this seed in their assertions
+    }
+
+    function _depositToWrapper(address user, uint256 amount) internal returns (uint256) {
+        vm.prank(staker);
+        vault.transfer(user, amount);
+
+        vm.startPrank(user);
+        vault.approve(address(lstWrapper), amount);
+        uint256 shares = lstWrapper.deposit(amount, user);
+        vm.stopPrank();
+
+        return shares;
+    }
+
+    function _buildPermitDigest(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(_PERMIT_TYPEHASH, owner, spender, value, nonce, deadline));
+        bytes32 domain = lstWrapper.DOMAIN_SEPARATOR();
+        return keccak256(abi.encodePacked("\x19\x01", domain, structHash));
     }
     
     // Basic functionality tests
@@ -236,6 +263,74 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         );
         vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidRewardsToken.selector);
         new TransparentUpgradeableProxy(address(impl), lstAdmin, initData);
+    }
+
+    // ERC20Permit / ERC20Votes tests
+
+    function test_InitializeVotes_Reinitializer() public {
+        vm.prank(lstAdmin);
+        lstWrapper.initializeVotes();
+
+        vm.prank(lstAdmin);
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        lstWrapper.initializeVotes();
+    }
+
+    function test_Votes_DelegationAndTransfer() public {
+        uint256 user1Deposit = 40 ether;
+        uint256 user2Deposit = 20 ether;
+
+        uint256 user1Shares = _depositToWrapper(lstUser1, user1Deposit);
+        uint256 user2Shares = _depositToWrapper(lstUser2, user2Deposit);
+
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser1);
+        vm.prank(lstUser2);
+        lstWrapper.delegate(lstUser2);
+
+        // Take snapshot at block 100
+        vm.roll(100);
+        
+        // Perform transfer at block 101
+        vm.roll(101);
+        uint256 transferAmount = user1Shares / 2;
+        vm.prank(lstUser1);
+        lstWrapper.transfer(lstUser2, transferAmount);
+
+        // Move to block 105 to query past votes
+        vm.roll(105);
+
+        // Current votes should reflect the transfer
+        assertEq(lstWrapper.getVotes(lstUser1), user1Shares - transferAmount);
+        assertEq(lstWrapper.getVotes(lstUser2), user2Shares + transferAmount);
+        
+        // Past votes at block 100 should show original amounts
+        assertEq(lstWrapper.getPastVotes(lstUser1, 100), user1Shares);
+        assertEq(lstWrapper.getPastVotes(lstUser2, 100), user2Shares);
+    }
+
+    function test_Permit_AllowsSpenderTransferFrom() public {
+        uint256 ownerPk = 0xBEEF;
+        address owner = vm.addr(ownerPk);
+        address spender = lstUser2;
+        uint256 depositAmount = 25 ether;
+
+        uint256 shares = _depositToWrapper(owner, depositAmount);
+        uint256 permitAmount = shares / 2;
+        uint256 deadline = block.timestamp + 1 days;
+        uint256 nonce = lstWrapper.nonces(owner);
+        bytes32 digest = _buildPermitDigest(owner, spender, permitAmount, nonce, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, digest);
+
+        lstWrapper.permit(owner, spender, permitAmount, deadline, v, r, s);
+
+        vm.prank(spender);
+        lstWrapper.transferFrom(owner, spender, permitAmount);
+
+        assertEq(lstWrapper.balanceOf(spender), permitAmount);
+        assertEq(lstWrapper.balanceOf(owner), shares - permitAmount);
+        assertEq(lstWrapper.allowance(owner, spender), 0);
+        assertEq(lstWrapper.nonces(owner), nonce + 1);
     }
     
     // Deposit tests
