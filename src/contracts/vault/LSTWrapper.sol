@@ -116,8 +116,7 @@ contract LSTWrapper is
     }
 
     /**
-     * @notice Initializes ERC20Permit / ERC20Votes after deployment.
-     * @dev For already-deployed proxies, call this once via upgradeAndCall or a separate transaction.
+     * @inheritdoc ILSTWrapper
      */
     function initializeVotes() external reinitializer(2) {
         __ERC20Permit_init(name());
@@ -600,7 +599,12 @@ contract LSTWrapper is
     }
 
     /**
-     * @dev ERC20 + ERC20Votes hook for transfers, mints and burns.
+     * @dev Internal hook called on all token transfers, mints, and burns.
+     * @dev Overrides both ERC20Upgradeable and ERC20VotesUpgradeable to ensure
+     *      vote tracking is properly updated on balance changes.
+     * @param from Address tokens are transferred from (zero for mints)
+     * @param to Address tokens are transferred to (zero for burns)
+     * @param value Amount of tokens transferred
      */
     function _update(address from, address to, uint256 value)
         internal
@@ -610,7 +614,9 @@ contract LSTWrapper is
     }
 
     /**
-     * @dev Required override for ERC20Permit / Nonces in the inheritance graph.
+     * @dev Required override to resolve conflict between ERC20PermitUpgradeable
+     *      and NoncesUpgradeable in the inheritance graph.
+     * @inheritdoc NoncesUpgradeable
      */
     function nonces(address owner)
         public

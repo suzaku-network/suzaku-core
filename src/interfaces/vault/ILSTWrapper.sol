@@ -124,6 +124,14 @@ interface ILSTWrapper is IERC4626 {
     ) external;
 
     /**
+     * @notice Initializes ERC20Permit and ERC20Votes functionality for the wrapper.
+     * @dev Used for already-deployed proxies to enable governance features.
+     *      Should be called once via upgradeAndCall or a separate transaction.
+     *      This is a reinitializer and can only be called once.
+     */
+    function initializeVotes() external;
+
+    /**
      * @notice Unified harvest. Native wrappers ignore inputs. Merkl uses both.
      * @param amount Amount to claim (ignored for native, required for Merkl)
      * @param proof Merkle proof (ignored for native, required for Merkl)
