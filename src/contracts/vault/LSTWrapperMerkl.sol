@@ -4,6 +4,10 @@
 pragma solidity 0.8.25;
 
 import {ERC4626Upgradeable, IERC4626} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {ERC20VotesUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20VotesUpgradeable.sol";
+import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -20,17 +24,21 @@ import {ICollateral} from "../../interfaces/ICollateral.sol";
 
 /**
  * @title LSTWrapperMerkl
- * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares, integrated with Merkl rewards.
+ * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares with
+ *         integrated voting, permit functionality, and Merkl rewards distribution.
  * @dev Users deposit VaultTokenized shares (asset). The wrapper claims rewards from Merkl Distributor
  * using Merkle proofs and auto-compounds them back into the underlying VaultTokenized instance,
  * increasing the price per share (PPS) of this LSTWrapperMerkl token over time.
  * @dev Implements ILSTWrapper for upgrade compatibility - old harvest() signature reverts with error.
+ * @dev Implements ERC20Votes for governance participation and ERC20Permit for gasless approvals.
  */
 contract LSTWrapperMerkl is
     Initializable,
     ERC4626Upgradeable,
     ReentrancyGuardUpgradeable,
     OwnableUpgradeable,
+    ERC20PermitUpgradeable,
+    ERC20VotesUpgradeable,
     ILSTWrapper  // Implement ILSTWrapper for upgrade compatibility
 {
     using SafeERC20 for IERC20;
@@ -88,6 +96,8 @@ contract LSTWrapperMerkl is
         __ERC4626_init(IERC20(vault_)); // set VaultTokenized shares as asset
         __ReentrancyGuard_init();
         __Ownable_init(admin); // Initialize OwnableUpgradeable with the admin address
+        __ERC20Permit_init(name_);
+        __ERC20Votes_init();
 
         // Set State Variables
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
@@ -108,6 +118,17 @@ contract LSTWrapperMerkl is
         // Start paused
         lws.depositsPaused = true;
         // No infinite approvals; per‑harvest allowances only.
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     * @dev Initializes voting functionality for already deployed proxies.
+     *      Uses reinitializer(2) to allow existing LSTWrapperMerkl deployments
+     *      to add voting capabilities without affecting other storage.
+     */
+    function initializeVotes() external reinitializer(2) {
+        __ERC20Permit_init(name());
+        __ERC20Votes_init();
     }
 
     /**
@@ -474,7 +495,7 @@ contract LSTWrapperMerkl is
         public
         view
         virtual
-        override(ERC4626Upgradeable, IERC20Metadata)
+        override(ERC4626Upgradeable, ERC20Upgradeable, IERC20Metadata)
         returns (uint8)
     {
         try IERC20Metadata(address(asset())).decimals() returns (uint8 assetDecimals) {
@@ -597,6 +618,35 @@ contract LSTWrapperMerkl is
             unitCap = _safePow10(collateralDecimals);
         } catch { }
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
+    }
+
+    /**
+     * @dev Internal hook called on all token transfers, mints, and burns.
+     * @dev Overrides both ERC20Upgradeable and ERC20VotesUpgradeable to ensure
+     *      vote tracking is properly updated on balance changes.
+     * @param from Address tokens are transferred from (zero for mints)
+     * @param to Address tokens are transferred to (zero for burns)
+     * @param value Amount of tokens transferred
+     */
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20Upgradeable, ERC20VotesUpgradeable)
+    {
+        super._update(from, to, value);
+    }
+
+    /**
+     * @dev Required override to resolve conflict between ERC20PermitUpgradeable
+     *      and NoncesUpgradeable in the inheritance graph.
+     * @inheritdoc NoncesUpgradeable
+     */
+    function nonces(address owner)
+        public
+        view
+        override(ERC20PermitUpgradeable, NoncesUpgradeable)
+        returns (uint256)
+    {
+        return super.nonces(owner);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

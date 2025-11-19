@@ -275,6 +275,45 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         lstWrapper.initializeVotes();
     }
+    
+    function test_VotesWorkAfterUpgrade_FullScenario() public {
+        // Simulate existing deployment without votes
+        // Deploy old implementation (without votes) - we'll use the same contract
+        // but pretend voting wasn't initialized
+        
+        // First, have some users with existing balances
+        uint256 existingShares1 = _depositToWrapper(lstUser1, 100 ether);
+        uint256 existingShares2 = _depositToWrapper(lstUser2, 50 ether);
+        
+        // At this point, voting functions should work but no votes without delegation
+        assertEq(lstWrapper.getVotes(lstUser1), 0, "No votes before delegation");
+        assertEq(lstWrapper.getVotes(lstUser2), 0, "No votes before delegation");
+        
+        // Now "upgrade" by initializing votes (simulating reinitializer on upgraded contract)
+        vm.prank(lstAdmin);
+        lstWrapper.initializeVotes();
+        
+        // Existing balances should still be there
+        assertEq(lstWrapper.balanceOf(lstUser1), existingShares1);
+        assertEq(lstWrapper.balanceOf(lstUser2), existingShares2);
+        
+        // Now users can delegate and get voting power
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser1);
+        assertEq(lstWrapper.getVotes(lstUser1), existingShares1, "Votes equal balance after delegation");
+        
+        // New deposits should also work with voting
+        uint256 newShares = _depositToWrapper(lstUser2, 25 ether);
+        vm.prank(lstUser2);
+        lstWrapper.delegate(lstUser2);
+        assertEq(lstWrapper.getVotes(lstUser2), existingShares2 + newShares, "Votes include all shares");
+        
+        // Transfers should update votes
+        vm.prank(lstUser1);
+        lstWrapper.transfer(lstUser2, existingShares1 / 2);
+        assertEq(lstWrapper.getVotes(lstUser1), existingShares1 / 2, "Votes updated after transfer");
+        assertEq(lstWrapper.getVotes(lstUser2), existingShares2 + newShares + existingShares1 / 2, "Receiver votes updated");
+    }
 
     function test_Votes_DelegationAndTransfer() public {
         uint256 user1Deposit = 40 ether;
@@ -288,8 +327,9 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         vm.prank(lstUser2);
         lstWrapper.delegate(lstUser2);
 
-        // Take snapshot at block 100
+        // Take snapshot using vm.getBlockNumber() to avoid compiler optimization issues
         vm.roll(100);
+        uint256 snapshotBlock = vm.getBlockNumber();
         
         // Perform transfer at block 101
         vm.roll(101);
@@ -304,9 +344,9 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapper.getVotes(lstUser1), user1Shares - transferAmount);
         assertEq(lstWrapper.getVotes(lstUser2), user2Shares + transferAmount);
         
-        // Past votes at block 100 should show original amounts
-        assertEq(lstWrapper.getPastVotes(lstUser1, 100), user1Shares);
-        assertEq(lstWrapper.getPastVotes(lstUser2, 100), user2Shares);
+        // Past votes at snapshot block should show original amounts
+        assertEq(lstWrapper.getPastVotes(lstUser1, snapshotBlock), user1Shares);
+        assertEq(lstWrapper.getPastVotes(lstUser2, snapshotBlock), user2Shares);
     }
 
     function test_Permit_AllowsSpenderTransferFrom() public {
@@ -1131,6 +1171,167 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(claimedNative, 0, "No rewards to claim");
         assertGt(mintedVaultShares, 0, "Should mint vault shares");
         assertGt(lstWrapper.totalAssets(), 0, "Wrapper should now have assets");
+    }
+    
+    // ========================== ERC20Votes COMPREHENSIVE TESTS ==========================
+    
+    function test_Votes_NoDelegationNoVotes() public {
+        // Deposit to get shares
+        uint256 shares = _depositToWrapper(lstUser1, 100 ether);
+        
+        // Without delegation, user has no voting power
+        assertEq(lstWrapper.getVotes(lstUser1), 0, "Should have no votes without delegation");
+        assertEq(lstWrapper.delegates(lstUser1), address(0), "Should have no delegate");
+        assertEq(lstWrapper.balanceOf(lstUser1), shares, "Should have balance");
+    }
+    
+    function test_Votes_DelegateToOther() public {
+        uint256 user1Shares = _depositToWrapper(lstUser1, 100 ether);
+        uint256 user2Shares = _depositToWrapper(lstUser2, 50 ether);
+        
+        // User1 delegates to User2
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser2);
+        
+        // User2 self-delegates
+        vm.prank(lstUser2);
+        lstWrapper.delegate(lstUser2);
+        
+        // Check voting power
+        assertEq(lstWrapper.getVotes(lstUser1), 0, "User1 should have no votes (delegated away)");
+        assertEq(lstWrapper.getVotes(lstUser2), user1Shares + user2Shares, "User2 should have combined votes");
+        assertEq(lstWrapper.delegates(lstUser1), lstUser2, "User1 should delegate to User2");
+    }
+    
+    function test_Votes_ChangeDelegate() public {
+        uint256 shares = _depositToWrapper(lstUser1, 100 ether);
+        
+        // Self-delegate first
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser1);
+        assertEq(lstWrapper.getVotes(lstUser1), shares);
+        
+        // Change delegation to User2
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser2);
+        
+        assertEq(lstWrapper.getVotes(lstUser1), 0, "User1 should have no votes");
+        assertEq(lstWrapper.getVotes(lstUser2), shares, "User2 should have User1's votes");
+        
+        // Change back to self
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser1);
+        
+        assertEq(lstWrapper.getVotes(lstUser1), shares, "User1 should have votes back");
+        assertEq(lstWrapper.getVotes(lstUser2), 0, "User2 should have no votes");
+    }
+    
+    function test_Votes_PastVotesAccuracy() public {
+        uint256 shares = _depositToWrapper(lstUser1, 100 ether);
+        
+        // Block 100: Self-delegate
+        vm.roll(100);
+        vm.prank(lstUser1);
+        lstWrapper.delegate(lstUser1);
+        uint256 block100 = vm.getBlockNumber();
+        
+        // Block 110: Transfer half to User2
+        vm.roll(110);
+        vm.prank(lstUser1);
+        lstWrapper.transfer(lstUser2, shares / 2);
+        uint256 block110 = vm.getBlockNumber();
+        
+        // Block 120: User2 delegates to self
+        vm.roll(120);
+        vm.prank(lstUser2);
+        lstWrapper.delegate(lstUser2);
+        uint256 block120 = vm.getBlockNumber();
+        
+        // Block 130: Check historical votes
+        vm.roll(130);
+        
+        // At block 100: User1 had all votes, User2 had none
+        assertEq(lstWrapper.getPastVotes(lstUser1, block100), shares);
+        assertEq(lstWrapper.getPastVotes(lstUser2, block100), 0);
+        
+        // At block 110: User1 had half, User2 still had none (not delegated)
+        assertEq(lstWrapper.getPastVotes(lstUser1, block110), shares / 2);
+        assertEq(lstWrapper.getPastVotes(lstUser2, block110), 0);
+        
+        // At block 120: User1 had half, User2 had half
+        assertEq(lstWrapper.getPastVotes(lstUser1, block120), shares / 2);
+        assertEq(lstWrapper.getPastVotes(lstUser2, block120), shares / 2);
+    }
+    
+    function test_Votes_PastTotalSupply() public {
+        vm.roll(100);
+        uint256 block100 = vm.getBlockNumber();
+        
+        // Deposit at block 110
+        vm.roll(110);
+        uint256 shares1 = _depositToWrapper(lstUser1, 100 ether);
+        uint256 block110 = vm.getBlockNumber();
+        
+        // Another deposit at block 120
+        vm.roll(120);
+        uint256 shares2 = _depositToWrapper(lstUser2, 50 ether);
+        uint256 block120 = vm.getBlockNumber();
+        
+        // Check at block 130
+        vm.roll(130);
+        
+        // Note: Need to account for the 1000 wei seed from initialization
+        uint256 seed = 1000;
+        
+        // At block 100: Only seed exists
+        assertEq(lstWrapper.getPastTotalSupply(block100), seed);
+        
+        // At block 110: Seed + first deposit
+        assertEq(lstWrapper.getPastTotalSupply(block110), seed + shares1);
+        
+        // At block 120: Seed + both deposits
+        assertEq(lstWrapper.getPastTotalSupply(block120), seed + shares1 + shares2);
+    }
+    
+    function test_Votes_DelegateBySig() public {
+        uint256 delegatorPk = 0xBEEF;
+        address delegator = vm.addr(delegatorPk);
+        address delegatee = lstUser2;
+        
+        // Give delegator some shares
+        uint256 shares = _depositToWrapper(delegator, 100 ether);
+        
+        // Prepare delegation signature
+        uint256 nonce = lstWrapper.nonces(delegator);
+        uint256 deadline = block.timestamp + 1 days;
+        
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Delegation(address delegatee,uint256 nonce,uint256 expiry)"),
+                delegatee,
+                nonce,
+                deadline
+            )
+        );
+        
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                lstWrapper.DOMAIN_SEPARATOR(),
+                structHash
+            )
+        );
+        
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(delegatorPk, digest);
+        
+        // Execute delegation by signature
+        lstWrapper.delegateBySig(delegatee, nonce, deadline, v, r, s);
+        
+        // Verify delegation worked
+        assertEq(lstWrapper.delegates(delegator), delegatee);
+        assertEq(lstWrapper.getVotes(delegatee), shares);
+        assertEq(lstWrapper.getVotes(delegator), 0);
+        assertEq(lstWrapper.nonces(delegator), nonce + 1);
     }
     
 }

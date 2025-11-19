@@ -24,11 +24,13 @@ import {ICollateral} from "../../interfaces/ICollateral.sol";
 
 /**
  * @title LSTWrapper
- * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares.
+ * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares with 
+ *         integrated voting and permit functionality.
  * @dev Users deposit VaultTokenized shares (asset). The wrapper claims the native
  * collateral rewards from the Rewards contract and auto-compounds them back
  * into the underlying VaultTokenized instance, increasing the price per share (PPS)
  * of this LSTWrapper token over time.
+ * @dev Implements ERC20Votes for governance participation and ERC20Permit for gasless approvals.
  */
 contract LSTWrapper is
     Initializable,
