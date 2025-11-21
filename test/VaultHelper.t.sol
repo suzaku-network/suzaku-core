@@ -236,6 +236,24 @@ contract VaultHelperTest is MiddlewareTestBase {
         assertEq(vaultSharesAfter - vaultSharesBefore, amount, "Vault shares should equal deposit amount");
     }
 
+    function test_InvalidLSTWrapper_Reverts() public {
+        uint256 amount = 10_000 ether;
+        address invalidLSTWrapper = address(0);
+
+        vm.startPrank(staker);
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "lstWrapper"));
+        vaultHelper.stakeAssetInWrappedVault(staker, invalidLSTWrapper, amount);
+
+        invalidLSTWrapper = makeAddr("InvalidLSTWrapper");
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, invalidLSTWrapper));
+        vaultHelper.stakeAssetInWrappedVault(staker, invalidLSTWrapper, amount);
+
+        invalidLSTWrapper = address(new MockLSTWrapper());
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, invalidLSTWrapper));
+        vaultHelper.stakeAssetInWrappedVault(staker, invalidLSTWrapper, amount);
+        vm.stopPrank();
+    }
+
     function test_StakeAssetInWrappedVault() public {
         uint256 amount = 10_000 ether;
 
@@ -246,9 +264,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         // Approve and stake
         vm.startPrank(staker);
         underlyingToken1.approve(address(vaultHelper), amount);
-        vaultHelper.stakeAssetInWrappedVault(
-            address(vaultWithDC1), staker, defaultCollateral1, address(underlyingToken1), address(lstWrapper1), amount
-        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(lstWrapper1), amount);
         vm.stopPrank();
 
         // Verify results
@@ -720,14 +736,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         // Approve and stake
         vm.startPrank(staker);
         underlyingToken1.approve(address(vaultHelper), amountDeposit);
-        vaultHelper.stakeAssetInWrappedVault(
-            address(vaultWithDC1),
-            staker,
-            defaultCollateral1,
-            address(underlyingToken1),
-            address(lstWrapper1),
-            amountDeposit
-        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(lstWrapper1), amountDeposit);
         vm.stopPrank();
 
         // Check balance after deposit
@@ -737,7 +746,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         uint256 amountWithdraw = amountDeposit / 2;
         vm.startPrank(staker);
         lstWrapper1.approve(address(vaultHelper), amountWithdraw);
-        vaultHelper.withdrawFromWrappedVault(address(vaultWithDC1), staker, address(lstWrapper1), amountWithdraw);
+        vaultHelper.withdrawFromWrappedVault(staker, address(lstWrapper1), amountWithdraw);
         vm.stopPrank();
 
         // Check balance after withdrawal
@@ -753,5 +762,11 @@ contract VaultHelperTest is MiddlewareTestBase {
         assertEq(futureWithdraws.length, 1, "Should have 1 future pending withdrawal");
         assertEq(futureWithdraws[0].amount, amountWithdraw, "Withdrawal amount should match");
         assertEq(futureWithdraws[0].epoch, vaultWithDC1.currentEpoch() + 1, "Should be from the next epoch");
+    }
+}
+
+contract MockLSTWrapper {
+    function vaultHelper() external pure returns (address) {
+        return address(0);
     }
 }
