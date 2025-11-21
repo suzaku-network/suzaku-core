@@ -777,10 +777,10 @@ contract VaultHelperTest is MiddlewareTestBase {
         // We simulate this by donating Vault Shares directly to the LSTWrapper.
         // This makes the LSTWrapper hold MORE vault shares than it minted LST shares.
         // Scenario: 10% yield.
-        uint256 yieldAmount = 1_000 ether; 
-        
+        uint256 yieldAmount = 1000 ether;
+
         // Mint vault shares to this test contract then transfer to wrapper to simulate yield
-        vm.startPrank(staker); 
+        vm.startPrank(staker);
         // (Staker has plenty of underlying from setUp)
         underlyingToken1.approve(address(vaultHelper), yieldAmount);
         vaultHelper.stakeAssetInVault(
@@ -799,33 +799,33 @@ contract VaultHelperTest is MiddlewareTestBase {
 
         // 3. User withdraws their FULL balance
         uint256 lstBalance = lstWrapper1.balanceOf(staker);
-        
+
         // Calculate what the user SHOULD get in Vault Shares
         uint256 expectedVaultShares = lstWrapper1.convertToAssets(lstBalance);
-        
+
         vm.startPrank(staker);
         lstWrapper1.approve(address(vaultHelper), lstBalance);
-        
+
         // --- PERFORM WITHDRAWAL ---
         vaultHelper.withdrawFromWrappedVault(staker, address(lstWrapper1), lstBalance);
         vm.stopPrank();
 
         // 4. DETECT THE BUG
-        // The Helper redeemed 'lstBalance' (10,000) from the Vault, 
+        // The Helper redeemed 'lstBalance' (10,000) from the Vault,
         // instead of 'expectedVaultShares' (11,000).
         // The difference (1,000) is left stuck in the VaultHelper contract.
-        
+
         uint256 stuckFunds = vaultWithDC1.balanceOf(address(vaultHelper));
-        
+
         console2.log("Stuck Funds in Helper:", stuckFunds);
         console2.log("Expected Vault Shares:", expectedVaultShares);
         console2.log("LST Burned:", lstBalance);
 
         // If the bug is present, this assertion is TRUE:
-        assertEq(stuckFunds, expectedVaultShares - lstBalance, "CRITICAL: Yield was left stuck in the helper!");
-        
+        // assertEq(stuckFunds, expectedVaultShares - lstBalance, "CRITICAL: Yield was left stuck in the helper!");
+
         // If you fix the bug, you should change the assertion to:
-        // assertEq(stuckFunds, 0, "Helper should be empty");
+        assertEq(stuckFunds, 0, "Helper should be empty");
     }
 }
 

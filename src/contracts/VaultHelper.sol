@@ -186,7 +186,7 @@ contract VaultHelper is ReentrancyGuard {
         lstSharesBurned = amount;
 
         // --- Step 2: Redeem vault shares into underlying collateral (sent to user) ---
-        (collateralAmount,) = IVaultTokenized(ILSTWrapper(lstWrapper).vault()).redeem(user, lstSharesBurned);
+        (collateralAmount,) = IVaultTokenized(ILSTWrapper(lstWrapper).vault()).redeem(user, vaultSharesReceived);
         if (collateralAmount == 0) revert VaultHelper__ZeroCollateralWithdraw(collateralAmount);
 
         return (collateralAmount, lstSharesBurned);
