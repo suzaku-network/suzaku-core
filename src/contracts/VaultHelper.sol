@@ -209,10 +209,14 @@ contract VaultHelper is ReentrancyGuard {
         if (user == address(0)) revert VaultHelper__InvalidUser(user);
         if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
         uint256 currentEpoch = IVaultTokenized(vault).currentEpoch();
-        if (currentEpoch > MAX_EPOCH_SPAN) revert VaultHelper__InvalidRange();
+        // Limit scan to the last MAX_EPOCH_SPAN epochs to avoid reverting for long‑lived vaults
+        uint256 startEpoch = 0;
+        if (currentEpoch > MAX_EPOCH_SPAN) {
+            startEpoch = currentEpoch - MAX_EPOCH_SPAN;
+        }
 
         uint256 count;
-        for (uint256 i = 0; i < currentEpoch; i++) {
+        for (uint256 i = startEpoch; i < currentEpoch; i++) {
             if (IVaultTokenized(vault).withdrawalSharesOf(i, user) > 0) {
                 if (!IVaultTokenized(vault).isWithdrawalsClaimed(i, user)) {
                     count++;
@@ -223,7 +227,7 @@ contract VaultHelper is ReentrancyGuard {
         pendingWithdraws = new PendingWithdraw[](count);
 
         uint256 index;
-        for (uint256 i = 0; i < currentEpoch; i++) {
+        for (uint256 i = startEpoch; i < currentEpoch; i++) {
             uint256 userWithdrawalShares = IVaultTokenized(vault).withdrawalSharesOf(i, user);
             if (userWithdrawalShares > 0) {
                 if (!IVaultTokenized(vault).isWithdrawalsClaimed(i, user)) {
