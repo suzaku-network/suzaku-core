@@ -36,6 +36,7 @@ struct L1Data {
     address[] operators;
     address[] vaults;
     CollateralClassStake[] collateralClassStakes;
+    uint256 validators;
 }
 
 struct VaultData {
@@ -87,7 +88,8 @@ contract DataAggregator {
                 epochSettings: EpochSettings({currentEpoch: 0, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                collateralClassStakes: new CollateralClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0),
+                validators: 0
             });
         }
 
@@ -106,7 +108,8 @@ contract DataAggregator {
                 epochSettings: EpochSettings({currentEpoch: 0, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                collateralClassStakes: new CollateralClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0),
+                validators: 0
             });
         }
 
@@ -122,7 +125,8 @@ contract DataAggregator {
                 epochSettings: EpochSettings({currentEpoch: 0, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                collateralClassStakes: new CollateralClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0),
+                validators: 0
             });
         }
 
@@ -138,7 +142,8 @@ contract DataAggregator {
                 epochSettings: EpochSettings({currentEpoch: currentEpoch, epochDuration: 0, currentEpochStartTs: 0}),
                 operators: new address[](0),
                 vaults: new address[](0),
-                collateralClassStakes: new CollateralClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0),
+                validators: 0
             });
         }
 
@@ -160,16 +165,28 @@ contract DataAggregator {
                 }),
                 operators: new address[](0),
                 vaults: new address[](0),
-                collateralClassStakes: new CollateralClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0),
+                validators: 0
             });
         }
 
         address[] memory allOperators;
+        uint256 validators;
         try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getAllOperators() returns (address[] memory _operators)
         {
             allOperators = _operators;
+            for (uint256 i = 0; i < allOperators.length; i++) {
+                try AvalancheL1Middleware(payable(l1MiddlewareAddress)).getActiveNodesForEpoch(
+                    allOperators[i], currentEpoch
+                ) returns (bytes32[] memory _activeNodeIds) {
+                    validators += _activeNodeIds.length;
+                } catch {
+                    continue;
+                }
+            }
         } catch {
             allOperators = new address[](0);
+            validators = 0;
         }
 
         address[] memory allVaults;
@@ -199,7 +216,8 @@ contract DataAggregator {
                 }),
                 operators: allOperators,
                 vaults: allVaults,
-                collateralClassStakes: new CollateralClassStake[](0)
+                collateralClassStakes: new CollateralClassStake[](0),
+                validators: 0
             });
         }
 
@@ -265,7 +283,8 @@ contract DataAggregator {
             }),
             operators: allOperators,
             vaults: allVaults,
-            collateralClassStakes: collateralClassStakes
+            collateralClassStakes: collateralClassStakes,
+            validators: validators
         });
     }
 

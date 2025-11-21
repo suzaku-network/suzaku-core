@@ -4,14 +4,7 @@
 pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
-import {
-    DataAggregator,
-    L1Data,
-    VaultData,
-    OperatorData,
-    AssetClassStake,
-    AssetsStake
-} from "../src/contracts/DataAggregator.sol";
+import {DataAggregator, L1Data, VaultData, OperatorData} from "../src/contracts/DataAggregator.sol";
 import {IL1Registry} from "../src/interfaces/IL1Registry.sol";
 import {IAvalancheL1Middleware} from "../src/interfaces/middleware/IAvalancheL1Middleware.sol";
 import {IMiddlewareVaultManager} from "../src/interfaces/middleware/IMiddlewareVaultManager.sol";
@@ -65,6 +58,7 @@ contract DataAggregatorTest is Test {
             }
             emit log_named_uint("Stake", l1Data.collateralClassStakes[i].stake);
         }
+        emit log_named_uint("Number of Validators", l1Data.validators);
     }
 
     function test_GetVaultData() public {
