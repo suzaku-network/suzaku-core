@@ -46,6 +46,44 @@ interface IVaultHelper {
     ) external returns (uint256 collateralMinted, uint256 sharesMinted);
 
     /**
+     * @notice Stake an underlying asset in a LSTWrapper contract.
+     * @dev Converts the underlying asset to collateral and deposits it in the vault on behalf of the user.
+     *      Handles fee-on-transfer tokens by staking the actually received amount.
+     * @param vault Address of the vault to stake in.
+     * @param user Address of the user on whose behalf the staking is done.
+     * @param collateral Address of the collateral asset for the vault.
+     * @param lstWrapper Address of the LSTWrapper contract to stake in.
+     * @param underlying Address of the underlying asset to stake.
+     * @param amount Max amount of underlying to pull; actual staked may be less if the token takes a fee.
+     * @return collateralMinted amount of collateral minted from `underlying`
+     * @return sharesMinted amount of `vault` shares minted to `user`
+     */
+    function stakeAssetInWrappedVault(
+        address vault,
+        address user,
+        address collateral,
+        address underlying,
+        address lstWrapper,
+        uint256 amount
+    ) external returns (uint256 collateralMinted, uint256 sharesMinted);
+
+    /**
+     * @notice Withdraw collateral from a wrapped vault.
+     * @param vault Address of the vault to withdraw from.
+     * @param user Address of the user to withdraw for.
+     * @param lstWrapper Address of the LSTWrapper contract to withdraw from.
+     * @param amount Amount of collateral to withdraw.
+     * @return collateralAmount Amount of collateral withdrawn.
+     * @return lstSharesBurned Amount of LST shares burned.
+     */
+    function withdrawFromWrappedVault(
+        address vault,
+        address user,
+        address lstWrapper,
+        uint256 amount
+    ) external returns (uint256 collateralAmount, uint256 lstSharesBurned);
+
+    /**
      * @notice Get all pending withdrawals for a user in a vault.
      * @param vault Address of the vault to query.
      * @param user Address of the user to query.
