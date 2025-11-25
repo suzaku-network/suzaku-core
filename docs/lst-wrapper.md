@@ -74,19 +74,20 @@ User Flow:
 
 ### Auto-Compounding Mechanism
 
-The wrapper integrates with three core components:
+The wrapper integrates with two core components:
 
 1. **VaultTokenized**: The underlying vault that generates rewards
-2. **Rewards Contract**: Distributes native token rewards to vault participants  
-3. **VaultHelper**: Converts native tokens back to collateral and stakes in vault
+2. **Rewards Contract**: Distributes native token rewards to vault participants
 
 **Harvest Process:**
 ```
 1. Claim rewards (native tokens) from Rewards contract
-2. Convert native tokens to collateral via VaultHelper
+2. Convert native tokens to collateral (inline via DefaultCollateral)
 3. Deposit collateral into VaultTokenized to mint more shares
 4. LSTWrapper now owns more VaultTokenized shares → increased value per token
 ```
+
+The staking logic is handled inline within the LSTWrapper contract - no external helper contract needed.
 
 ---
 
@@ -98,7 +99,7 @@ Both implementations share the same interface (`ILSTWrapper`) which includes:
 - **Harvest Function**: `harvest(uint256 amount, bytes32[] calldata proof)`
 - **Admin Functions**: sweep, pause, configuration updates
 - **Slippage Protection**: deposit/mint/withdraw/redeem with bounds
-- **View Functions**: vault(), rewards(), collateral(), nativeToken(), vaultHelper()
+- **View Functions**: vault(), rewards(), collateral(), nativeToken()
 
 ### Implementation Differences
 
@@ -137,8 +138,7 @@ proxy.upgradeToAndCall(
 Anyone can call `harvest()` to trigger reward compounding:
 
 - **Whitelist Gating**: If the underlying vault has deposit whitelist enabled:
-  - Caller must be whitelisted as depositor
-  - VaultHelper must be whitelisted as depositor
+  - The LSTWrapper contract itself must be whitelisted as depositor
 - **No Whitelist**: Completely permissionless if vault has no deposit restrictions
 - **Incentive Alignment**: Community members can harvest to benefit all token holders
 
@@ -194,7 +194,6 @@ All state-changing functions protected with `nonReentrant`:
   - `setDepositsPaused()`: Pause or unpause deposits for emergency response
   - **First Mint Privilege**: Owner can deposit even when paused (for initial seed)
 - **ProxyAdmin-Only Functions** (via upgradeAndCall):
-  - `setVaultHelper()`: Update the vault helper contract
   - `setRewards()`: Update the rewards contract address
   - Contract implementation upgrades
 - **Permissionless Functions**:
@@ -216,15 +215,13 @@ Can do:
 
 #### **ProxyAdmin** 
 Can do (only via upgradeAndCall):
-- Update vault helper address (`setVaultHelper`)
 - Update rewards contract address (`setRewards`) 
 - Upgrade the implementation contract
 
-**Why ProxyAdmin instead of Owner for `setVaultHelper` and `setRewards`?**
+**Why ProxyAdmin instead of Owner for `setRewards`?**
 
 These functions require ProxyAdmin (not Owner) because they control critical infrastructure that could be exploited to steal funds:
 
-- **`setVaultHelper`**: If compromised, owner could point to a malicious helper that steals funds during `harvest()`
 - **`setRewards`**: If compromised, owner could point to a malicious rewards contract
 
 By requiring the same authority as contract upgrades (ProxyAdmin), these changes get the same security level. The ProxyAdmin should be a multisig or timelock for production deployments. The owner handles day-to-day operations (pausing, sweeping dust) but cannot modify the core infrastructure. This separation of powers prevents a compromised owner key from stealing user funds.
@@ -269,9 +266,10 @@ function harvest(uint256 amount, bytes32[] calldata proof) external returns (uin
 1. Claims rewards from Rewards contract (catches and logs failures)
 2. Calculates actual claimed amount via balance delta
 3. Checks vault whitelist and deposit limits (only when depositing)
-4. Converts native tokens to collateral and stakes via VaultHelper
-5. Validates non-zero shares minted to prevent value loss
-6. Emits `Harvest` event with claimed and minted amounts
+4. Converts native tokens to collateral (inline via DefaultCollateral.deposit())
+5. Stakes collateral in vault (inline via VaultTokenized.deposit())
+6. Validates non-zero shares minted to prevent value loss
+7. Emits `Harvest` event with claimed and minted amounts
 
 ### Slippage-Protected Helpers
 
@@ -294,7 +292,6 @@ function rescueAssetWhenNoSupply(address recipient, uint256 amount) external onl
 function setDepositsPaused(bool paused) external onlyOwner
 
 // Configuration (ProxyAdmin only via upgradeAndCall)
-function setVaultHelper(address helper_) external
 function setRewards(address rewards_) external
 ```
 
@@ -330,7 +327,6 @@ Create a JSON configuration file specifying the implementation type:
   "admin": "0x1234...",              // Becomes both owner AND ProxyAdmin
   "vault": "0xABCD...",              // VaultTokenized to wrap
   "rewards": "0xDEAD...",            // RewardsNativeToken or Merkle Distributor
-  "helper": "0xBEEF...",             // VaultHelper for conversions
   "name": "Liquid Token Vault",
   "symbol": "lsToken"
 }
@@ -465,9 +461,8 @@ uint256 assets = wrapper.redeemWithMinAssets(shares, 1050e18, user, user);
 ### Trust Assumptions
 
 - **Owner Trust**: Can pause deposits and sweep unexpected tokens (but not critical ones)
-- **ProxyAdmin Trust**: Can upgrade contract and update critical infrastructure (vault helper, rewards)
-- **VaultHelper Trust**: Handles native token conversion and vault deposits
-- **Underlying Vault**: Must be legitimate VaultTokenized instance
+- **ProxyAdmin Trust**: Can upgrade contract and update rewards contract address
+- **Underlying Vault**: Must be legitimate VaultTokenized instance with valid DefaultCollateral
 - **Rewards Contract**: Must distribute rewards fairly
 
 ### Operational Security
@@ -511,7 +506,7 @@ event Sweep(address indexed caller, address indexed token, address indexed recip
 // Admin operations  
 event CollateralDustSwept(address indexed caller, address indexed recipient, uint256 amount);
 event AssetRescued(address indexed recipient, uint256 amount);
-event VaultHelperUpdated(address indexed helper);
+event RewardsUpdated(address indexed rewards);
 event DepositsPaused(bool paused);
 
 // Error conditions
@@ -530,7 +525,6 @@ error LSTWrapper__ZeroAddress(string param);
 error LSTWrapper__InvalidRecipient();
 error LSTWrapper__InvalidVaultCollateral();
 error LSTWrapper__InvalidRewardsToken();
-error LSTWrapper__InvalidVaultHelper();
 
 // Operation restrictions
 error LSTWrapper__DepositRestricted();
