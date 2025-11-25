@@ -58,7 +58,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin,
             address(vault),
             address(rewards),
-            address(vaultHelper),
             "LST Wrapped VaultTokenized",
             "lstVT"
         );
@@ -163,7 +162,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapper.rewards(), address(rewards));
         assertEq(lstWrapper.collateral(), vault.collateral());
         assertEq(lstWrapper.nativeToken(), MockCollateral(vault.collateral()).asset());
-        assertEq(lstWrapper.vaultHelper(), address(vaultHelper));
         assertEq(lstWrapper.asset(), address(vault));
         assertEq(lstWrapper.name(), "LST Wrapped VaultTokenized");
         assertEq(lstWrapper.symbol(), "lstVT");
@@ -178,7 +176,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             address(0), // zero admin
             address(vault),
             address(rewards),
-            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -192,7 +189,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin,
             address(0), // zero vault
             address(rewards),
-            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -206,27 +202,11 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin,
             address(vault),
             address(0), // zero rewards
-            address(vaultHelper),
             "Test",
             "TST"
         );
         vm.expectRevert(abi.encodeWithSelector(ILSTWrapper.LSTWrapper__ZeroAddress.selector, "rewards"));
         new TransparentUpgradeableProxy(address(impl3), lstAdmin, initData3);
-        
-        // Test zero helper
-        LSTWrapper impl4 = new LSTWrapper();
-        bytes memory initData4 = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin,
-            address(vault),
-            address(rewards),
-            address(0), // zero helper
-            "Test",
-            "TST"
-        );
-        vm.expectRevert(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector);
-        new TransparentUpgradeableProxy(address(impl4), lstAdmin, initData4);
-        
     }
     
     function test_Initialize_RevertInvalidVaultCollateral() public {
@@ -239,7 +219,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin,
             mockVault,
             address(rewards),
-            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -257,7 +236,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin,
             mockVault,
             address(rewards),
-            address(vaultHelper),
             "Test",
             "TST"
         );
@@ -268,12 +246,23 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     // ERC20Permit / ERC20Votes tests
 
     function test_InitializeVotes_Reinitializer() public {
+        // Must call through ProxyAdmin
+        bytes memory callData = abi.encodeWithSelector(ILSTWrapper.initializeVotes.selector);
         vm.prank(lstAdmin);
-        lstWrapper.initializeVotes();
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapper))),
+            address(lstWrapperImplementation),
+            callData
+        );
 
+        // Try to initialize again - should fail
         vm.prank(lstAdmin);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        lstWrapper.initializeVotes();
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapper))),
+            address(lstWrapperImplementation),
+            callData
+        );
     }
     
     function test_VotesWorkAfterUpgrade_FullScenario() public {
@@ -290,8 +279,14 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapper.getVotes(lstUser2), 0, "No votes before delegation");
         
         // Now "upgrade" by initializing votes (simulating reinitializer on upgraded contract)
+        // Must call through ProxyAdmin
+        bytes memory callData = abi.encodeWithSelector(ILSTWrapper.initializeVotes.selector);
         vm.prank(lstAdmin);
-        lstWrapper.initializeVotes();
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapper))),
+            address(lstWrapperImplementation),
+            callData
+        );
         
         // Existing balances should still be there
         assertEq(lstWrapper.balanceOf(lstUser1), existingShares1);
@@ -409,20 +404,22 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     }
     
     function test_Harvest_RevertDepositRestricted() public {
-        // mock vault with whitelist on, helper not whitelisted
+        // mock vault with whitelist on, wrapper not whitelisted
         MockVaultWithDepositWhitelist mockVault = new MockVaultWithDepositWhitelist(
             address(collateral), true, false, 0
         );
-        mockVault.setDepositorWhitelistStatus(address(vaultHelper), false);
 
         // deploy wrapper against mockVault
         LSTWrapper impl = new LSTWrapper();
         bytes memory init = abi.encodeWithSelector(
             LSTWrapper.initialize.selector,
-            lstAdmin, address(mockVault), address(rewards), address(vaultHelper),
+            lstAdmin, address(mockVault), address(rewards),
             "Test","TST"
         );
         LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
+        
+        // Wrapper is not whitelisted by default
+        mockVault.setDepositorWhitelistStatus(address(w), false);
 
         // fund wrapper with native token
         address nat = MockCollateral(address(collateral)).asset();
@@ -640,44 +637,6 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     }
     
     // Admin setter tests
-    
-    function test_SetVaultHelper() public {
-        address newHelper = makeAddr("newHelper");
-        
-        // Call setVaultHelper via ProxyAdmin's upgradeAndCall
-        vm.prank(lstAdmin);
-        vm.expectEmit(true, false, false, false, address(lstWrapper));
-        emit ILSTWrapper.VaultHelperUpdated(newHelper);
-        
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(lstWrapper)),
-            address(lstWrapperImplementation), // same implementation
-            abi.encodeWithSelector(ILSTWrapper.setVaultHelper.selector, newHelper)
-        );
-        
-        assertEq(lstWrapper.vaultHelper(), newHelper);
-    }
-    
-    function test_SetVaultHelper_RevertZeroAddress() public {
-        // Try to set zero address via ProxyAdmin's upgradeAndCall
-        vm.prank(lstAdmin);
-        vm.expectRevert(
-            abi.encodeWithSelector(ILSTWrapper.LSTWrapper__InvalidVaultHelper.selector)
-        );
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(address(lstWrapper)),
-            address(lstWrapperImplementation),
-            abi.encodeWithSelector(ILSTWrapper.setVaultHelper.selector, address(0))
-        );
-    }
-    
-    function test_SetVaultHelper_OnlyProxyAdmin() public {
-        // Try to call directly (not via ProxyAdmin), should revert
-        vm.expectRevert(
-            abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, address(this))
-        );
-        lstWrapper.setVaultHelper(makeAddr("newHelper"));
-    }
     
     // Collateral dust sweep tests
     
@@ -967,7 +926,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         LSTWrapper impl = new LSTWrapper();
         bytes memory init = abi.encodeWithSelector(
             LSTWrapper.initialize.selector,
-            lstAdmin, address(vault), address(mockRewards), address(vaultHelper),
+            lstAdmin, address(vault), address(mockRewards),
             "Test","TST"
         );
         LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
@@ -996,7 +955,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         LSTWrapper impl = new LSTWrapper();
         bytes memory init = abi.encodeWithSelector(
             LSTWrapper.initialize.selector,
-            lstAdmin, address(vault), address(mockRewards), address(vaultHelper),
+            lstAdmin, address(vault), address(mockRewards),
             "Test","TST"
         );
         LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
@@ -1028,7 +987,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         LSTWrapper impl = new LSTWrapper();
         bytes memory init = abi.encodeWithSelector(
             LSTWrapper.initialize.selector,
-            lstAdmin, address(vault), address(mockRewards), address(vaultHelper),
+            lstAdmin, address(vault), address(mockRewards),
             "Test","TST"
         );
         LSTWrapper w = LSTWrapper(address(new TransparentUpgradeableProxy(address(impl), lstAdmin, init)));
@@ -1103,52 +1062,23 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(collateral.balanceOf(address(lstWrapper)), 2 ether - maxAllowedDust);
     }
     
-    // T9 - Helper change affects harvest
-    function test_HelperChange_AffectsHarvest() public {
+    // T9 - Wrapper whitelist affects harvest
+    function test_WrapperWhitelist_AffectsHarvest() public {
         // Use the existing vault which has deposit whitelist capability
         vm.startPrank(curatorOwner1);
         vault.setDepositWhitelist(true);
-        vault.setDepositorWhitelistStatus(address(vaultHelper), true);
+        vault.setDepositorWhitelistStatus(address(lstWrapper), true); // Whitelist the wrapper
         vault.setDepositorWhitelistStatus(lstAdmin, true); // Whitelist the caller for permissionless harvest
         vm.stopPrank();
-        
-        // Create new helper that is NOT whitelisted
-        VaultHelper newHelper = new VaultHelper(address(vaultFactory));
-        
-        // For testing, we'll directly set the helper by bypassing the ProxyAdmin check
-        // In production, this would be done via ProxyAdmin.upgradeAndCall()
-        
-        // Get the proxy admin address and store it in the admin slot to bypass the check
-        bytes32 adminSlot = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
-        address currentAdmin = address(uint160(uint256(vm.load(address(lstWrapper), adminSlot))));
-        
-        // Temporarily set this test contract as the ProxyAdmin
-        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(address(this)))));
-        
-        // Now we can call setVaultHelper as the ProxyAdmin
-        lstWrapper.setVaultHelper(address(newHelper));
-        
-        // Restore the original admin
-        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(currentAdmin))));
         
         // Send native to wrapper
         address nat = MockCollateral(address(collateral)).asset();
         Token(nat).transfer(address(lstWrapper), 1 ether);
         
-        // harvest() reverts DepositRestricted because new helper is not whitelisted
-        vm.prank(lstAdmin);
-        vm.expectRevert(ILSTWrapper.LSTWrapper__DepositRestricted.selector);
-        lstWrapper.harvest(0, new bytes32[](0));
-        
-        // Set helper back to whitelisted one via ProxyAdmin
-        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(address(this)))));
-        lstWrapper.setVaultHelper(address(vaultHelper));
-        vm.store(address(lstWrapper), adminSlot, bytes32(uint256(uint160(currentAdmin))));
-        
-        // harvest() succeeds
+        // harvest() succeeds with whitelisted wrapper
         vm.prank(lstAdmin);
         (, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
-        assertGt(mintedVaultShares, 0, "Should mint shares with whitelisted helper");
+        assertGt(mintedVaultShares, 0, "Should mint shares with whitelisted wrapper");
         
         // Reset whitelist
         vm.prank(curatorOwner1);

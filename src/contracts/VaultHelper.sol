@@ -127,7 +127,6 @@ contract VaultHelper is ReentrancyGuard {
         if (amount == 0) revert VaultHelper__InvalidAmount(amount);
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
         if (lstWrapper.code.length == 0) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
-        if (ILSTWrapper(lstWrapper).vaultHelper() != address(this)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
         // --- Step 1: Measure balance before the transfer ---
         uint256 balanceBefore = IERC20(ILSTWrapper(lstWrapper).nativeToken()).balanceOf(address(this));
@@ -177,7 +176,6 @@ contract VaultHelper is ReentrancyGuard {
         if (amount == 0) revert VaultHelper__InvalidAmount(amount);
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
         if (lstWrapper.code.length == 0) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
-        if (ILSTWrapper(lstWrapper).vaultHelper() != address(this)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
         // --- Step 1: Burn LST shares to receive vault shares ---
         uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), user);

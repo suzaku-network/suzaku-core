@@ -143,7 +143,6 @@ contract VaultHelperTest is MiddlewareTestBase {
             lstAdmin,
             address(vaultWithDC1),
             address(rewards),
-            address(vaultHelper),
             "LST Wrapped VaultWithDC1",
             "lstVDC1"
         );
@@ -153,7 +152,6 @@ contract VaultHelperTest is MiddlewareTestBase {
             lstAdmin,
             address(vaultWithDC2),
             address(rewards),
-            address(vaultHelper),
             "LST Wrapped VaultWithDC2",
             "lstVDC2"
         );
@@ -241,15 +239,18 @@ contract VaultHelperTest is MiddlewareTestBase {
         address invalidLSTWrapper = address(0);
 
         vm.startPrank(staker);
+        // Test zero address
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__ZeroAddress.selector, "lstWrapper"));
         vaultHelper.stakeAssetInWrappedVault(staker, invalidLSTWrapper, amount);
 
+        // Test EOA (address with no code)
         invalidLSTWrapper = makeAddr("InvalidLSTWrapper");
         vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, invalidLSTWrapper));
         vaultHelper.stakeAssetInWrappedVault(staker, invalidLSTWrapper, amount);
 
+        // Test contract that returns invalid addresses - will revert when trying to use address(0)
         invalidLSTWrapper = address(new MockLSTWrapper());
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, invalidLSTWrapper));
+        vm.expectRevert(); // Will revert when trying to call methods on address(0) returned by mock
         vaultHelper.stakeAssetInWrappedVault(staker, invalidLSTWrapper, amount);
         vm.stopPrank();
     }
@@ -830,7 +831,15 @@ contract VaultHelperTest is MiddlewareTestBase {
 }
 
 contract MockLSTWrapper {
-    function vaultHelper() external pure returns (address) {
+    function nativeToken() external pure returns (address) {
+        return address(0);
+    }
+    
+    function collateral() external pure returns (address) {
+        return address(0);
+    }
+    
+    function vault() external pure returns (address) {
         return address(0);
     }
 }

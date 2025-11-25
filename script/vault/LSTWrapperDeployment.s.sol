@@ -36,7 +36,6 @@ contract DeployLSTWrapper is Script {
             config.admin,
             config.vault,
             config.rewards,
-            config.helper,
             config.name,
             config.symbol
         );
@@ -59,7 +58,6 @@ contract DeployLSTWrapper is Script {
         console2.log("- ProxyAdmin:", proxyAdminAddr);
         console2.log("- Vault:", config.vault);
         console2.log("- Rewards:", config.rewards);
-        console2.log("- Helper:", config.helper);
         console2.log("- Name:", config.name);
         console2.log("- Symbol:", config.symbol);
     }
@@ -76,7 +74,6 @@ contract DeployLSTWrapper is Script {
             admin: vm.parseJsonAddress(json, ".admin"),
             vault: vm.parseJsonAddress(json, ".vault"),
             rewards: vm.parseJsonAddress(json, ".rewards"),
-            helper: vm.parseJsonAddress(json, ".helper"),
             name: vm.parseJsonString(json, ".name"),
             symbol: vm.parseJsonString(json, ".symbol")
         });

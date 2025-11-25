@@ -14,7 +14,6 @@ interface ILSTWrapper is IERC4626 {
     error LSTWrapper__InvalidRecipient();
     error LSTWrapper__InvalidVaultCollateral();
     error LSTWrapper__InvalidRewardsToken();
-    error LSTWrapper__InvalidVaultHelper();
     error LSTWrapper__DepositRestricted();
     error LSTWrapper__DepositLimitExceeded(uint256 headroom);
     error LSTWrapper__ZeroSharesMinted();
@@ -47,11 +46,6 @@ interface ILSTWrapper is IERC4626 {
      * @param reason error reason for the failed claim
      */
     event RewardsClaimFailed(bytes reason);
-    /**
-     * @notice Emitted when the vault helper is updated.
-     * @param helper new vault helper address
-     */
-    event VaultHelperUpdated(address indexed helper);
     
     /**
      * @notice Emitted when collateral dust is swept from the contract.
@@ -100,17 +94,10 @@ interface ILSTWrapper is IERC4626 {
     function nativeToken() external view returns (address);
 
     /**
-     * @notice Get the vault helper used for conversion and staking.
-     * @return address of the vault helper
-     */
-    function vaultHelper() external view returns (address);
-
-    /**
      * @notice Initialize the LST Wrapper.
      * @param admin initial owner and admin of the wrapper
      * @param vault_ address of the VaultTokenized instance to wrap
      * @param rewards_ address of the associated Rewards contract
-     * @param helper_ address of the VaultHelper to use
      * @param name_ ERC20 name for the LST wrapper token
      * @param symbol_ ERC20 symbol for the LST wrapper token
      */
@@ -118,7 +105,6 @@ interface ILSTWrapper is IERC4626 {
         address admin,
         address vault_,
         address rewards_,
-        address helper_,
         string memory name_,
         string memory symbol_
     ) external;
@@ -152,13 +138,6 @@ interface ILSTWrapper is IERC4626 {
     function sweep(address token, address recipient, uint256 amount) external;
 
     // Admin
-    /**
-     * @notice Set the vault helper contract.
-     * @dev ProxyAdmin-only (via upgradeAndCall). Init sets it on fresh deploy.
-     * @param helper_ Address of the new vault helper
-     */
-    function setVaultHelper(address helper_) external;
-    
     /**
      * @notice Set the rewards contract address.
      * @dev ProxyAdmin-only (via upgradeAndCall). Init sets it on fresh deploy.

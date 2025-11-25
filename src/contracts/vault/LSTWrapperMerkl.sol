@@ -19,8 +19,7 @@ import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.s
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
 import {IMerkleDistributor} from "../../interfaces/rewards/IMerkleDistributor.sol";
-import {IVaultHelper} from "../../interfaces/IVaultHelper.sol";
-import {ICollateral} from "../../interfaces/ICollateral.sol";
+import {IDefaultCollateral} from "../../interfaces/defaultCollateral/IDefaultCollateral.sol";
 
 /**
  * @title LSTWrapperMerkl
@@ -56,8 +55,6 @@ contract LSTWrapperMerkl is
         IERC20 collateral;
         /// @notice The native token (underlying of collateral) paid by rewards contract.
         IERC20 nativeToken;
-        /// @notice Helper used for native->collateral conversion and staking.
-        IVaultHelper vaultHelper;
         bool depositsPaused;
     }
 
@@ -73,7 +70,6 @@ contract LSTWrapperMerkl is
      * @param admin The initial owner and admin of this wrapper.
      * @param vault_ Address of the specific VaultTokenized instance to wrap.
      * @param merkleDistributor_ Address of the Merkl Distributor contract.
-     * @param helper_ Address of the VaultHelper to use.
      * @param name_ ERC20 name for this new LST wrapper token.
      * @param symbol_ ERC20 symbol for this new LST wrapper token.
      */
@@ -81,7 +77,6 @@ contract LSTWrapperMerkl is
         address admin,
         address vault_,
         address merkleDistributor_,
-        address helper_,
         string memory name_,
         string memory symbol_
     ) external initializer {
@@ -89,7 +84,6 @@ contract LSTWrapperMerkl is
         if (admin == address(0)) revert LSTWrapper__ZeroAddress("admin");
         if (vault_ == address(0)) revert LSTWrapper__ZeroAddress("vault");
         if (merkleDistributor_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
-        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
 
         // Initialize Inherited Contracts
         __ERC20_init(name_, symbol_); // name/symbol for this wrapper token
@@ -109,12 +103,11 @@ contract LSTWrapperMerkl is
         if (collateralAddr == address(0)) revert LSTWrapper__InvalidVaultCollateral();
         
         // Determine the native token from collateral
-        address nativeTokenAddr = ICollateral(collateralAddr).asset();
+        address nativeTokenAddr = IDefaultCollateral(collateralAddr).asset();
         if (nativeTokenAddr == address(0)) revert LSTWrapper__InvalidRewardsToken();
         
         lws.collateral = IERC20(collateralAddr);
         lws.nativeToken = IERC20(nativeTokenAddr);
-        lws.vaultHelper = IVaultHelper(helper_);
         // Start paused
         lws.depositsPaused = true;
         // No infinite approvals; per‑harvest allowances only.
@@ -177,14 +170,6 @@ contract LSTWrapperMerkl is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function vaultHelper() external view returns (address helper) {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        helper = address(lws.vaultHelper);
-    }
-
-    /**
-     * @inheritdoc ILSTWrapper
-     */
     function harvest(
         uint256 amount,
         bytes32[] calldata proof
@@ -228,7 +213,7 @@ contract LSTWrapperMerkl is
         // Gate by underlying vault whitelist only when depositing
         if (lws.vault.depositWhitelist()) {
             if (!lws.vault.isDepositorWhitelisted(msg.sender)) revert LSTWrapper__DepositRestricted();
-            if (!lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) revert LSTWrapper__DepositRestricted();
+            if (!lws.vault.isDepositorWhitelisted(address(this))) revert LSTWrapper__DepositRestricted();
         }
         // Deposit limit check only when depositing
         if (lws.vault.isDepositLimit()) {
@@ -237,19 +222,24 @@ contract LSTWrapperMerkl is
             if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
         }
 
-        // Approve helper to pull native token exactly once (use total balance to include dust)
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), totalNativeBalance);
-        (, mintedVaultShares) = lws.vaultHelper.stakeAssetInVault(
-            address(lws.vault),
-            address(this),
-            address(lws.collateral),
-            nativeTokenAddr,
-            totalNativeBalance
-        );
-        // Prevent silent value loss on rounding
+        // Inline staking: native token → collateral → vault shares
+        
+        // Approve collateral contract to pull native tokens
+        lws.nativeToken.forceApprove(address(lws.collateral), totalNativeBalance);
+        
+        // Deposit native tokens into collateral, minting collateral tokens to this contract
+        uint256 collateralMinted = IDefaultCollateral(address(lws.collateral)).deposit(address(this), totalNativeBalance);
+        if (collateralMinted == 0) revert LSTWrapper__ZeroSharesMinted();
+        lws.nativeToken.forceApprove(address(lws.collateral), 0);
+        
+        // Approve vault to pull collateral tokens
+        lws.collateral.forceApprove(address(lws.vault), collateralMinted);
+        
+        // Deposit collateral into vault, minting vault shares to this contract
+        (, mintedVaultShares) = lws.vault.deposit(address(this), collateralMinted);
         if (mintedVaultShares == 0) revert LSTWrapper__ZeroSharesMinted();
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
+        lws.collateral.forceApprove(address(lws.vault), 0);
+
         emit Harvest(msg.sender, claimedNative, mintedVaultShares);
 
         return (claimedNative, mintedVaultShares);
@@ -441,18 +431,6 @@ contract LSTWrapperMerkl is
 
         IERC20(asset()).safeTransfer(recipient, amount);
         emit AssetRescued(recipient, amount);
-    }
-
-    /**
-     * @inheritdoc ILSTWrapper
-     */
-    function setVaultHelper(address helper_) external {
-        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
-        // ProxyAdmin-only (during upgradeAndCall)
-        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.vaultHelper = IVaultHelper(helper_);
-        emit VaultHelperUpdated(helper_);
     }
 
     /**
