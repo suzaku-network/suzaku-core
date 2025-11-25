@@ -127,6 +127,8 @@ contract LSTWrapperMerkl is
      *      to add voting capabilities without affecting other storage.
      */
     function initializeVotes() external reinitializer(2) {
+        // ProxyAdmin-only (typically via upgradeAndCall)
+        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
         __ERC20Permit_init(name());
         __ERC20Votes_init();
     }
