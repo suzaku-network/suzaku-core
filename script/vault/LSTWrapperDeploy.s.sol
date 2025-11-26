@@ -4,6 +4,7 @@ pragma solidity 0.8.25;
 import {Script, console2} from "forge-std/Script.sol";
 import {LSTWrapper} from "../../src/contracts/vault/LSTWrapper.sol";
 import {LSTWrapperMerkl} from "../../src/contracts/vault/LSTWrapperMerkl.sol";
+import {LSTWrapperFactory} from "../../src/contracts/vault/LSTWrapperFactory.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {Upgrades} from "@openzeppelin/foundry-upgrades/Upgrades.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
@@ -69,6 +70,7 @@ contract DeployLSTWrapper is Script {
         console2.log("- Name:", config.name);
         console2.log("- Symbol:", config.symbol);
     }
+    
     
     /**
      * @dev Entry point for forge script - reads config from JSON

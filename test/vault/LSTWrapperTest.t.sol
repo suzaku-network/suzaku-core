@@ -16,6 +16,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
+import {LSTWrapperFactory} from "../../src/contracts/vault/LSTWrapperFactory.sol";
 import {Token} from "../mocks/MockToken.sol";
 import {MockCollateral} from "../mocks/MockCollateral.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
@@ -25,9 +26,11 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     LSTWrapper public lstWrapper;
     LSTWrapper public lstWrapperImplementation;
     VaultHelper public vaultHelper;
+    LSTWrapperFactory public lstWrapperFactory;
     ProxyAdmin public proxyAdmin;
     
     address public lstAdmin;
+    address public factoryOwner;
     address public lstUser1;
     address public lstUser2;
     address public attacker;
@@ -45,34 +48,32 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         lstUser1 = makeAddr("lstUser1");
         lstUser2 = makeAddr("lstUser2");
         attacker = makeAddr("attacker");
+        factoryOwner = makeAddr("factoryOwner");
         
-        // Deploy VaultHelper
-        vaultHelper = new VaultHelper(address(vaultFactory));
-        
-        // Deploy LSTWrapper implementation
+        // Deploy LSTWrapperFactory and whitelist implementation
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
         lstWrapperImplementation = new LSTWrapper();
         
-        // Deploy proxy and initialize (following deployment script pattern)
-        bytes memory initData = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin,
-            address(vault),
-            address(rewards),
-            "LST Wrapped VaultTokenized",
-            "lstVT"
-        );
+        vm.prank(factoryOwner);
+        lstWrapperFactory.whitelist(address(lstWrapperImplementation));
         
-        // Deploy TransparentUpgradeableProxy (creates its own ProxyAdmin internally)
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            address(lstWrapperImplementation),
-            lstAdmin, // initialOwner of the internally created ProxyAdmin
-            initData
-        );
+        // Deploy VaultHelper with both factories
+        vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
         
-        lstWrapper = LSTWrapper(address(proxy));
+        // Deploy wrapper through factory (permissionless)
+        lstWrapper = LSTWrapper(
+            lstWrapperFactory.create(
+                1, // version
+                lstAdmin,
+                address(vault),
+                address(rewards),
+                "LST Wrapped VaultTokenized",
+                "lstVT"
+            )
+        );
         
         // Get the internal ProxyAdmin using OZ utilities
-        proxyAdmin = ProxyAdmin(Upgrades.getAdminAddress(address(proxy)));
+        proxyAdmin = ProxyAdmin(Upgrades.getAdminAddress(address(lstWrapper)));
         
         // Setup initial deposits to vault for testing
         _setupInitialVaultDeposits();

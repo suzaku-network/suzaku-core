@@ -30,12 +30,13 @@ contract VaultHelper is ReentrancyGuard {
     uint256 constant MAX_EPOCH_SPAN = 5000;
 
     IRegistry public immutable VAULT_FACTORY;
+    IRegistry public immutable LST_WRAPPER_FACTORY;
 
-    constructor(
-        address vaultFactory_
-    ) {
+    constructor(address vaultFactory_, address lstWrapperFactory_) {
         if (vaultFactory_ == address(0)) revert VaultHelper__ZeroAddress("vaultFactory");
+        if (lstWrapperFactory_ == address(0)) revert VaultHelper__ZeroAddress("lstWrapperFactory");
         VAULT_FACTORY = IRegistry(vaultFactory_);
+        LST_WRAPPER_FACTORY = IRegistry(lstWrapperFactory_);
     }
 
     // Custom errors
@@ -126,7 +127,9 @@ contract VaultHelper is ReentrancyGuard {
         if (user == address(0)) revert VaultHelper__InvalidUser(user);
         if (amount == 0) revert VaultHelper__InvalidAmount(amount);
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
-        if (lstWrapper.code.length == 0) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
+        if (LST_WRAPPER_FACTORY != IRegistry(address(0)) && !LST_WRAPPER_FACTORY.isEntity(lstWrapper)) {
+            revert VaultHelper__LSTWrapperMismatch(lstWrapper);
+        }
 
         // --- Step 1: Measure balance before the transfer ---
         uint256 balanceBefore = IERC20(ILSTWrapper(lstWrapper).nativeToken()).balanceOf(address(this));
@@ -175,7 +178,7 @@ contract VaultHelper is ReentrancyGuard {
         if (user == address(0)) revert VaultHelper__InvalidUser(user);
         if (amount == 0) revert VaultHelper__InvalidAmount(amount);
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
-        if (lstWrapper.code.length == 0) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
+        if (!LST_WRAPPER_FACTORY.isEntity(lstWrapper)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
         // --- Step 1: Burn LST shares to receive vault shares ---
         uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), user);

@@ -7,6 +7,7 @@ import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 import {MiddlewareTestBase} from "./middleware/MiddlewareTestBase.t.sol";
 import {VaultHelper, PendingWithdraw, ClaimAmountsPerToken} from "../src/contracts/VaultHelper.sol";
+import {LSTWrapperFactory} from "../src/contracts/vault/LSTWrapperFactory.sol";
 import {MockFeeOnTransferToken} from "./mocks/MockFeeOnTransferToken.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -24,10 +25,12 @@ import {
 
 contract VaultHelperTest is MiddlewareTestBase {
     VaultHelper public vaultHelper;
+    LSTWrapperFactory public lstWrapperFactory;
     MockRewardsNativeToken public rewards;
     Token public rewardsToken;
     Token public rewardsToken2;
     address public lstAdmin;
+    address public factoryOwner;
 
     // DefaultCollateral setup
     DefaultCollateralFactory public defaultCollateralFactory;
@@ -50,9 +53,17 @@ contract VaultHelperTest is MiddlewareTestBase {
         super.setUp();
 
         lstAdmin = makeAddr("lstAdmin");
+        factoryOwner = makeAddr("factoryOwner");
 
-        // Deploy VaultHelper with the real vault factory from MiddlewareTestBase
-        vaultHelper = new VaultHelper(address(vaultFactory));
+        // Deploy LSTWrapperFactory and whitelist implementation
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
+        
+        LSTWrapper wrapperImpl = new LSTWrapper();
+        vm.prank(factoryOwner);
+        lstWrapperFactory.whitelist(address(wrapperImpl));
+
+        // Deploy VaultHelper with both factories
+        vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
 
         // Deploy DefaultCollateralFactory
         defaultCollateralFactory = new DefaultCollateralFactory();
@@ -133,43 +144,30 @@ contract VaultHelperTest is MiddlewareTestBase {
         rewardsToken2 = new Token("Rewards2");
         rewards = new MockRewardsNativeToken(address(middleware), address(vault), address(rewardsToken));
 
-        // Deploy LSTWrapper implementations
-        lstWrapper1Implementation = new LSTWrapper();
-        lstWrapper2Implementation = new LSTWrapper();
-
-        // Deploy proxy and initialize (following deployment script pattern)
-        bytes memory initData1 = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin,
-            address(vaultWithDC1),
-            address(rewards),
-            "LST Wrapped VaultWithDC1",
-            "lstVDC1"
+        // Deploy wrappers through factory (permissionless - anyone can call)
+        lstWrapper1 = LSTWrapper(
+            lstWrapperFactory.create(
+                1, // version
+                lstAdmin,
+                address(vaultWithDC1),
+                address(rewards),
+                "LST Wrapped VaultWithDC1",
+                "lstVDC1"
+            )
         );
 
-        bytes memory initData2 = abi.encodeWithSelector(
-            LSTWrapper.initialize.selector,
-            lstAdmin,
-            address(vaultWithDC2),
-            address(rewards),
-            "LST Wrapped VaultWithDC2",
-            "lstVDC2"
+        lstWrapper2 = LSTWrapper(
+            lstWrapperFactory.create(
+                1, // version
+                lstAdmin,
+                address(vaultWithDC2),
+                address(rewards),
+                "LST Wrapped VaultWithDC2",
+                "lstVDC2"
+            )
         );
 
-        // Deploy TransparentUpgradeableProxy (creates its own ProxyAdmin internally)
-        TransparentUpgradeableProxy proxy1 = new TransparentUpgradeableProxy(
-            address(lstWrapper1Implementation),
-            lstAdmin, // initialOwner of the internally created ProxyAdmin
-            initData1
-        );
-        TransparentUpgradeableProxy proxy2 = new TransparentUpgradeableProxy(
-            address(lstWrapper2Implementation),
-            lstAdmin, // initialOwner of the internally created ProxyAdmin
-            initData2
-        );
-
-        lstWrapper1 = LSTWrapper(address(proxy1));
-        lstWrapper2 = LSTWrapper(address(proxy2));
+        // Wrappers are automatically registered by factory.create()
 
         // Give staker some underlying tokens to work with
         underlyingToken1.transfer(staker, 100_000 ether);

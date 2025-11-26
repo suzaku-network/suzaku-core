@@ -13,6 +13,7 @@ import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
+import {LSTWrapperFactory} from "../../src/contracts/vault/LSTWrapperFactory.sol";
 import {Token} from "../mocks/MockToken.sol";
 import {MockCollateral} from "../mocks/MockCollateral.sol";
 import {MockMerkleDistributor} from "../mocks/MockMerkleDistributor.sol";
@@ -38,9 +39,11 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     LSTWrapperMerkl public lstWrapperMerklImplementation;
     MockMerkleDistributor public merkleDistributor;
     VaultHelper public vaultHelper;
+    LSTWrapperFactory public lstWrapperFactory;
     ProxyAdmin public proxyAdmin; // For managing upgrades
     
     address public lstAdmin;
+    address public factoryOwner;
     address public lstUser1;
     address public lstUser2;
     
@@ -54,9 +57,17 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         lstAdmin = makeAddr("lstAdmin");
         lstUser1 = makeAddr("lstUser1");
         lstUser2 = makeAddr("lstUser2");
+        factoryOwner = makeAddr("factoryOwner");
         
-        // Deploy VaultHelper
-        vaultHelper = new VaultHelper(address(vaultFactory));
+        // Deploy LSTWrapperFactory and whitelist implementation
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
+        
+        LSTWrapper wrapperImpl = new LSTWrapper();
+        vm.prank(factoryOwner);
+        lstWrapperFactory.whitelist(address(wrapperImpl));
+        
+        // Deploy VaultHelper with both factories
+        vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
         
         // Deploy Mock Merkl Distributor
         merkleDistributor = new MockMerkleDistributor();
