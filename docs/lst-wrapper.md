@@ -50,6 +50,26 @@ Both implement the same `ILSTWrapper` interface and are **upgrade-compatible** w
 - **Liquid staking token**: ERC-4626 compliant, composable with DeFi protocols
 - **Auto-compounding**: Rewards automatically reinvested to increase token value
 - **Permissionless harvest**: Anyone can trigger reward harvesting for the community
+6- **Permissionless deployment**: Anyone can deploy wrappers from protocol-approved implementations
+
+---
+
+## Factory Architecture
+
+**LSTWrapperFactory** enables permissionless deployment with protocol-controlled quality:
+
+- **Protocol Owner**: Whitelists safe implementations (version control)
+- **Anyone**: Can deploy wrappers from whitelisted implementations
+- **Registry**: All deployed wrappers automatically registered
+- **VaultHelper**: Validates wrappers against factory registry (security)
+
+This pattern matches `VaultFactory` for consistency across the protocol.
+
+**Benefits:**
+- Users/integrators can deploy their own wrappers without permission
+- Protocol maintains quality control via implementation whitelist
+- VaultHelper only accepts factory-deployed wrappers (prevents malicious contracts)
+- Version tracking enables upgrades and deprecation
 
 ---
 
@@ -316,49 +336,60 @@ function setRewards(address rewards_) external
 
 ### Deployment Pattern
 
+**Step 1: Deploy LSTWrapperFactory (Protocol Owner)**
+
+The factory must be deployed once per protocol:
+
+```solidity
+LSTWrapperFactory factory = new LSTWrapperFactory(protocolOwner);
+```
+
+**Step 2: Whitelist Implementations (Protocol Owner)**
+
+Whitelist approved LSTWrapper implementations:
+
+```solidity
+// Whitelist LSTWrapper
+LSTWrapper impl1 = new LSTWrapper();
+factory.whitelist(address(impl1));  // Creates version 1
+
+// Whitelist LSTWrapperMerkl
+LSTWrapperMerkl impl2 = new LSTWrapperMerkl();
+factory.whitelist(address(impl2));  // Creates version 2
+```
+
+**Step 3: Deploy VaultHelper**
+
+VaultHelper requires both factories:
+
+```solidity
+VaultHelper helper = new VaultHelper(
+    address(vaultFactory),
+    address(lstWrapperFactory)  // Required
+);
+```
+
+**Step 4: Permissionless Wrapper Deployment**
+
+Anyone can deploy wrappers from whitelisted implementations:
+
+```solidity
+address wrapper = factory.create(
+    1,                          // version (1 = LSTWrapper, 2 = LSTWrapperMerkl)
+    admin,                      // admin (owner and ProxyAdmin)
+    vault,                      // VaultTokenized to wrap
+    rewards,                    // RewardsNativeToken or Merkle Distributor
+    "Liquid Staking Token",     // name
+    "LST"                       // symbol
+);
+// Wrapper is automatically registered in factory
+```
+
 **Using Deployment Scripts:**
 
-Create a JSON configuration file specifying the implementation type:
+Scripts provide helper functions for complex deployments (see `script/vault/LSTWrapperDeploy.s.sol` and `script/deploy/anvil/FullLocalDeploymentScript.s.sol`).
 
-```json
-// configs/lstwrapper.json
-{
-  "implementation": "LSTWrapper",     // or "LSTWrapperMerkl"
-  "admin": "0x1234...",              // Becomes both owner AND ProxyAdmin
-  "vault": "0xABCD...",              // VaultTokenized to wrap
-  "rewards": "0xDEAD...",            // RewardsNativeToken or Merkle Distributor
-  "name": "Liquid Token Vault",
-  "symbol": "lsToken"
-}
-```
-
-Deploy using the deployment script:
-```bash
-forge script script/vault/LSTWrapperDeploy.s.sol:DeployLSTWrapper \
-  --sig "run(string)" "lstwrapper.json" \
-  --broadcast \
-  --rpc-url $RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --verify
-```
-
-The script will:
-- Deploy the specified implementation (LSTWrapper or LSTWrapperMerkl)
-- Create a transparent proxy
-- Initialize with provided configuration
-- Log all deployed addresses
-
-For suzaku-deployer integration, use:
-```bash
-forge script script/curator/DeployCurator.s.sol:DeployLSTWrapper \
-  --sig "run(string)" "lstwrapper.json" \
-  --broadcast \
-  --rpc-url $RPC_URL \
-  --private-key $PRIVATE_KEY \
-  --verify
-```
-
-**Important Security Note**: The deployment script uses `config.admin` as BOTH:
+**Important Security Note**: The `admin` parameter becomes BOTH:
 - The contract owner (operational control)
 - The ProxyAdmin (upgrade control)
 
