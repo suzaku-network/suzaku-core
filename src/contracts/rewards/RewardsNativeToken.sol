@@ -835,37 +835,4 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         _calculateAndStoreVaultShares(epoch, operator);
     }
 
-    // Getter functions
-    /**
-     * @dev Gets the vaults for a given staker and epoch
-     * @param staker The staker to get the vaults for
-     * @param epoch The epoch to get the vaults for
-     * @return The vaults for the given staker and epoch
-     */
-    function _getStakerVaults(address staker, uint48 epoch) internal view returns (address[] memory) {
-        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
-        uint48 epochStart = middleware.getEpochStartTs(epoch);
-
-        // Use temporary array sized to maximum possible length
-        address[] memory tempVaults = new address[](vaults.length);
-        uint256 count = 0;
-
-        // Single pass: Check balance and collect valid vaults
-        for (uint256 i = 0; i < vaults.length;) {
-            if (IVaultTokenized(vaults[i]).activeBalanceOfAt(staker, epochStart, new bytes(0)) > 0) {
-                tempVaults[count] = vaults[i];
-                count++;
-            }
-            unchecked { ++i; }
-        }
-
-        // Create final array with exact count and copy valid vaults
-        address[] memory validVaults = new address[](count);
-        for (uint256 i = 0; i < count;) {
-            validVaults[i] = tempVaults[i];
-            unchecked { ++i; }
-        }
-
-        return validVaults;
-    }
 }
