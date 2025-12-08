@@ -4,7 +4,7 @@
 pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
-import {DataAggregator, L1Data, VaultData, OperatorData} from "../src/contracts/DataAggregator.sol";
+import {DataAggregator, L1Data, OperatorData, VaultData} from "../src/contracts/DataAggregator.sol";
 import {IL1Registry} from "../src/interfaces/IL1Registry.sol";
 import {IAvalancheL1Middleware} from "../src/interfaces/middleware/IAvalancheL1Middleware.sol";
 import {IMiddlewareVaultManager} from "../src/interfaces/middleware/IMiddlewareVaultManager.sol";
@@ -15,10 +15,10 @@ import {ICollateralClassRegistry} from "../src/interfaces/middleware/ICollateral
 contract DataAggregatorTest is Test {
     DataAggregator public dataAggregator;
 
-    address constant L1_REGISTRY = 0xbB2ab0Ae2DdbC302eF4947435E881d5A95E882FE;
-    address constant L1_ADDRESS = 0x46a2C23826caA714d5E298aDF7E0eeEadc087d2d;
-    address constant VAULT_ADDRESS = 0xc2BC5788A769F3BF4C37255eF301c08D641416D4;
-    address constant OPERATOR_ADDRESS = 0x50cA76a4f5b0C9ac02E0a6E0C286C29D367aF650;
+    address constant L1_REGISTRY = 0x636CF0E1f3c3a72d64Fcaa9A2C20395dE93fCAB7;
+    address constant L1_ADDRESS = 0xab0a501E9b9A297DdD974DE9aeC5e7931d839bFe;
+    address constant VAULT_ADDRESS = 0x84B44c5BaeaAa7d1136B894A19b0da9324086019;
+    address constant OPERATOR_ADDRESS = 0x32bA665401294Fb66d3F6886C6394E99d01CC711;
 
     // Fork Fuji testnet
     uint256 fuji;
@@ -37,87 +37,94 @@ contract DataAggregatorTest is Test {
 
         // Log the data for manual verification
         emit log_named_address("L1 Address", l1Data.l1);
-        emit log_named_address("L1 Middleware", l1Data.l1Middleware);
+        emit log_named_address("L1 Middleware", l1Data.middleware);
         emit log_named_address("Vault Manager", l1Data.vaultManager);
-        emit log_named_string("L1 Metadata", l1Data.l1Metadata);
-        emit log_named_uint("Current Epoch", l1Data.epochSettings.currentEpoch);
-        emit log_named_uint("Number of Operators", l1Data.operators.length);
-        for (uint256 i = 0; i < l1Data.operators.length; i++) {
-            emit log_named_address("Operator", l1Data.operators[i]);
-        }
-        emit log_named_uint("Number of Vaults", l1Data.vaults.length);
-        for (uint256 i = 0; i < l1Data.vaults.length; i++) {
-            emit log_named_address("Vault", l1Data.vaults[i]);
-        }
-        emit log_named_uint("Number of Collateral Class Stakes", l1Data.collateralClassStakes.length);
-        for (uint256 i = 0; i < l1Data.collateralClassStakes.length; i++) {
-            emit log_named_uint("Collateral Class", l1Data.collateralClassStakes[i].collateralClass);
-            emit log_named_uint("Number of Assets", l1Data.collateralClassStakes[i].assetsInClass.length);
-            for (uint256 j = 0; j < l1Data.collateralClassStakes[i].assetsInClass.length; j++) {
-                emit log_named_address("Asset", l1Data.collateralClassStakes[i].assetsInClass[j]);
+        emit log_named_uint("Current Epoch", l1Data.epoch.currentEpoch);
+        emit log_named_uint("Epoch Duration", l1Data.epoch.epochDuration);
+        emit log_named_uint("Current Epoch Start Timestamp", l1Data.epoch.currentEpochStartTs);
+
+        // Collaterals
+        emit log_named_uint("Number of Collateral Classes", l1Data.collateral.classIds.length);
+        for (uint256 i = 0; i < l1Data.collateral.classIds.length; i++) {
+            emit log_named_uint("Collateral Class ID", l1Data.collateral.classIds[i]);
+            emit log_named_uint("Number of Assets", l1Data.collateral.assetsByClass[i].assets.length);
+            for (uint256 j = 0; j < l1Data.collateral.assetsByClass[i].assets.length; j++) {
+                emit log_named_address("Asset", l1Data.collateral.assetsByClass[i].assets[j]);
             }
-            emit log_named_uint("Stake", l1Data.collateralClassStakes[i].stake);
+            emit log_named_uint("Total Stake", l1Data.collateral.stakesByClass[i].stake);
         }
-        emit log_named_uint("Number of Validators", l1Data.validators);
-    }
 
-    function test_GetVaultData() public {
-        VaultData memory vaultData = dataAggregator.getVaultData(VAULT_ADDRESS);
-
-        // Log the data for manual verification
-        emit log_named_address("Vault Address", vaultData.vault);
-        emit log_named_address("Collateral", vaultData.collateral);
-        emit log_named_address("Delegator", vaultData.delegator);
-        emit log_named_uint("Total Stake", vaultData.totalStake);
-        emit log_named_uint("Number of Delegated L1s", vaultData.delegatedL1s.length);
-        for (uint256 i = 0; i < vaultData.delegatedL1s.length; i++) {
-            emit log_named_address("Delegated L1", vaultData.delegatedL1s[i]);
+        // Operators
+        emit log_named_uint("Number of Operators", l1Data.operatorSet.length);
+        for (uint256 i = 0; i < l1Data.operatorSet.length; i++) {
+            emit log_named_address("Operator", l1Data.operatorSet[i].operator);
+            emit log_named_uint("Number of Collateral Classes", l1Data.operatorSet[i].stakesByClass.length);
+            for (uint256 j = 0; j < l1Data.operatorSet[i].stakesByClass.length; j++) {
+                emit log_named_uint("Collateral Class ID", l1Data.operatorSet[i].stakesByClass[j].classId);
+                emit log_named_uint("L1 Total Stake", l1Data.operatorSet[i].stakesByClass[j].stakeOnL1);
+                emit log_named_uint("Operator Stake", l1Data.operatorSet[i].stakesByClass[j].stake);
+                emit log_named_uint("Operator Used Stake", l1Data.operatorSet[i].stakesByClass[j].usedStake);
+            }
         }
-        emit log_named_uint("Number of Delegated Operators", vaultData.delegatedOperators.length);
-        for (uint256 i = 0; i < vaultData.delegatedOperators.length; i++) {
-            emit log_named_address("Delegated Operator", vaultData.delegatedOperators[i]);
+        emit log_named_uint("Number of Validators", l1Data.validatorsCount);
+
+        // Vaults
+        emit log_named_uint("Number of Vaults", l1Data.vaultSet.length);
+        for (uint256 i = 0; i < l1Data.vaultSet.length; i++) {
+            emit log_named_address("Vault", l1Data.vaultSet[i].vault);
+            emit log_named_uint("Collateral Class ID", l1Data.vaultSet[i].classId);
+            emit log_named_uint("Stake", l1Data.vaultSet[i].stake);
         }
     }
 
     function test_GetOperatorData() public {
         OperatorData memory operatorData = dataAggregator.getOperatorData(OPERATOR_ADDRESS);
 
-        // Log the data for manual verification
         emit log_named_address("Operator Address", operatorData.operator);
-        emit log_named_uint("Number of Secured L1s", operatorData.securedL1s.length);
-        for (uint256 i = 0; i < operatorData.securedL1s.length; i++) {
-            emit log_named_address("Secured L1", operatorData.securedL1s[i]);
-        }
-        emit log_named_uint("Number of Trusted Vaults", operatorData.trustedVaults.length);
-        for (uint256 i = 0; i < operatorData.trustedVaults.length; i++) {
-            emit log_named_address("Trusted Vault", operatorData.trustedVaults[i]);
-        }
-        emit log_named_uint("Number of Collateral Class Stakes", operatorData.collateralClassStakeMap.length);
-        for (uint256 i = 0; i < operatorData.collateralClassStakeMap.length; i++) {
-            emit log_named_address("Middleware", operatorData.collateralClassStakeMap[i].middleware);
-            emit log_named_uint(
-                "Number of Collateral Class Stakes",
-                operatorData.collateralClassStakeMap[i].collateralClassStakes.length
-            );
-            for (uint256 j = 0; j < operatorData.collateralClassStakeMap[i].collateralClassStakes.length; j++) {
-                emit log_named_uint(
-                    "Collateral Class", operatorData.collateralClassStakeMap[i].collateralClassStakes[j].collateralClass
-                );
-                emit log_named_uint(
-                    "Number of Assets",
-                    operatorData.collateralClassStakeMap[i].collateralClassStakes[j].assetsInClass.length
-                );
-                for (
-                    uint256 k = 0;
-                    k < operatorData.collateralClassStakeMap[i].collateralClassStakes[j].assetsInClass.length;
-                    k++
-                ) {
-                    emit log_named_address(
-                        "Asset", operatorData.collateralClassStakeMap[i].collateralClassStakes[j].assetsInClass[k]
-                    );
-                }
-                emit log_named_uint("Stake", operatorData.collateralClassStakeMap[i].collateralClassStakes[j].stake);
+
+        // L1s
+        emit log_named_uint("Number of L1s", operatorData.stakesByL1.length);
+        for (uint256 i = 0; i < operatorData.stakesByL1.length; i++) {
+            emit log_named_address("L1 Address", operatorData.stakesByL1[i].l1);
+            emit log_named_uint("Number of Collateral Classes", operatorData.stakesByL1[i].stakesByClass.length);
+            for (uint256 j = 0; j < operatorData.stakesByL1[i].stakesByClass.length; j++) {
+                emit log_named_uint("Collateral Class ID", operatorData.stakesByL1[i].stakesByClass[j].classId);
+                emit log_named_uint("L1 Stake", operatorData.stakesByL1[i].stakesByClass[j].stakeOnL1);
+                emit log_named_uint("Operator Stake", operatorData.stakesByL1[i].stakesByClass[j].stake);
+                emit log_named_uint("Operator Used Stake", operatorData.stakesByL1[i].stakesByClass[j].usedStake);
             }
+        }
+
+        // Vaults
+        emit log_named_uint("Number of Vaults", operatorData.stakesByVault.length);
+        for (uint256 i = 0; i < operatorData.stakesByVault.length; i++) {
+            emit log_named_address("Vault Address", operatorData.stakesByVault[i].vault);
+            emit log_named_address("Collateral Asset", operatorData.stakesByVault[i].collateralAsset);
+            emit log_named_uint("Stake", operatorData.stakesByVault[i].stake);
+        }
+    }
+
+    function test_GetVaultData() public {
+        VaultData memory vaultData = dataAggregator.getVaultData(VAULT_ADDRESS);
+
+        emit log_named_address("Vault Address", vaultData.vault);
+        emit log_named_address("Collateral", vaultData.collateral);
+        emit log_named_address("Delegator", vaultData.delegator);
+        emit log_named_uint("Total Stake", vaultData.totalStake);
+
+        // L1s
+        emit log_named_uint("Number of Delegated L1s", vaultData.stakesByL1.length);
+        for (uint256 i = 0; i < vaultData.stakesByL1.length; i++) {
+            emit log_named_address("Delegated L1", vaultData.stakesByL1[i].l1);
+            emit log_named_uint("Corresponding Collateral Class ID", vaultData.stakesByL1[i].classId);
+            emit log_named_uint("Stake", vaultData.stakesByL1[i].stake);
+        }
+
+        // Operators
+        emit log_named_uint("Number of Delegated Operators", vaultData.stakesByOperator.length);
+        for (uint256 i = 0; i < vaultData.stakesByOperator.length; i++) {
+            emit log_named_address("Delegated Operator", vaultData.stakesByOperator[i].operator);
+            emit log_named_uint("Stake", vaultData.stakesByOperator[i].stake);
         }
     }
 }
