@@ -704,6 +704,46 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertGt(operatorAvailable, 0, "Operator should have some leftover stake");
     }
 
+    function test_AddNode_NonCanonicalNodeId_Reverts() public {
+        // Test that nodeIds with non-zero high bytes are rejected
+        // This prevents aliasing attacks where different bytes32 values
+        // map to the same 20-byte node identity
+        _calcAndWarpOneEpoch();
+
+        // Non-canonical nodeId: has non-zero high 12 bytes
+        bytes32 nonCanonicalNodeId = 0x1111111111111111111111110000000000000000000000000000000000000001;
+        bytes memory blsKey = new bytes(48);
+        PChainOwner memory ownerStruct = _pOwner1(alice);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAvalancheL1Middleware.AvalancheL1Middleware__InvalidNodeIdFormat.selector,
+                nonCanonicalNodeId
+            )
+        );
+        vm.prank(alice);
+        middleware.addNode(nonCanonicalNodeId, blsKey, ownerStruct, ownerStruct, 0);
+    }
+
+    function test_AddNode_CanonicalNodeId_Succeeds() public {
+        // Test that nodeIds with zero high bytes (canonical format) are accepted
+        _calcAndWarpOneEpoch();
+
+        // Canonical nodeId: high 12 bytes are zero
+        bytes32 canonicalNodeId = 0x0000000000000000000000000000000000000000000000000000000000000001;
+        bytes memory blsKey = new bytes(48);
+        PChainOwner memory ownerStruct = _pOwner1(alice);
+
+        vm.prank(alice);
+        middleware.addNode(canonicalNodeId, blsKey, ownerStruct, ownerStruct, 0);
+
+        // Verify node was added
+        bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(canonicalNodeId));
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 nodeStake = middleware.getNodeStake(epoch, validationID);
+        assertGt(nodeStake, 0, "Node stake should be >0 after adding canonical nodeId");
+    }
+
     function test_SingleNode_AddUpdateRemoveThenCompleteUpdate() public {
         uint256 scaleFactor = middleware.WEIGHT_SCALE_FACTOR();
 

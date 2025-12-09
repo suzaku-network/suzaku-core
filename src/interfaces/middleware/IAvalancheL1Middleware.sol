@@ -41,6 +41,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
     error AvalancheL1Middleware__UnexpectedWeightUpdate(bytes32 validationID);
     error AvalancheL1Middleware__MessageNotForThisModule(bytes32 validationID, address ownerModule);
+    error AvalancheL1Middleware__InvalidNodeIdFormat(bytes32 nodeId);
     // Events
     /**
      * @notice Emitted when a node is added

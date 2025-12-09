@@ -383,6 +383,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         PChainOwner calldata disableOwner,
         uint256 stakeAmount // optional
     ) external {
+        // Require canonical nodeId format
+        if (uint256(nodeId) >> 160 != 0) {
+            revert AvalancheL1Middleware__InvalidNodeIdFormat(nodeId);
+        }
         _updateStakeCache(getCurrentEpoch(), PRIMARY_ASSET_CLASS);
         _updateGlobalNodeStakeOncePerEpoch();
         address operator = msg.sender;
