@@ -171,23 +171,21 @@ contract VaultHelper is ReentrancyGuard {
     }
 
     function withdrawFromWrappedVault(
-        address user,
         address lstWrapper,
         uint256 amount
     ) external nonReentrant returns (uint256 collateralAmount, uint256 lstSharesBurned) {
-        if (user == address(0)) revert VaultHelper__InvalidUser(user);
         if (amount == 0) revert VaultHelper__InvalidAmount(amount);
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
         if (!LST_WRAPPER_FACTORY.isEntity(lstWrapper)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
         // --- Step 1: Burn LST shares to receive vault shares ---
-        uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), user);
+        uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), msg.sender);
         if (vaultSharesReceived == 0) revert VaultHelper__ZeroLSTWrapperSharesBurned(vaultSharesReceived);
 
         lstSharesBurned = amount;
 
-        // --- Step 2: Redeem vault shares into underlying collateral (sent to user) ---
-        (collateralAmount,) = IVaultTokenized(ILSTWrapper(lstWrapper).vault()).redeem(user, vaultSharesReceived);
+        // --- Step 2: Redeem vault shares into underlying collateral (sent to caller) ---
+        (collateralAmount,) = IVaultTokenized(ILSTWrapper(lstWrapper).vault()).redeem(msg.sender, vaultSharesReceived);
         if (collateralAmount == 0) revert VaultHelper__ZeroCollateralWithdraw(collateralAmount);
 
         return (collateralAmount, lstSharesBurned);

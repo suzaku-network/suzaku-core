@@ -64,15 +64,13 @@ interface IVaultHelper {
 
     /**
      * @notice Withdraw collateral from a wrapped vault.
-     * @dev Derives vault from the lstWrapper at runtime.
-     * @param user Address of the user to withdraw for.
+     * @dev Derives vault from the lstWrapper at runtime. Uses msg.sender as the withdrawer.
      * @param lstWrapper Address of the LSTWrapper contract to withdraw from.
-     * @param amount Amount of vault shares to withdraw.
+     * @param amount Amount of LST shares to withdraw.
      * @return collateralAmount Amount of collateral withdrawn.
      * @return lstSharesBurned Amount of LST shares burned.
      */
     function withdrawFromWrappedVault(
-        address user,
         address lstWrapper,
         uint256 amount
     ) external returns (uint256 collateralAmount, uint256 lstSharesBurned);

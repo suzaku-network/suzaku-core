@@ -745,7 +745,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         uint256 amountWithdraw = amountDeposit / 2;
         vm.startPrank(staker);
         lstWrapper1.approve(address(vaultHelper), amountWithdraw);
-        vaultHelper.withdrawFromWrappedVault(staker, address(lstWrapper1), amountWithdraw);
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), amountWithdraw);
         vm.stopPrank();
 
         // Check balance after withdrawal
@@ -806,7 +806,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         lstWrapper1.approve(address(vaultHelper), lstBalance);
 
         // --- PERFORM WITHDRAWAL ---
-        vaultHelper.withdrawFromWrappedVault(staker, address(lstWrapper1), lstBalance);
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), lstBalance);
         vm.stopPrank();
 
         // 4. DETECT THE BUG
@@ -825,6 +825,49 @@ contract VaultHelperTest is MiddlewareTestBase {
 
         // If you fix the bug, you should change the assertion to:
         assertEq(stuckFunds, 0, "Helper should be empty");
+    }
+
+    /// @notice Test that attacker cannot redeem victim's shares (uses msg.sender now)
+    function test_WithdrawFromWrappedVault_AttackerCannotRedeemVictimShares() public {
+        uint256 depositAmount = 10_000 ether;
+        address attacker = makeAddr("attacker");
+
+        // 1. Victim stakes via VaultHelper
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), depositAmount);
+        vaultHelper.stakeAssetInWrappedVault(staker, address(lstWrapper1), depositAmount);
+        lstWrapper1.approve(address(vaultHelper), type(uint256).max);
+        vm.stopPrank();
+
+        uint256 victimLstBalance = lstWrapper1.balanceOf(staker);
+
+        // 2. Attacker tries to withdraw - but msg.sender is attacker, who has no shares
+        vm.startPrank(attacker);
+        lstWrapper1.approve(address(vaultHelper), type(uint256).max);
+        vm.expectRevert(); // Will revert due to insufficient balance
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), victimLstBalance);
+        vm.stopPrank();
+
+        // 3. Victim's shares are untouched
+        assertEq(lstWrapper1.balanceOf(staker), victimLstBalance, "Victim shares unchanged");
+    }
+
+    /// @notice Test that authorized withdrawals still work
+    function test_WithdrawFromWrappedVault_AuthorizedRedemption_Succeeds() public {
+        uint256 depositAmount = 10_000 ether;
+
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), depositAmount);
+        vaultHelper.stakeAssetInWrappedVault(staker, address(lstWrapper1), depositAmount);
+
+        uint256 lstBalance = lstWrapper1.balanceOf(staker);
+        lstWrapper1.approve(address(vaultHelper), lstBalance);
+
+        // User withdraws their own position - should succeed
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), lstBalance);
+        vm.stopPrank();
+
+        assertEq(lstWrapper1.balanceOf(staker), 0, "User should have withdrawn their shares");
     }
 }
 
