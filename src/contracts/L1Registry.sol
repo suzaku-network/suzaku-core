@@ -248,6 +248,4 @@ contract L1Registry is IL1Registry, Ownable {
             revert L1Registry__FeeTransferFailed();
         }
     }
-
-    receive() external payable {}
 }
