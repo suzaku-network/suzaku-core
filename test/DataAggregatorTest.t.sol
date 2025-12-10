@@ -15,18 +15,18 @@ import {ICollateralClassRegistry} from "../src/interfaces/middleware/ICollateral
 contract DataAggregatorTest is Test {
     DataAggregator public dataAggregator;
 
-    address constant L1_REGISTRY = 0x636CF0E1f3c3a72d64Fcaa9A2C20395dE93fCAB7;
-    address constant L1_ADDRESS = 0xab0a501E9b9A297DdD974DE9aeC5e7931d839bFe;
-    address constant VAULT_ADDRESS = 0x84B44c5BaeaAa7d1136B894A19b0da9324086019;
-    address constant OPERATOR_ADDRESS = 0x32bA665401294Fb66d3F6886C6394E99d01CC711;
+    address constant L1_REGISTRY = 0xaA59b19A7636bf6d821aA124A14eEE6C92746110;
+    address constant L1_ADDRESS = 0x5D8aBF189f5e167aD5b089d93828Dc091dD85690;
+    address constant VAULT_ADDRESS = 0xFEafE001E6080Be907A63C7492748c100541C48B;
+    address constant OPERATOR_ADDRESS = 0x5f3722fdE8a7014464CA1507af0EFE1566684856;
 
-    // Fork Fuji testnet
-    uint256 fuji;
+    // Fork Mainnet
+    uint256 mainnet;
 
     function setUp() public {
-        // Create a fork of Avalanche Fuji testnet
-        fuji = vm.createFork("https://api.avax-test.network/ext/bc/C/rpc");
-        vm.selectFork(fuji);
+        // Create a fork of Avalanche Mainnet
+        mainnet = vm.createFork("https://avax.meowrpc.com");
+        vm.selectFork(mainnet);
 
         // Deploy DataAggregator
         dataAggregator = new DataAggregator(L1_REGISTRY);

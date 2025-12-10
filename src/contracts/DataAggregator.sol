@@ -208,7 +208,7 @@ contract DataAggregator {
     function getOperatorData(
         address operator
     ) external view returns (OperatorData memory out) {
-        (address[] memory l1s, address[] memory mws,) = _loadAllL1s();
+        (address[] memory l1s, address[] memory mws) = _loadOperatorL1s(operator);
 
         OperatorStakeByL1[] memory perL1 = new OperatorStakeByL1[](l1s.length);
         OperatorStakeByVault[] memory perVault; // built once at end
@@ -237,19 +237,15 @@ contract DataAggregator {
             perL1[i] = OperatorStakeByL1({l1: l1s[i], stakesByClass: perClass});
         }
 
-        // Build operator-vault stakes (cross-L1)
-        {
-            // builder layer prepares: OperatorVaultStake[]
-            OperatorStakeByVault[] memory vaultStakes = _buildOperatorVaultStakes(operator);
+        OperatorStakeByVault[] memory vaultStakes = _buildOperatorVaultStakes(operator);
 
-            perVault = new OperatorStakeByVault[](vaultStakes.length);
-            for (uint256 i = 0; i < vaultStakes.length; i++) {
-                perVault[i] = OperatorStakeByVault({
-                    vault: vaultStakes[i].vault,
-                    collateralAsset: vaultStakes[i].collateralAsset,
-                    stake: vaultStakes[i].stake
-                });
-            }
+        perVault = new OperatorStakeByVault[](vaultStakes.length);
+        for (uint256 i = 0; i < vaultStakes.length; i++) {
+            perVault[i] = OperatorStakeByVault({
+                vault: vaultStakes[i].vault,
+                collateralAsset: vaultStakes[i].collateralAsset,
+                stake: vaultStakes[i].stake
+            });
         }
 
         out = OperatorData({operator: operator, stakesByL1: perL1, stakesByVault: perVault});
@@ -303,7 +299,7 @@ contract DataAggregator {
 
         L1StakeByVault[] memory vSummary = _buildL1Vaults(cfg.vm, epoch.currentEpoch, l1);
 
-        uint256 validatorsCount = _loadValidatorCount(cfg.mw);
+        uint256 validatorsCount = _loadValidatorCount(cfg.mw, epoch.currentEpoch);
 
         out = L1Data({
             l1: l1,
@@ -441,19 +437,60 @@ contract DataAggregator {
         }
     }
 
-    function _loadValidatorCount(
-        address mw
-    ) internal view returns (uint256 count) {
+    function _loadValidatorCount(address mw, uint48 epoch) internal view returns (uint256 count) {
         // get all operators on the L1
         address[] memory ops = _loadOperatorList(mw);
         // for each operator, get the number of validators
         for (uint256 i = 0; i < ops.length; i++) {
-            try AvalancheL1Middleware(payable(mw)).getOperatorNodesLength(ops[i]) returns (uint256 validators) {
-                count += validators;
+            try AvalancheL1Middleware(payable(mw)).getActiveNodesForEpoch(ops[i], epoch) returns (
+                bytes32[] memory validators
+            ) {
+                count += validators.length;
             } catch {
                 continue;
             }
         }
+    }
+
+    function _loadOperatorL1s(
+        address operator
+    ) internal view returns (address[] memory operatorL1s, address[] memory operatorMws) {
+        (address[] memory l1s, address[] memory mws,) = _loadAllL1s();
+        uint256 count = 0;
+        // First, count how many L1s the operator is present on
+        for (uint256 i = 0; i < l1s.length; i++) {
+            address mw = mws[i];
+            if (mw == address(0)) {
+                continue;
+            }
+            address[] memory ops = _loadOperatorList(mw);
+            for (uint256 j = 0; j < ops.length; j++) {
+                if (ops[j] == operator) {
+                    count++;
+                    break;
+                }
+            }
+        }
+        // Allocate result array
+        operatorL1s = new address[](count);
+        operatorMws = new address[](count);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < l1s.length; i++) {
+            address mw = mws[i];
+            if (mw == address(0)) {
+                continue;
+            }
+            address[] memory ops = _loadOperatorList(mw);
+            for (uint256 j = 0; j < ops.length; j++) {
+                if (ops[j] == operator) {
+                    operatorL1s[idx] = l1s[i];
+                    operatorMws[idx] = mw;
+                    idx++;
+                    break;
+                }
+            }
+        }
+        return (operatorL1s, operatorMws);
     }
 
     /* ─────────────────────────────────────────────────────
@@ -626,7 +663,7 @@ contract DataAggregator {
     function _buildOperatorVaultStakes(
         address operator
     ) internal view returns (OperatorStakeByVault[] memory out) {
-        (, address[] memory mws, address[] memory vms) = _loadAllL1s();
+        (address[] memory l1s, address[] memory mws, address[] memory vms) = _loadAllL1s();
 
         // 1) compute upper bound of possible vault matches
         uint256 upper = 0;
@@ -662,8 +699,6 @@ contract DataAggregator {
                 (uint96 c, bool ok) = _loadVaultCollateralClass(vm, vault);
                 if (!ok) continue;
 
-                (address[] memory l1s,,) = _loadAllL1s();
-
                 uint256 stake = _loadDelegatorStake(delegator, l1s[i], c, operator);
                 if (stake == 0) continue;
 
@@ -674,6 +709,12 @@ contract DataAggregator {
                 });
             }
         }
+        // Trim to the exact number of matches
+        OperatorStakeByVault[] memory trimmed = new OperatorStakeByVault[](count);
+        for (uint256 k = 0; k < count; k++) {
+            trimmed[k] = out[k];
+        }
+        return trimmed;
     }
 
     /* ─────────────────────────────────────────────────────
@@ -756,18 +797,18 @@ contract DataAggregator {
         (address[] memory l1s, address[] memory mws, address[] memory vms) = _loadAllL1s();
         uint256 n = l1s.length;
 
-        out = new VaultStakeByL1[](n);
+        // Use a temporary buffer for results
+        VaultStakeByL1[] memory temp = new VaultStakeByL1[](n);
+        uint256 count = 0;
 
         for (uint256 i = 0; i < n; i++) {
             address vm = vms[i];
             if (vm == address(0)) {
-                out[i] = VaultStakeByL1({l1: l1s[i], classId: 0, stake: 0});
                 continue;
             }
 
             (uint96 classId, bool ok) = _loadVaultCollateralClass(vm, vault);
             if (!ok) {
-                out[i] = VaultStakeByL1({l1: l1s[i], classId: 0, stake: 0});
                 continue;
             }
 
@@ -778,7 +819,16 @@ contract DataAggregator {
                 total += _loadDelegatorStake(delegator, l1s[i], classId, ops[j]);
             }
 
-            out[i] = VaultStakeByL1({l1: l1s[i], classId: classId, stake: total});
+            if (total > 0) {
+                temp[count] = VaultStakeByL1({l1: l1s[i], classId: classId, stake: total});
+                count++;
+            }
+        }
+
+        // Allocate output array with only nonzero stakes
+        out = new VaultStakeByL1[](count);
+        for (uint256 i = 0; i < count; i++) {
+            out[i] = temp[i];
         }
     }
 
