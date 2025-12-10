@@ -184,6 +184,4 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable, 
         }
         return collateralClassIDs;
     }
-
-    receive() external payable {}
 }
