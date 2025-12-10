@@ -869,6 +869,107 @@ contract VaultHelperTest is MiddlewareTestBase {
 
         assertEq(lstWrapper1.balanceOf(staker), 0, "User should have withdrawn their shares");
     }
+
+    // ============================================
+    // Malicious Wrapper Validation Tests
+    // ============================================
+
+    /// @notice Test that a malicious wrapper with an invalid vault (not in factory) is rejected
+    function test_MaliciousWrapper_InvalidVault_Reverts() public {
+        address fakeVault = makeAddr("fakeVault");
+        
+        // Deploy malicious wrapper that returns the correct vaultHelper but a fake vault
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(vaultHelper),
+            fakeVault,
+            defaultCollateral1,
+            address(underlyingToken1)
+        );
+
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), 1000 ether);
+
+        // Should revert because the vault is not in the factory registry
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
+        vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that a malicious wrapper with mismatched collateral is rejected
+    function test_MaliciousWrapper_CollateralMismatch_Reverts() public {
+        // Deploy malicious wrapper that returns:
+        // - correct vaultHelper
+        // - valid vault (vaultWithDC1 which uses defaultCollateral1)
+        // - WRONG collateral (defaultCollateral2)
+        // - nativeToken matching the wrong collateral (underlyingToken2)
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(vaultHelper),
+            address(vaultWithDC1),    // Valid vault in factory
+            defaultCollateral2,        // WRONG collateral (vault uses defaultCollateral1)
+            address(underlyingToken2)  // Asset of wrong collateral
+        );
+
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(vaultHelper), 1000 ether);
+
+        // Should revert because collateral doesn't match vault's collateral
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VaultHelper.VaultHelper__CollateralMismatch.selector,
+                defaultCollateral2,      // provided by wrapper
+                defaultCollateral1       // expected by vault
+            )
+        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that a malicious wrapper with mismatched nativeToken is rejected
+    function test_MaliciousWrapper_AssetMismatch_Reverts() public {
+        // Deploy malicious wrapper that returns:
+        // - correct vaultHelper
+        // - valid vault (vaultWithDC1 which uses defaultCollateral1)
+        // - correct collateral (defaultCollateral1 which uses underlyingToken1)
+        // - WRONG nativeToken (underlyingToken2)
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(vaultHelper),
+            address(vaultWithDC1),      // Valid vault
+            defaultCollateral1,          // Correct collateral
+            address(underlyingToken2)    // WRONG native token (should be underlyingToken1)
+        );
+
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(vaultHelper), 1000 ether);
+
+        // Should revert because nativeToken doesn't match collateral's asset
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VaultHelper.VaultHelper__AssetMismatch.selector,
+                address(underlyingToken2),  // provided by wrapper
+                address(underlyingToken1)   // expected by collateral
+            )
+        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that withdrawFromWrappedVault also validates the vault
+    function test_WithdrawFromWrappedVault_InvalidVault_Reverts() public {
+        address fakeVault = makeAddr("fakeVault");
+        
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(vaultHelper),
+            fakeVault,
+            defaultCollateral1,
+            address(underlyingToken1)
+        );
+
+        vm.startPrank(staker);
+        // Should revert because vault is not in factory
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
+        vaultHelper.withdrawFromWrappedVault(address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
 }
 
 contract MockLSTWrapper {
@@ -882,5 +983,34 @@ contract MockLSTWrapper {
     
     function vault() external pure returns (address) {
         return address(0);
+    }
+}
+
+/// @notice Malicious wrapper that can return arbitrary addresses for vault, collateral, and nativeToken
+contract MaliciousLSTWrapper {
+    address public vaultHelper;
+    address public vault;
+    address public collateral;
+    address public nativeToken;
+
+    constructor(
+        address _vaultHelper,
+        address _vault,
+        address _collateral,
+        address _nativeToken
+    ) {
+        vaultHelper = _vaultHelper;
+        vault = _vault;
+        collateral = _collateral;
+        nativeToken = _nativeToken;
+    }
+
+    // Minimal ILSTWrapper interface to pass the checks
+    function deposit(uint256, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function redeem(uint256, address, address) external pure returns (uint256) {
+        return 0;
     }
 }

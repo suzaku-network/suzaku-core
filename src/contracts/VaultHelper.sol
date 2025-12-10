@@ -52,6 +52,8 @@ contract VaultHelper is ReentrancyGuard {
     error VaultHelper__ZeroLSTWrapperSharesBurned(uint256 lstSharesBurned);
     error VaultHelper__ZeroCollateralWithdraw(uint256 collateralAmount);
     error VaultHelper__LSTWrapperMismatch(address lstWrapper);
+    error VaultHelper__CollateralMismatch(address expected, address actual);
+    error VaultHelper__AssetMismatch(address expected, address actual);
 
     // -------------------------------
     // Proxy function
@@ -131,41 +133,49 @@ contract VaultHelper is ReentrancyGuard {
             revert VaultHelper__LSTWrapperMismatch(lstWrapper);
         }
 
+        // Cache addresses
+        address vault = ILSTWrapper(lstWrapper).vault();
+        address collateral = ILSTWrapper(lstWrapper).collateral();
+        address nativeToken = ILSTWrapper(lstWrapper).nativeToken();
+
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+        if (IVaultTokenized(vault).collateral() != collateral) revert VaultHelper__CollateralMismatch(collateral, IVaultTokenized(vault).collateral());
+        if (IDefaultCollateral(collateral).asset() != nativeToken) revert VaultHelper__AssetMismatch(nativeToken, IDefaultCollateral(collateral).asset());
+
         // --- Step 1: Measure balance before the transfer ---
-        uint256 balanceBefore = IERC20(ILSTWrapper(lstWrapper).nativeToken()).balanceOf(address(this));
+        uint256 balanceBefore = IERC20(nativeToken).balanceOf(address(this));
 
         // --- Step 2: Pull underlying tokens from msg.sender into proxy ---
-        IERC20(ILSTWrapper(lstWrapper).nativeToken()).safeTransferFrom(msg.sender, address(this), amount);
+        IERC20(nativeToken).safeTransferFrom(msg.sender, address(this), amount);
 
         // --- Step 3: Calculate the actual amount received ---
-        uint256 actualAmount = IERC20(ILSTWrapper(lstWrapper).nativeToken()).balanceOf(address(this)) - balanceBefore;
+        uint256 actualAmount = IERC20(nativeToken).balanceOf(address(this)) - balanceBefore;
 
         // --- Step 4: Approve collateral contract to pull the actual amount from proxy ---
-        IERC20(ILSTWrapper(lstWrapper).nativeToken()).forceApprove(ILSTWrapper(lstWrapper).collateral(), actualAmount);
+        IERC20(nativeToken).forceApprove(collateral, actualAmount);
 
         // --- Step 5: Deposit actual amount into collateral, minting collateral tokens to proxy ---
-        collateralAmount = IDefaultCollateral(ILSTWrapper(lstWrapper).collateral()).deposit(address(this), actualAmount);
+        collateralAmount = IDefaultCollateral(collateral).deposit(address(this), actualAmount);
         if (collateralAmount == 0) {
-            revert VaultHelper__ZeroCollateralMint(actualAmount, ILSTWrapper(lstWrapper).collateral());
+            revert VaultHelper__ZeroCollateralMint(actualAmount, collateral);
         }
-        IERC20(ILSTWrapper(lstWrapper).nativeToken()).forceApprove(ILSTWrapper(lstWrapper).collateral(), 0);
+        IERC20(nativeToken).forceApprove(collateral, 0);
 
         // --- Step 6: Approve vault to pull collateral tokens from proxy ---
-        IERC20(ILSTWrapper(lstWrapper).collateral()).forceApprove(ILSTWrapper(lstWrapper).vault(), collateralAmount);
+        IERC20(collateral).forceApprove(vault, collateralAmount);
 
         // --- Step 7: Deposit collateral into vault, minting the vault shares tokens to proxy ---
-        (, uint256 vaultSharesMinted) =
-            IVaultTokenized(ILSTWrapper(lstWrapper).vault()).deposit(address(this), collateralAmount);
+        (, uint256 vaultSharesMinted) = IVaultTokenized(vault).deposit(address(this), collateralAmount);
         if (vaultSharesMinted == 0) revert VaultHelper__ZeroVaultSharesMinted(collateralAmount);
-        IERC20(ILSTWrapper(lstWrapper).collateral()).forceApprove(ILSTWrapper(lstWrapper).vault(), 0);
+        IERC20(collateral).forceApprove(vault, 0);
 
         // --- Step 8: Approve LSTWrapper to pull vault shares from proxy ---
-        IERC20(ILSTWrapper(lstWrapper).vault()).forceApprove(lstWrapper, vaultSharesMinted);
+        IERC20(vault).forceApprove(lstWrapper, vaultSharesMinted);
 
         // --- Step 9: Deposit vault shares into LSTWrapper on behalf of the receiver (`user`) ---
         lstSharesMinted = ILSTWrapper(lstWrapper).deposit(vaultSharesMinted, user);
         if (lstSharesMinted == 0) revert VaultHelper__ZeroLSTWrapperSharesMinted(lstSharesMinted);
-        IERC20(ILSTWrapper(lstWrapper).vault()).forceApprove(lstWrapper, 0);
+        IERC20(vault).forceApprove(lstWrapper, 0);
 
         return (collateralAmount, lstSharesMinted);
     }
@@ -178,6 +188,10 @@ contract VaultHelper is ReentrancyGuard {
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
         if (!LST_WRAPPER_FACTORY.isEntity(lstWrapper)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
+        // Cache addresses
+        address vault = ILSTWrapper(lstWrapper).vault();
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+
         // --- Step 1: Burn LST shares to receive vault shares ---
         uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), msg.sender);
         if (vaultSharesReceived == 0) revert VaultHelper__ZeroLSTWrapperSharesBurned(vaultSharesReceived);
@@ -185,7 +199,7 @@ contract VaultHelper is ReentrancyGuard {
         lstSharesBurned = amount;
 
         // --- Step 2: Redeem vault shares into underlying collateral (sent to caller) ---
-        (collateralAmount,) = IVaultTokenized(ILSTWrapper(lstWrapper).vault()).redeem(msg.sender, vaultSharesReceived);
+        (collateralAmount,) = IVaultTokenized(vault).redeem(msg.sender, vaultSharesReceived);
         if (collateralAmount == 0) revert VaultHelper__ZeroCollateralWithdraw(collateralAmount);
 
         return (collateralAmount, lstSharesBurned);
