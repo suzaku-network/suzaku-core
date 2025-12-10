@@ -182,7 +182,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertLt(updatedAvail, stakeWanted, "Available should be less than wanted to test clamping");
 
         // Add node with stake that exceeds available
-        bytes32 nodeId = keccak256("ClampTestAdaptive");
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("ClampTestAdaptive")))));
         console2.log("Requesting stakeWanted:", stakeWanted);
         console2.log("But available is only:", updatedAvail);
 
@@ -228,7 +228,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint256 overAsk = avail + middleware.WEIGHT_SCALE_FACTOR();
 
         // 3) Expect revert on explicit over-ask
-        bytes32 nodeId = keccak256("ClampOverAsk");
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("ClampOverAsk")))));
         vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
         vm.prank(alice);
         middleware.addNode(
@@ -848,7 +848,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Add each node (not yet confirmed)
         for (uint256 i = 0; i < nodeCount; i++) {
-            bytes32 nodeId = keccak256(abi.encodePacked("NODE_", seedNodeCount, i));
+            bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256(abi.encodePacked("NODE_", seedNodeCount, i))))));
             nodeIds[i] = nodeId;
 
            // how much stake still free?
@@ -1041,7 +1041,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Create nodes (unconfirmed)
         for (uint256 i = 0; i < nodeCount; i++) {
-            bytes32 nodeId = keccak256(abi.encodePacked("Node", i, block.timestamp));
+            bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256(abi.encodePacked("Node", i, block.timestamp))))));
             nodeIds[i] = nodeId;
 
            // how much stake still free?
@@ -1244,7 +1244,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Create nodes for operator A (Alice)
         for (uint256 i = 0; i < nodeCountA; i++) {
-            bytes32 nodeId = keccak256(abi.encodePacked("NodeA", i, block.timestamp));
+            bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256(abi.encodePacked("NodeA", i, block.timestamp))))));
             nodeIdsA[i] = nodeId;
 
             vm.prank(alice);
@@ -1264,7 +1264,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Create nodes for operator B (Charlie)
         for (uint256 i = 0; i < nodeCountB; i++) {
-            bytes32 nodeId = keccak256(abi.encodePacked("NodeB", i, block.timestamp));
+            bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256(abi.encodePacked("NodeB", i, block.timestamp))))));
             nodeIdsB[i] = nodeId;
 
             vm.prank(charlie);
@@ -1772,7 +1772,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.expectRevert(expectedError);
         middleware.calcAndCacheNodeStakeForAllOperators();
 
-        bytes32 nodeId = keccak256("nodeTooManyPending");
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("nodeTooManyPending")))));
         vm.startPrank(alice);
         vm.expectRevert(expectedError);
         middleware.addNode(
@@ -2034,7 +2034,7 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         address operatorB = charlie; // Using charlie as Operator B
 
         // Use a specific, predictable nodeId for the test
-        bytes32 sharedNodeId_X = keccak256(abi.encodePacked("REUSED_NODE_ID_XYZ"));
+        bytes32 sharedNodeId_X = bytes32(uint256(uint160(uint256(keccak256(abi.encodePacked("REUSED_NODE_ID_XYZ"))))));
         bytes memory blsKey_A = new bytes(48);
         bytes memory blsKey_B = new bytes(48); // Operator B uses a different BLS key
         address[] memory ownerArr = new address[](1);
@@ -3287,5 +3287,19 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         // Verify operator can now be disabled (this was the original bug)
         vm.prank(l1Owner);
         middleware.disableOperator(alice);
+    }
+
+    function test_RejectNativeTokenTransfer() public {
+        // Middleware should reject native token transfers since it has no receive() function
+        // and no legitimate use case for receiving native tokens
+        
+        address sender = makeAddr("nativeSender");
+        vm.deal(sender, 1 ether);
+        
+        vm.prank(sender);
+        (bool success,) = address(middleware).call{value: 1 ether}("");
+        
+        assertFalse(success, "Native token transfer should be rejected");
+        assertEq(address(middleware).balance, 0, "Middleware should have no native balance");
     }
 }
