@@ -621,6 +621,20 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     ) external returns (bytes32 validationID) {
         _updateGlobalNodeStakeOncePerEpoch();
         validationID = balancerValidatorManager.completeValidatorRemoval(messageIndex);
+
+        // Handle cleanup for expired registrations (Invalidated status)
+        address operator = validationIdToOperator[validationID];
+        if (operator != address(0)) {
+            Validator memory v = balancerValidatorManager.getValidator(validationID);
+            if (v.status == ValidatorStatus.Invalidated) {
+                bytes32 nodeId = _nodeIdFromBytes(v.nodeID);
+                _removeNodeFromArray(operator, nodeId);
+                // Clear stake cache for next epoch
+                uint48 nextEpoch = getCurrentEpoch() + 1;
+                nodeStakeCache[nextEpoch][validationID] = 0;
+                delete validationIdToOperator[validationID];
+            }
+        }
     }
 
     /**
@@ -1304,6 +1318,11 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
     function _nodeKey(bytes32 nodeId) private pure returns (bytes memory) {
         return abi.encodePacked(uint160(uint256(nodeId)));
+    }
+
+    /// @dev Inverse of _nodeKey: converts 20-byte nodeID back to bytes32
+    function _nodeIdFromBytes(bytes memory nodeIDBytes) private pure returns (bytes32) {
+        return bytes32(uint256(uint160(bytes20(nodeIDBytes))));
     }
 
     function _vid(bytes32 nodeId) private view returns (bytes32) {

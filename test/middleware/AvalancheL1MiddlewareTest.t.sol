@@ -3183,4 +3183,109 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertEq(poisonedTotal, aliceE0 + daveE0, "poisoned total excludes charlie");
         assertEq(poisonedTotal + charlieE0, dynamicTotal, "sanity: dynamicTotal = poisoned + lost");
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // NODE REMOVAL TESTS
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// @notice Tests normal node removal flow works correctly
+    function test_NodeRemoval_NormalFlow() public {
+        bytes32 nodeId = bytes32(uint256(uint160(0x1111111111111111111111111111111111111111)));
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+
+        _pushRegistrationAck(valId, true);
+        middleware.completeValidatorRegistration(0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1);
+
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        _calcAndWarpOneEpoch();
+
+        _pushRemovalAck(valId);
+        middleware.completeValidatorRemoval(0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 0);
+    }
+
+    /// @notice Tests same-epoch re-register and remove doesn't leave phantom nodes
+    function test_NodeRemoval_SameEpochReRegister() public {
+        bytes32 nodeId = bytes32(uint256(uint160(0x2222222222222222222222222222222222222222)));
+
+        // First add & confirm
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId, true);
+        middleware.completeValidatorRegistration(0);
+
+        // Remove
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        _calcAndWarpOneEpoch();
+
+        _pushRemovalAck(valId);
+        middleware.completeValidatorRemoval(0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 0);
+
+        // Re-register same nodeId
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId2, true);
+        middleware.completeValidatorRegistration(0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1);
+
+        // Remove again in same epoch
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        _pushRemovalAck(valId2);
+        middleware.completeValidatorRemoval(0);
+
+        _calcAndWarpOneEpoch();
+
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "No phantom node after same-epoch re-register");
+    }
+
+    /// @notice Tests that expired validator registrations are cleaned up properly
+    /// This covers Issue #11 from the Sherlock audit: stale nodes blocking disableOperator
+    function test_NodeRemoval_ExpiredRegistrationCleanup() public {
+        bytes32 nodeId = bytes32(uint256(uint160(0x3333333333333333333333333333333333333333)));
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Node should be in array after addNode");
+
+        // DO NOT complete registration - simulate P-Chain expiry
+        // Push registered=false message (what happens when registration expires)
+        _pushRemovalAck(valId);
+
+        // completeValidatorRemoval handles expired registrations
+        middleware.completeValidatorRemoval(0);
+
+        // Verify status is Invalidated
+        ValidatorStatus status = IBalancerValidatorManager(balancer).getValidator(valId).status;
+        assertEq(uint8(status), uint8(ValidatorStatus.Invalidated), "Status should be Invalidated");
+
+        // Verify stale node was cleaned up
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "Stale node should be removed");
+
+        // Verify operator can now be disabled (this was the original bug)
+        vm.prank(l1Owner);
+        middleware.disableOperator(alice);
+    }
 }
