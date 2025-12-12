@@ -561,7 +561,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
                 _initializeEndValidationAndFlag(operator, valID, nodeId);
             } else {
                 _initializeValidatorStakeUpdate(operator, valID, newStake);
-                emit NodeStakeUpdated(operator, nodeId, newStake, valID);
             }
 
             hasUpdatedAnyNode = true;
@@ -935,6 +934,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         balancerValidatorManager.initiateValidatorWeightUpdate(validationID, scaledWeight);
         
         _pendingStake[validationID] = newStake;
+
+        Validator memory v = balancerValidatorManager.getValidator(validationID);
+        bytes32 nodeId = _nodeIdFromBytes(v.nodeID);
+        emit NodeStakeUpdated(operator, nodeId, newStake, validationID);
     }
 
     function _requireMinSecondaryCollateralClasses(uint256 extraNode, address operator) internal view returns (bool) {
