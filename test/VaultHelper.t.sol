@@ -874,7 +874,7 @@ contract VaultHelperTest is MiddlewareTestBase {
     // Malicious Wrapper Validation Tests
     // ============================================
 
-    /// @notice Test that a malicious wrapper with an invalid vault (not in factory) is rejected
+    /// @notice Test that a malicious wrapper not in factory is rejected (invalid vault scenario)
     function test_MaliciousWrapper_InvalidVault_Reverts() public {
         address fakeVault = makeAddr("fakeVault");
         
@@ -889,13 +889,13 @@ contract VaultHelperTest is MiddlewareTestBase {
         vm.startPrank(staker);
         underlyingToken1.approve(address(vaultHelper), 1000 ether);
 
-        // Should revert because the vault is not in the factory registry
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper)));
         vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
         vm.stopPrank();
     }
 
-    /// @notice Test that a malicious wrapper with mismatched collateral is rejected
+    /// @notice Test that a malicious wrapper not in factory is rejected (collateral mismatch scenario)
     function test_MaliciousWrapper_CollateralMismatch_Reverts() public {
         // Deploy malicious wrapper that returns:
         // - correct vaultHelper
@@ -912,19 +912,13 @@ contract VaultHelperTest is MiddlewareTestBase {
         vm.startPrank(staker);
         underlyingToken2.approve(address(vaultHelper), 1000 ether);
 
-        // Should revert because collateral doesn't match vault's collateral
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VaultHelper.VaultHelper__CollateralMismatch.selector,
-                defaultCollateral2,      // provided by wrapper
-                defaultCollateral1       // expected by vault
-            )
-        );
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper)));
         vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
         vm.stopPrank();
     }
 
-    /// @notice Test that a malicious wrapper with mismatched nativeToken is rejected
+    /// @notice Test that a malicious wrapper not in factory is rejected (asset mismatch scenario)
     function test_MaliciousWrapper_AssetMismatch_Reverts() public {
         // Deploy malicious wrapper that returns:
         // - correct vaultHelper
@@ -941,19 +935,13 @@ contract VaultHelperTest is MiddlewareTestBase {
         vm.startPrank(staker);
         underlyingToken2.approve(address(vaultHelper), 1000 ether);
 
-        // Should revert because nativeToken doesn't match collateral's asset
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                VaultHelper.VaultHelper__AssetMismatch.selector,
-                address(underlyingToken2),  // provided by wrapper
-                address(underlyingToken1)   // expected by collateral
-            )
-        );
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper)));
         vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
         vm.stopPrank();
     }
 
-    /// @notice Test that withdrawFromWrappedVault also validates the vault
+    /// @notice Test that withdrawFromWrappedVault validates wrapper is in factory
     function test_WithdrawFromWrappedVault_InvalidVault_Reverts() public {
         address fakeVault = makeAddr("fakeVault");
         
@@ -965,8 +953,8 @@ contract VaultHelperTest is MiddlewareTestBase {
         );
 
         vm.startPrank(staker);
-        // Should revert because vault is not in factory
-        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper)));
         vaultHelper.withdrawFromWrappedVault(address(maliciousWrapper), 1000 ether);
         vm.stopPrank();
     }

@@ -15,6 +15,7 @@ import {VaultTokenized} from "../vault/VaultTokenized.sol";
 import {IRewardsNativeToken, DistributionBatch} from "../../interfaces/rewards/IRewardsNativeToken.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {ICollateral} from "../../interfaces/ICollateral.sol";
 
 contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewardsNativeToken {
     using SafeERC20 for IERC20;
@@ -146,8 +147,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         middlewareVaultManager = MiddlewareVaultManager(middleware.getVaultManager());
         uptimeTracker = UptimeTracker(uptimeTracker_);
         epochDuration = middleware.EPOCH_DURATION();
-        // Set sole rewards token to the L1 primary collateral
-        rewardsToken = middleware.PRIMARY_ASSET();
+        // Set sole rewards token to the underlying asset of the L1 primary collateral
+        rewardsToken = ICollateral(middleware.PRIMARY_ASSET()).asset();
         if (rewardsToken == address(0)) revert InvalidRewardsToken(rewardsToken);
 
         _checkFees(protocolFee_, operatorFee_, curatorFee_);

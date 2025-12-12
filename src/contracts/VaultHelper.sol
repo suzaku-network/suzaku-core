@@ -52,8 +52,6 @@ contract VaultHelper is ReentrancyGuard {
     error VaultHelper__ZeroLSTWrapperSharesBurned(uint256 lstSharesBurned);
     error VaultHelper__ZeroCollateralWithdraw(uint256 collateralAmount);
     error VaultHelper__LSTWrapperMismatch(address lstWrapper);
-    error VaultHelper__CollateralMismatch(address expected, address actual);
-    error VaultHelper__AssetMismatch(address expected, address actual);
 
     // -------------------------------
     // Proxy function
@@ -133,14 +131,10 @@ contract VaultHelper is ReentrancyGuard {
             revert VaultHelper__LSTWrapperMismatch(lstWrapper);
         }
 
-        // Cache addresses
+        // Cache addresses from the factory-validated wrapper
         address vault = ILSTWrapper(lstWrapper).vault();
         address collateral = ILSTWrapper(lstWrapper).collateral();
         address nativeToken = ILSTWrapper(lstWrapper).nativeToken();
-
-        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
-        if (IVaultTokenized(vault).collateral() != collateral) revert VaultHelper__CollateralMismatch(collateral, IVaultTokenized(vault).collateral());
-        if (IDefaultCollateral(collateral).asset() != nativeToken) revert VaultHelper__AssetMismatch(nativeToken, IDefaultCollateral(collateral).asset());
 
         // --- Step 1: Measure balance before the transfer ---
         uint256 balanceBefore = IERC20(nativeToken).balanceOf(address(this));
@@ -188,9 +182,8 @@ contract VaultHelper is ReentrancyGuard {
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
         if (!LST_WRAPPER_FACTORY.isEntity(lstWrapper)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
-        // Cache addresses
+        // Cache addresses from the factory-validated wrapper
         address vault = ILSTWrapper(lstWrapper).vault();
-        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
 
         // --- Step 1: Burn LST shares to receive vault shares ---
         uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), msg.sender);

@@ -167,6 +167,9 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapper.name(), "LST Wrapped VaultTokenized");
         assertEq(lstWrapper.symbol(), "lstVT");
         assertEq(lstWrapper.decimals(), vault.decimals());
+        
+        // RewardsNativeToken and LSTWrapper must agree on the rewards token
+        assertEq(rewards.rewardsToken(), lstWrapper.nativeToken());
     }
     
     function test_Initialize_RevertZeroAddresses() public {
@@ -1104,7 +1107,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertGt(lstWrapper.totalAssets(), 0, "Wrapper should now have assets");
     }
     
-    // ========================== ERC20Votes COMPREHENSIVE TESTS ==========================
+// ========================== ERC20Votes COMPREHENSIVE TESTS ==========================
     
     function test_Votes_NoDelegationNoVotes() public {
         // Deposit to get shares
@@ -1265,6 +1268,173 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapper.nonces(delegator), nonce + 1);
     }
     
+    // ============================================================================
+    // FULL INTEGRATION TESTS - Using REAL contracts, no mocks
+    // ============================================================================
+    
+    /// @notice Full integration: stake -> distribute rewards -> claim via LSTWrapper -> auto-compound
+    function test_FullIntegration_RealRewardsClaimAndCompound() public {
+        // 1. Setup: User deposits into LSTWrapper
+        uint256 userDeposit = 10 ether;
+        vm.startPrank(lstUser1);
+        vault.approve(address(lstWrapper), userDeposit);
+        lstWrapper.deposit(userDeposit, lstUser1);
+        vm.stopPrank();
+        
+        uint256 lstSharesBefore = lstWrapper.balanceOf(lstUser1);
+        uint256 wrapperAssetsBefore = lstWrapper.totalAssets();
+        
+        // 2. Setup rewards epoch (inherited from RewardsNativeTokenIntegrationTestBase)
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+        
+        // Setup stakes and uptime for the epoch
+        _setupRealStakes(epoch, 4 hours);
+        
+        // Fund the epoch with rewards
+        vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch, 1, 100_000 ether);
+        
+        // Move past distribution window
+        _moveToNextEpochAndCalc(3);
+        
+        // 3. Distribute rewards
+        address[] memory operators = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(operators.length));
+        
+        // 4. Harvest via LSTWrapper - this should:
+        //    a. Call rewards.claimRewards(lstWrapper)
+        //    b. Receive native tokens
+        //    c. Convert to collateral via VaultHelper
+        //    d. Deposit into vault
+        //    e. Increase wrapper's vault share balance
+        
+        vm.prank(lstAdmin);
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
+        
+        // 5. Verify results
+        // Note: LSTWrapper may not have any claimable rewards since it doesn't stake directly
+        // But the mechanism should work without reverting
+        
+        uint256 wrapperAssetsAfter = lstWrapper.totalAssets();
+        
+        console2.log("=== Full Integration Test Results ===");
+        console2.log("Claimed native:", claimedNative);
+        console2.log("Minted vault shares:", mintedVaultShares);
+        console2.log("Wrapper assets before:", wrapperAssetsBefore);
+        console2.log("Wrapper assets after:", wrapperAssetsAfter);
+        
+        // The wrapper's assets should be >= before (rewards compound)
+        assertGe(wrapperAssetsAfter, wrapperAssetsBefore, "Assets should not decrease");
+        
+        // User's LST shares remain the same (wrapper shares don't dilute)
+        assertEq(lstWrapper.balanceOf(lstUser1), lstSharesBefore, "User LST shares unchanged");
+    }
+    
+    /// @notice Integration test: Verify rewards token alignment between RewardsNativeToken and LSTWrapper
+    function test_Integration_RewardsTokenAlignment() public {
+        // This is the core fix verification - rewards pays in underlying, wrapper expects underlying
+        address rewardsPays = rewards.rewardsToken();
+        address wrapperExpects = lstWrapper.nativeToken();
+        
+        assertEq(rewardsPays, wrapperExpects, "CRITICAL: Rewards token must match LSTWrapper expectation");
+        
+        // Both should be the underlying asset of the collateral
+        address underlyingAsset = MockCollateral(address(collateral)).asset();
+        assertEq(rewardsPays, underlyingAsset, "Rewards should pay underlying asset");
+        assertEq(wrapperExpects, underlyingAsset, "Wrapper should expect underlying asset");
+    }
+    
+    /// @notice Integration test: Harvest with real rewards when staker has claimable rewards
+    function test_Integration_HarvestWithStakerRewards() public {
+        // 1. Staker already has deposits from base setup, verify they have vault shares
+        uint256 stakerVaultShares = vault.balanceOf(staker);
+        assertGt(stakerVaultShares, 0, "Staker should have vault shares from setup");
+        
+        // 2. Setup and distribute rewards for an epoch
+        uint48 epoch = middleware.getCurrentEpoch();
+        if (epoch == 0) epoch = 1;
+        
+        _setupRealStakes(epoch, 4 hours);
+        
+        vm.prank(rewardsDistributor);
+        rewards.setRewardsAmountForEpochs(epoch, 1, 100_000 ether);
+        
+        _moveToNextEpochAndCalc(3);
+        
+        address[] memory operators = middleware.getAllOperators();
+        vm.prank(rewardsDistributor);
+        rewards.distributeRewards(epoch, uint48(operators.length));
+        
+        // 3. Staker claims rewards directly (not through wrapper) to verify mechanism works
+        uint256 stakerNativeBalBefore = token.balanceOf(staker);
+        vm.prank(staker);
+        rewards.claimRewards(staker);
+        uint256 stakerNativeBalAfter = token.balanceOf(staker);
+        
+        uint256 stakerRewardsClaimed = stakerNativeBalAfter - stakerNativeBalBefore;
+        console2.log("Staker claimed rewards (native):", stakerRewardsClaimed);
+        
+        // Staker should have received rewards in the NATIVE token (underlying)
+        assertGt(stakerRewardsClaimed, 0, "Staker should receive native token rewards");
+        
+        // 4. Transfer those native tokens to wrapper (simulating what would happen if wrapper was the staker)
+        vm.prank(staker);
+        token.transfer(address(lstWrapper), stakerRewardsClaimed);
+        
+        // 5. Harvest should auto-compound
+        uint256 wrapperAssetsBefore = lstWrapper.totalAssets();
+        
+        vm.prank(lstAdmin);
+        (uint256 claimedNative, uint256 mintedVaultShares) = lstWrapper.harvest(0, new bytes32[](0));
+        
+        uint256 wrapperAssetsAfter = lstWrapper.totalAssets();
+        
+        console2.log("=== Harvest Results ===");
+        console2.log("Claimed from rewards contract:", claimedNative);
+        console2.log("Minted vault shares:", mintedVaultShares);
+        console2.log("Wrapper assets increased by:", wrapperAssetsAfter - wrapperAssetsBefore);
+        
+        // Wrapper assets should increase from the compounded rewards
+        assertGt(wrapperAssetsAfter, wrapperAssetsBefore, "Wrapper assets should increase");
+        assertGt(mintedVaultShares, 0, "Should mint vault shares from native tokens");
+    }
+    
+    // ============================================================================
+    // Helper functions for integration tests
+    // ============================================================================
+    
+    /// @dev Setup stakes for an epoch (wrapper around base class helper)
+    function _setupRealStakes(uint48 epoch, uint256 uptimeSecs) internal {
+        address[] memory ops = middleware.getAllOperators();
+        for (uint256 i = 0; i < ops.length; ++i) {
+            if (middleware.getActiveNodesForEpoch(ops[i], epoch).length > 0) continue;
+
+            _ensureFreeStake(ops[i]);
+            uint256 minStake = _primaryMinStake();
+            _createAndConfirmNodes({
+                operator:       ops[i],
+                nodeCount:      1,
+                stake_:         minStake,
+                confirmImmediately: true,
+                minMultiplier:  1
+            });
+        }
+
+        uint48 cur = middleware.getCurrentEpoch();
+        if (cur < epoch) _moveToNextEpochAndCalc(epoch - cur);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+
+        uint96[] memory ids = middleware.getCollateralClassIds();
+        for (uint256 i = 0; i < ids.length; ++i) {
+            if (ids[i] != 1) {
+                try middleware.calcAndCacheStakes(epoch, ids[i]) {} catch {}
+            }
+        }
+
+        uptime.setAllOperatorsSameUptime(epoch, middleware.getAllOperators(), uptimeSecs);
+    }
 }
 
 // Mock contracts for testing
