@@ -14,6 +14,7 @@ import {
     WarpMessage, IWarpMessenger
 } from "@avalabs/subnet-evm-contracts@1.2.0/contracts/interfaces/IWarpMessenger.sol";
 import {UptimeTrackerTestBase} from "./UptimeTrackerTestBase.t.sol";
+import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
 
 contract UptimeTrackerTest is UptimeTrackerTestBase {
 
@@ -369,6 +370,112 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         uptimeTracker.computeOperatorUptimeAt(alice, e0);
         assertEq(uptimeTracker.operatorUptimePerEpoch(e0, alice), 1182);
     
+    }
+
+    /// @notice Tests Issue #41 FIX: Operator uptime cannot be overwritten after first computation
+    /// The write-once guard prevents recomputation even if node set drifts
+    function test_OperatorUptimeOverwrite_AfterNodeRemoval() public {
+        // Find an epoch where Alice has active nodes
+        uint48 from = middleware.getCurrentEpoch();
+        uint48 targetEpoch = _firstActiveEpochForOperator(alice, from);
+        
+        // Advance epochs properly to get to targetEpoch+1 (so targetEpoch is complete)
+        while (middleware.getCurrentEpoch() <= targetEpoch) {
+            _advanceOneEpoch();
+        }
+        
+        // Record validator uptimes with varying performance:
+        // - aliceVals[0]: 4 hours (good)
+        // - aliceVals[1]: 4 hours (good)  
+        // - aliceVals[2]: 1 hour (poor - will be removed later)
+        _ensureStarted(aliceVals[0]); _pushFor(aliceVals[0], 4 hours); uptimeTracker.computeValidatorUptime(0);
+        _ensureStarted(aliceVals[1]); _pushFor(aliceVals[1], 4 hours); uptimeTracker.computeValidatorUptime(0);
+        _ensureStarted(aliceVals[2]); _pushFor(aliceVals[2], 1 hours); uptimeTracker.computeValidatorUptime(0);
+        
+        // Verify validator uptimes are set correctly
+        uint256 v0Uptime = uptimeTracker.validatorUptimePerEpoch(targetEpoch, aliceVals[0]);
+        uint256 v1Uptime = uptimeTracker.validatorUptimePerEpoch(targetEpoch, aliceVals[1]);
+        uint256 v2Uptime = uptimeTracker.validatorUptimePerEpoch(targetEpoch, aliceVals[2]);
+        console2.log("Validator 0 uptime for targetEpoch:", v0Uptime);
+        console2.log("Validator 1 uptime for targetEpoch:", v1Uptime);
+        console2.log("Validator 2 uptime for targetEpoch:", v2Uptime);
+        
+        // Compute initial operator uptime for targetEpoch
+        uptimeTracker.computeOperatorUptimeAt(alice, targetEpoch);
+        uint256 originalUptime = uptimeTracker.operatorUptimePerEpoch(targetEpoch, alice);
+        uint256 expectedOriginal = (v0Uptime + v1Uptime + v2Uptime) / 3;
+        
+        console2.log("Original operator uptime:", originalUptime, "seconds");
+        console2.log("Expected (avg of 3 validators):", expectedOriginal, "seconds");
+        assertEq(originalUptime, expectedOriginal, "Initial uptime should be average of 3 validators");
+        assertTrue(uptimeTracker.isOperatorUptimeSet(targetEpoch, alice), "Uptime should be marked as set");
+        
+        // === NODE REMOVAL ===
+        // Get the nodeId for aliceVals[2] (the low-uptime node)
+        bytes32[] memory activeNodes = middleware.getActiveNodesForEpoch(alice, targetEpoch);
+        uint256 activeCountBefore = activeNodes.length;
+        console2.log("Active nodes for targetEpoch BEFORE removal:", activeCountBefore);
+        
+        // Find the nodeId that corresponds to aliceVals[2]
+        bytes32 nodeIdToRemove;
+        for (uint256 i = 0; i < activeNodes.length; i++) {
+            bytes32 nodeId = activeNodes[i];
+            bytes32 vID = IBalancerValidatorManager(balancer)
+                .getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+            if (vID == aliceVals[2]) {
+                nodeIdToRemove = nodeId;
+                break;
+            }
+        }
+        require(nodeIdToRemove != bytes32(0), "Could not find nodeId for aliceVals[2]");
+        
+        // Remove the low-uptime node
+        vm.prank(alice);
+        middleware.removeNode(nodeIdToRemove);
+        
+        // Advance epoch and complete removal
+        _advanceOneEpoch();
+        
+        // Push removal acknowledgment and complete
+        _pushRemovalAck(aliceVals[2]);
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(0);
+        
+        // Verify the active set has drifted (the underlying issue still exists)
+        bytes32[] memory activeNodesAfterRemoval = middleware.getActiveNodesForEpoch(alice, targetEpoch);
+        console2.log("Active nodes for targetEpoch AFTER removal:", activeNodesAfterRemoval.length);
+        assertLt(activeNodesAfterRemoval.length, activeCountBefore, "Active set drifted as expected");
+        
+        // === FIX VERIFICATION ===
+        // Attempting to recompute should now REVERT due to write-once guard
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IUptimeTracker.UptimeTracker__OperatorUptimeAlreadySet.selector,
+                targetEpoch,
+                alice
+            )
+        );
+        uptimeTracker.computeOperatorUptimeAt(alice, targetEpoch);
+        
+        // Verify uptime was NOT changed
+        uint256 uptimeAfterAttempt = uptimeTracker.operatorUptimePerEpoch(targetEpoch, alice);
+        assertEq(uptimeAfterAttempt, originalUptime, "FIX VERIFIED: Uptime unchanged after revert");
+        
+        console2.log("");
+        console2.log("=== FIX VERIFIED ===");
+        console2.log("Original uptime preserved:", originalUptime, "seconds");
+        console2.log("Recomputation attempt reverted as expected");
+    }
+
+    /// @notice Helper to advance one epoch properly
+    function _advanceOneEpoch() internal returns (uint48) {
+        uint48 nextEpochIndex = middleware.getCurrentEpoch() + 1;
+        uint256 nextEpochStartTs = middleware.getEpochStartTs(nextEpochIndex);
+        vm.warp(nextEpochStartTs + 1);
+        middleware.calcAndCacheNodeStakeForAllOperators();
+        return middleware.getCurrentEpoch();
     }
 
 }

@@ -50,6 +50,13 @@ interface IUptimeTracker {
     error UptimeBeforeStart(bytes32 validationID, uint48 startEpoch, uint48 currentEpoch);
 
     /**
+     * @dev Error thrown when operator uptime has already been computed for a given epoch
+     * @param epoch Epoch for which uptime was already computed
+     * @param operator Operator's address
+     */
+    error UptimeTracker__OperatorUptimeAlreadySet(uint48 epoch, address operator);
+
+    /**
      * @notice Emitted when a validator's uptime is computed.
      * @param validationID Unique ID of the validator's validation period.
      * @param firstEpoch First epoch included in this uptime calculation.

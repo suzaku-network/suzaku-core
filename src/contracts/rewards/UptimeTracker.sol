@@ -156,6 +156,10 @@ contract UptimeTracker is IUptimeTracker {
      * @inheritdoc IUptimeTracker
      */
     function computeOperatorUptimeAt(address operator, uint48 epoch) external {
+        if (isOperatorUptimeSet[epoch][operator]) {
+            revert UptimeTracker__OperatorUptimeAlreadySet(epoch, operator);
+        }
+
         bytes32[] memory operatorNodes = middleware.getActiveNodesForEpoch(operator, epoch);
         uint256 numberOfValidators = operatorNodes.length;
         if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
