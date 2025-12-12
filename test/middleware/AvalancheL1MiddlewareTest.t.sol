@@ -2819,9 +2819,9 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vaultManager.removeVault(address(vault2));
         vm.stopPrank();
 
-        // Wait for grace period to pass
+        // Wait for exactly the grace period to pass
         uint48 removalDelay = vaultManager.VAULT_REMOVAL_EPOCH_DELAY();
-        _moveToNextEpochAndCalc(removalDelay + 1);
+        _moveToNextEpochAndCalc(removalDelay);
 
         uint256 vaultCountBefore = vaultManager.getVaultCount();
 
