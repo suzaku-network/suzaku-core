@@ -3302,4 +3302,137 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         assertFalse(success, "Native token transfer should be rejected");
         assertEq(address(middleware).balance, 0, "Middleware should have no native balance");
     }
+
+    /// @notice Tests that same-epoch re-add is blocked when pendingRemovalValId is set
+    /// This verifies the fix for Issue #21: Duplicate Node Insertion
+    function test_DuplicateNodeInsertion_SameEpochReAdd_Blocked() public {
+        bytes32 nodeId = bytes32(uint256(uint160(0x4444444444444444444444444444444444444444)));
+        bytes memory blsKey1 = new bytes(48);
+        blsKey1[0] = 0x01;
+
+        // Step 1: Add node and complete registration
+        vm.prank(alice);
+        middleware.addNode(nodeId, blsKey1, _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId1 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId1, true);
+        middleware.completeValidatorRegistration(0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Should have 1 node after add");
+
+        // Step 2: Remove node (sets pendingRemovalValId[nodeId] = valId1)
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+
+        // Step 3: Complete validator removal
+        // _vid(nodeId) returns 0, but pendingRemovalValId[nodeId] still = valId1
+        _pushRemovalAck(valId1);
+        middleware.completeValidatorRemoval(0);
+
+        // Step 4: Try to re-add same epoch - should be BLOCKED
+        bytes memory blsKey2 = new bytes(48);
+        blsKey2[0] = 0x02;
+
+        vm.prank(alice);
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__NodePending.selector);
+        middleware.addNode(nodeId, blsKey2, _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        // Verify no duplicate was created
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Should still have 1 node (pending cleanup)");
+    }
+
+    /// @notice Tests that re-add works correctly AFTER epoch cleanup
+    function test_DuplicateNodeInsertion_ReAddAfterCleanup_Works() public {
+        bytes32 nodeId = bytes32(uint256(uint160(0x4444444444444444444444444444444444444444)));
+
+        // Add node and complete
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId1 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId1, true);
+        middleware.completeValidatorRegistration(0);
+
+        // Remove and complete
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+        _pushRemovalAck(valId1);
+        middleware.completeValidatorRemoval(0);
+
+        // Warp to next epoch - cleanup runs
+        _calcAndWarpOneEpoch();
+
+        // After cleanup, node should be removed from array
+        assertEq(middleware.getOperatorNodesLength(alice), 0, "Node should be cleaned up");
+
+        // Now re-add should work
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        assertTrue(valId2 != valId1, "New validationID should differ");
+
+        _pushRegistrationAck(valId2, true);
+        middleware.completeValidatorRegistration(0);
+
+        assertEq(middleware.getOperatorNodesLength(alice), 1, "Should have exactly 1 node");
+
+        // Verify stake is counted correctly (no double counting)
+        _calcAndWarpOneEpoch();
+        uint48 epoch = middleware.getCurrentEpoch();
+        bytes32[] memory activeNodes = middleware.getActiveNodesForEpoch(alice, epoch);
+        assertEq(activeNodes.length, 1, "Should have exactly 1 active node");
+    }
+
+    /// @notice Tests that stake is not double-counted after proper cleanup and re-add
+    function test_DuplicateNodeInsertion_NoDoubleStakeCounting() public {
+        bytes32 nodeId = bytes32(uint256(uint160(0x5555555555555555555555555555555555555555)));
+
+        // Get initial stake
+        uint256 initialUsedStake = middleware.getOperatorUsedStakeCached(alice);
+
+        // Add node
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId1 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId1, true);
+        middleware.completeValidatorRegistration(0);
+
+        // Warp to next epoch so stake is counted
+        _calcAndWarpOneEpoch();
+
+        uint256 stakeWithOneNode = middleware.getOperatorUsedStakeCached(alice);
+        uint256 singleNodeStake = stakeWithOneNode - initialUsedStake;
+        assertGt(singleNodeStake, 0, "Single node should contribute stake");
+
+        // Remove and complete
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+        _pushRemovalAck(valId1);
+        middleware.completeValidatorRemoval(0);
+
+        // Warp to cleanup, then re-add
+        _calcAndWarpOneEpoch();
+
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), 100_000_000_000_000);
+
+        bytes32 valId2 = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(valId2, true);
+        middleware.completeValidatorRegistration(0);
+
+        // Warp to recalculate stake
+        _calcAndWarpOneEpoch();
+
+        uint256 stakeAfterReAdd = middleware.getOperatorUsedStakeCached(alice);
+
+        // Stake should be the same as with one node (not doubled)
+        assertApproxEqRel(
+            stakeAfterReAdd,
+            stakeWithOneNode,
+            0.01e18, // 1% tolerance
+            "Stake should not be double-counted"
+        );
+    }
 }

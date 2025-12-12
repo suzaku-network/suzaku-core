@@ -397,6 +397,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         if (!_requireMinSecondaryCollateralClasses(1, operator)) {
             revert AvalancheL1Middleware__InsufficientStake();
         }
+        if (pendingRemovalValId[nodeId] != bytes32(0)) {
+            revert AvalancheL1Middleware__NodePending();
+        }
 
         bytes32 valId = _vid(nodeId);
         if (nodePendingRemoval[valId]) revert AvalancheL1Middleware__NodePending();
