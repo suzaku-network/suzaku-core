@@ -973,7 +973,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         bytes32[] storage arr = operatorNodesArray[operator];
         for (uint256 i; i < arr.length;) {
             bytes32 valID = _vid(arr[i]);
-            if (!nodePendingRemoval[valID]) {
+            if (valID != bytes32(0) && !nodePendingRemoval[valID]) {
                 unchecked { ++count; }
             }
             unchecked { ++i; }

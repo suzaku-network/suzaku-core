@@ -3435,4 +3435,126 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             "Stake should not be double-counted"
         );
     }
+
+    /**
+     * @notice Tests that _getActiveNodeCount incorrectly treats valID==0 as active
+     * 
+     * Bug: After completeValidatorRemoval for normal Completed status:
+     *   - _vid(nodeId) returns 0 (validator deleted from ValidatorManager)
+     *   - nodeId stays in operatorNodesArray until next epoch cleanup
+     *   - _getActiveNodeCount checks !nodePendingRemoval[valID]
+     *   - nodePendingRemoval[0] defaults to false → deleted node counted as active
+     * 
+     * Impact: Inflated node count causes _requireMinSecondaryCollateralClasses
+     *         to fail, blocking addNode or causing forceUpdateNodes to misbehave.
+     */
+    function test_GetActiveNodeCount_TreatsValidZeroAsActive() public {
+        // 1. Setup: Register secondary collateral class with min stake per node
+        uint96 secondaryClassId = 2;
+        // Set min stake high enough that Alice can only support 1 node
+        // Alice has 100e12 in vault3, so set min to 60e12 (100/60 < 2)
+        uint256 minSecondaryStakePerNode = 60_000_000_000_000; // 60e12
+        
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(secondaryClassId, minSecondaryStakePerNode, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(secondaryClassId);
+        vaultManager.registerVault(address(vault3), secondaryClassId, 3000 ether);
+        vm.stopPrank();
+        
+        // Set L1 limit for secondary class
+        _setL1Limit(curatorOwner3, balancer, secondaryClassId, 2500 ether, delegator3);
+        
+        // Warp to let stakes settle
+        _calcAndWarpOneEpoch();
+        
+        // 2. Alice adds a node using primary stake
+        bytes32 nodeId = bytes32(uint256(uint160(0xDEADBEEF01)));
+        (uint256 minPrimaryStake,) = middleware.getClassStakingRequirements(1);
+        uint256 nodeStake = minPrimaryStake * 2;
+        
+        vm.prank(alice);
+        middleware.addNode(nodeId, new bytes(48), _pOwner1(alice), _pOwner1(alice), nodeStake);
+        
+        bytes32 validationID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        _pushRegistrationAck(validationID, true);
+        middleware.completeValidatorRegistration(0);
+        
+        // 3. Verify node is registered
+        uint256 nodesLengthBefore = middleware.getOperatorNodesLength(alice);
+        assertEq(nodesLengthBefore, 1, "Should have 1 node");
+        
+        // Get secondary stake per node (should be Alice's vault3 stake / 1 node)
+        uint48 epoch = middleware.getCurrentEpoch();
+        uint256 aliceSecondaryStake = middleware.getOperatorStake(alice, epoch, secondaryClassId);
+        console2.log("Alice secondary stake:", aliceSecondaryStake);
+        console2.log("Min secondary per node:", minSecondaryStakePerNode);
+        console2.log("Node count before removal:", nodesLengthBefore);
+        console2.log("Secondary per node:", aliceSecondaryStake / nodesLengthBefore);
+        
+        // Verify enough secondary stake for 1 node
+        require(aliceSecondaryStake >= minSecondaryStakePerNode, "Need enough secondary stake");
+        
+        // 4. Remove the node and complete removal
+        vm.prank(alice);
+        middleware.removeNode(nodeId);
+        _pushRemovalAck(validationID);
+        middleware.completeValidatorRemoval(0);
+        
+        // 5. CRITICAL: Do NOT advance epoch - stay in same epoch
+        //    The nodeId is still in operatorNodesArray but _vid(nodeId) returns 0
+        
+        // Verify: nodeId still in array
+        uint256 nodesLengthAfter = middleware.getOperatorNodesLength(alice);
+        console2.log("Node count after removal (before cleanup):", nodesLengthAfter);
+        
+        // BUG PROOF: Array length is still 1 even though validator is deleted
+        assertEq(nodesLengthAfter, 1, "Node still in array after removal (expected - awaiting cleanup)");
+        
+        // Verify: validationID now returns 0 from ValidatorManager
+        bytes32 currentValID = IBalancerValidatorManager(balancer).getNodeValidationID(_nodeBytes(nodeId));
+        console2.log("ValidationID after removal:", uint256(currentValID));
+        assertEq(currentValID, bytes32(0), "ValidationID should be 0 after removal");
+        
+        // 6. THE BUG: _getActiveNodeCount treats this as active
+        //    Because nodePendingRemoval[0] defaults to false
+        //    
+        //    This causes _requireMinSecondaryCollateralClasses to use nodeCount=1
+        //    even though there are 0 active nodes.
+        //
+        //    Impact: If Alice tries to add a new node, the secondary stake check
+        //    would use nodeCount=2 (1 ghost + 1 new), requiring 2x the minimum.
+        
+        // Try to add a second node - this will fail due to inflated count
+        bytes32 nodeId2 = bytes32(uint256(uint160(0xDEADBEEF02)));
+        
+        // The bug: _getActiveNodeCount returns 1 (the ghost node)
+        // Adding nodeId2 means extraNode=1, so total = 1+1 = 2 "active" nodes
+        // Secondary check: aliceSecondaryStake / 2 must be >= minSecondaryStakePerNode
+        // If aliceSecondaryStake < 2 * minSecondaryStakePerNode, this fails!
+        
+        // With fix: _getActiveNodeCount should return 0 (valID==0 skipped)
+        // Adding nodeId2 means extraNode=1, so total = 0+1 = 1 "active" nodes
+        // Secondary check: aliceSecondaryStake / 1 >= minSecondaryStakePerNode ✓
+        
+        if (aliceSecondaryStake < 2 * minSecondaryStakePerNode) {
+            console2.log("BUG CONDITION MET: Secondary stake insufficient for 2 nodes");
+            console2.log("  Secondary stake:", aliceSecondaryStake);
+            console2.log("  Required for 2 nodes:", 2 * minSecondaryStakePerNode);
+            
+            // Without fix: This should revert with InsufficientStake
+            // With fix: This should succeed
+            vm.prank(alice);
+            try middleware.addNode(nodeId2, new bytes(48), _pOwner1(alice), _pOwner1(alice), nodeStake) {
+                console2.log("FIX VERIFIED: addNode succeeded with correct count");
+            } catch {
+                console2.log("BUG CONFIRMED: addNode reverted due to ghost node inflation");
+                revert("BUG: _getActiveNodeCount treats valID==0 as active");
+            }
+        } else {
+            // If Alice has enough stake for 2 nodes, adjust the test parameters
+            console2.log("Note: Alice has enough stake for 2 nodes, bug may not manifest");
+            console2.log("  Secondary stake:", aliceSecondaryStake);
+            console2.log("  Required for 2 nodes:", 2 * minSecondaryStakePerNode);
+        }
+    }
 }
