@@ -7,7 +7,7 @@ import {AvalancheL1Middleware} from "../middleware/AvalancheL1Middleware.sol";
 import {IUptimeTracker, LastUptimeCheckpoint} from "../../interfaces/rewards/IUptimeTracker.sol";
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
-import {Validator} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
+import {Validator, ValidatorStatus} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {ValidatorMessages} from "@avalabs/icm-contracts/validator-manager/ValidatorMessages.sol";
 import {
     IWarpMessenger, WarpMessage
@@ -160,19 +160,32 @@ contract UptimeTracker is IUptimeTracker {
             revert UptimeTracker__OperatorUptimeAlreadySet(epoch, operator);
         }
 
-        bytes32[] memory operatorNodes = middleware.getActiveNodesForEpoch(operator, epoch);
-        uint256 numberOfValidators = operatorNodes.length;
-        if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
+        bytes32[] memory operatorValidationIDs = middleware.getOperatorValidationIDs(operator);
+        uint48 epochStartTs = middleware.getEpochStartTs(epoch);
+        uint256 numberOfValidators = 0;
         uint256 sumValidatorsUptime = 0;
-        
-        for (uint256 i = 0; i < numberOfValidators; i++) {
-            bytes32 validationID = validatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
+
+        for (uint256 i = 0; i < operatorValidationIDs.length; i++) {
+            bytes32 validationID = operatorValidationIDs[i];
+
+            Validator memory v = validatorManager.getValidator(validationID);
+            if (v.status == ValidatorStatus.Invalidated) {
+                continue;
+            }
+            uint48 start = uint48(v.startTime);
+            uint48 end = uint48(v.endTime);
+            if (start == 0 || start > epochStartTs || (end != 0 && end <= epochStartTs)) {
+                continue;
+            }
+
             if (isValidatorUptimeSet[epoch][validationID] == false) {
                 revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, validationID);
             }
-            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][validationID];
-            sumValidatorsUptime += uptimeValidator;
+            sumValidatorsUptime += validatorUptimePerEpoch[epoch][validationID];
+            numberOfValidators += 1;
         }
+
+        if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
 
         operatorUptimePerEpoch[epoch][operator] = sumValidatorsUptime / numberOfValidators;
         isOperatorUptimeSet[epoch][operator] = true;

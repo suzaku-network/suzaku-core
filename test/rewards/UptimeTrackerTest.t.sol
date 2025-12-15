@@ -478,4 +478,101 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         return middleware.getCurrentEpoch();
     }
 
+    /// @notice Tests Issue #24: Active Set Drift on FIRST computation
+    /// This demonstrates that if node removal completes BEFORE computeOperatorUptimeAt is called,
+    /// the FIRST (and only) computation uses a drifted active set.
+    /// 
+    /// Expected behavior: Uptime should reflect ALL validators that were active during the epoch
+    /// Actual behavior: Uptime only reflects currently-registered validators (KNOWN LIMITATION)
+    function test_ActiveSetDrift_FirstComputation() public {
+        // Find an epoch where Alice has active nodes
+        uint48 from = middleware.getCurrentEpoch();
+        uint48 targetEpoch = _firstActiveEpochForOperator(alice, from);
+        
+        // Advance epochs properly to get to targetEpoch+1 (so targetEpoch is complete)
+        while (middleware.getCurrentEpoch() <= targetEpoch) {
+            _advanceOneEpoch();
+        }
+        
+        // Record validator uptimes for ALL 3 validators:
+        // - aliceVals[0]: 4 hours (good)
+        // - aliceVals[1]: 4 hours (good)  
+        // - aliceVals[2]: 1 hour (poor - will be removed BEFORE operator uptime computation)
+        _ensureStarted(aliceVals[0]); _pushFor(aliceVals[0], 4 hours); uptimeTracker.computeValidatorUptime(0);
+        _ensureStarted(aliceVals[1]); _pushFor(aliceVals[1], 4 hours); uptimeTracker.computeValidatorUptime(0);
+        _ensureStarted(aliceVals[2]); _pushFor(aliceVals[2], 1 hours); uptimeTracker.computeValidatorUptime(0);
+        
+        // Verify validator uptimes are set correctly
+        uint256 v0Uptime = uptimeTracker.validatorUptimePerEpoch(targetEpoch, aliceVals[0]);
+        uint256 v1Uptime = uptimeTracker.validatorUptimePerEpoch(targetEpoch, aliceVals[1]);
+        uint256 v2Uptime = uptimeTracker.validatorUptimePerEpoch(targetEpoch, aliceVals[2]);
+        
+        console2.log("=== ISSUE #24 TEST: Active Set Drift on First Computation ===");
+        console2.log("Validator 0 uptime:", v0Uptime, "seconds");
+        console2.log("Validator 1 uptime:", v1Uptime, "seconds");
+        console2.log("Validator 2 uptime:", v2Uptime, "seconds (will be removed)");
+        
+        // Calculate what the CORRECT uptime should be (average of all 3)
+        uint256 correctUptime = (v0Uptime + v1Uptime + v2Uptime) / 3;
+        console2.log("CORRECT uptime (avg of 3):", correctUptime, "seconds");
+        
+        // === NODE REMOVAL BEFORE OPERATOR UPTIME COMPUTATION ===
+        // This is the key difference from test_OperatorUptimeOverwrite_AfterNodeRemoval:
+        // We remove the node BEFORE calling computeOperatorUptimeAt for the first time
+        
+        assertFalse(uptimeTracker.isOperatorUptimeSet(targetEpoch, alice), "Operator uptime should NOT be set yet");
+        
+        // Find the nodeId that corresponds to aliceVals[2]
+        bytes32[] memory activeNodes = middleware.getActiveNodesForEpoch(alice, targetEpoch);
+        uint256 activeCountBefore = activeNodes.length;
+        console2.log("Active nodes BEFORE removal:", activeCountBefore);
+        
+        bytes32 nodeIdToRemove;
+        for (uint256 i = 0; i < activeNodes.length; i++) {
+            bytes32 nodeId = activeNodes[i];
+            bytes32 vID = IBalancerValidatorManager(balancer)
+                .getNodeValidationID(abi.encodePacked(uint160(uint256(nodeId))));
+            if (vID == aliceVals[2]) {
+                nodeIdToRemove = nodeId;
+                break;
+            }
+        }
+        require(nodeIdToRemove != bytes32(0), "Could not find nodeId for aliceVals[2]");
+        
+        // Remove the low-uptime node
+        vm.prank(alice);
+        middleware.removeNode(nodeIdToRemove);
+        
+        // Advance epoch and complete removal
+        _advanceOneEpoch();
+        
+        // Push removal acknowledgment and complete
+        _pushRemovalAck(aliceVals[2]);
+        vm.prank(alice);
+        middleware.completeValidatorRemoval(0);
+        
+        // Verify the active set has drifted for the PAST targetEpoch
+        bytes32[] memory activeNodesAfterRemoval = middleware.getActiveNodesForEpoch(alice, targetEpoch);
+        console2.log("Active nodes for targetEpoch AFTER removal:", activeNodesAfterRemoval.length);
+        assertLt(activeNodesAfterRemoval.length, activeCountBefore, "Active set drifted");
+        
+        // === FIRST COMPUTATION - NOW USES HISTORICAL VALIDATION IDs ===
+        // With the fix, computeOperatorUptimeAt uses the append-only operatorValidationIDsArray
+        // which includes all historically registered validationIDs, not the drifted getActiveNodesForEpoch
+        uptimeTracker.computeOperatorUptimeAt(alice, targetEpoch);
+        
+        uint256 actualUptime = uptimeTracker.operatorUptimePerEpoch(targetEpoch, alice);
+        uint256 driftedUptime = (v0Uptime + v1Uptime) / 2; // Would be wrong (only 2 validators)
+        
+        console2.log("");
+        console2.log("=== RESULT (FIX VERIFIED) ===");
+        console2.log("Actual uptime:", actualUptime, "seconds");
+        console2.log("CORRECT uptime (avg of 3):", correctUptime, "seconds");
+        console2.log("Would-be drifted (avg of 2):", driftedUptime, "seconds");
+        
+        // FIX VERIFICATION: Uptime uses correct historical set, NOT the drifted set
+        assertEq(actualUptime, correctUptime, "Fix works: uptime uses historical validationIDs");
+        assertNotEq(actualUptime, driftedUptime, "Fix works: uptime is NOT the drifted value");
+    }
+
 }

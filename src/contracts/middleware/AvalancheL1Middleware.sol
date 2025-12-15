@@ -80,6 +80,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     mapping(address => uint256) public operatorLockedStake;
     mapping(uint48 => mapping(uint96 => bool)) public totalStakeCached;
     mapping(bytes32 => address) private validationIdToOperator;
+    mapping(address => bytes32[]) private operatorValidationIDsArray;
     // operatorNodesArray[operator] is used for iteration during certain
     // rebalancing or node-update operations, and has nodes removed once
     // they are effectively retired. This means a node can remain in
@@ -434,6 +435,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint48 epoch = getCurrentEpoch();
 
         validationIdToOperator[validationID] = operator;
+        operatorValidationIDsArray[operator].push(validationID);
         nodeStakeCache[epoch][validationID] = newStake;
         nodeStakeCache[epoch + 1][validationID] = newStake;
 
@@ -1161,13 +1163,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 i = 0; i < allNodeIds.length; i++) {
             bytes32 nodeId = allNodeIds[i];
             bytes32 validationID = _vid(nodeId);
-            Validator memory validator = balancerValidatorManager.getValidator(validationID);
 
             // Skip if no validator is registered for this nodeId
             if (validationID == bytes32(0) || validationIdToOperator[validationID] != operator) {
                 continue;
             }
 
+            Validator memory validator = balancerValidatorManager.getValidator(validationID);
             if (_wasActiveAt(uint48(validator.startTime), uint48(validator.endTime), epochStartTs)) {
                 temp[activeCount++] = nodeId;
             }
@@ -1177,6 +1179,15 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 j = 0; j < activeCount; j++) {
             activeNodeIds[j] = temp[j];
         }
+    }
+
+    /**
+     * @inheritdoc IAvalancheL1Middleware
+     */
+    function getOperatorValidationIDs(
+        address operator
+    ) external view returns (bytes32[] memory) {
+        return operatorValidationIDsArray[operator];
     }
 
     /**

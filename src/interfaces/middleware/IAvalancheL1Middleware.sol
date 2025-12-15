@@ -298,6 +298,13 @@ interface IAvalancheL1Middleware {
     function getActiveNodesForEpoch(address operator, uint48 epoch) external view returns (bytes32[] memory);
 
     /**
+     * @notice Returns all validationIDs ever registered by an operator (append-only, for historical uptime)
+     * @param operator The operator address
+     * @return Array of validationIDs
+     */
+    function getOperatorValidationIDs(address operator) external view returns (bytes32[] memory);
+
+    /**
      * @notice Returns the available stake for an operator
      * @param operator The operator address
      * @return The available stake
