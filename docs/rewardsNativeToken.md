@@ -62,7 +62,9 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
 
 * **Uptime source**
    * From `UptimeTracker`. For epoch `e`, `operatorUptimePerEpoch[e][op]` is the arithmetic mean of the uptimes of all active validators for `op` in `e`.
+   * Uses `middleware.getOperatorValidationIDs(op)` to get all historical validationIDs, then filters by validator start/end times to find validators active during the epoch.
    * Units: seconds.
+   * **Write-once guard**: `computeOperatorUptimeAt` can only be called once per (epoch, operator). Subsequent calls revert with `UptimeTracker__OperatorUptimeAlreadySet`. This prevents manipulation after node removals.
    * Guard: if `operatorUptimePerEpoch[e][op] < minRequiredUptime` then `rawShare = 0` for all classes for that operator in `e`. 
 
 * **Per operator, per class**
@@ -220,7 +222,7 @@ Result:
 
 ### Token Configuration
 
-* **Rewards Token**: Set to `middleware.PRIMARY_ASSET()` during initialization
+* **Rewards Token**: Set to the **underlying asset** of the primary collateral: `ICollateral(middleware.PRIMARY_ASSET()).asset()`. This is the native L1 token (e.g., WAVAX), not the collateral wrapper.
 * **Validation**: Token address must be non-zero during setup
 * **Immutable**: Cannot be changed after deployment
 

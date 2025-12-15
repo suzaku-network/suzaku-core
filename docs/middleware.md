@@ -322,14 +322,17 @@ graph LR
 - `removeOperator(operator)` - Permanently remove operator
 
 ### Node Operations (Operator-callable)
-- `addNode(nodeId, weight)` - Register new validator node
+- `addNode(nodeId, blsKey, remainingBalanceOwner, disableOwner, stakeAmount)` - Register new validator node. Validates canonical nodeId format (high 96 bits must be zero).
 - `removeNode(nodeId)` - Remove validator node  
 - `initializeValidatorStakeUpdate(nodeId, stakeAmount)` - Manually update a specific node's weight
 
 ### Completion Functions (Permissionless)
 - `completeValidatorRegistration(messageIndex)` - Complete node registration
-- `completeValidatorRemoval(messageIndex)` - Complete node removal
+- `completeValidatorRemoval(messageIndex)` - Complete node removal. Also handles cleanup for expired/invalidated registrations.
 - `completeValidatorWeightUpdate(messageIndex)` - Complete weight update
+
+### Query Functions
+- `getOperatorValidationIDs(operator)` - Returns all validationIDs ever registered by an operator (append-only, for historical uptime tracking)
 
 ### Collateral Management
 - `addCollateralClass(classId, minStake, maxStake, asset)` - Create new collateral class
@@ -348,14 +351,16 @@ graph LR
 
 **Per operator:**
 - `operators[operator]` - Registration status, enabled/disabled
-- `operatorNodes[operator]` - Array of nodeIds
+- `operatorNodes[operator]` - EnumerableSet of nodeIds (permanent record)
+- `operatorNodesArray[operator]` - Array of nodeIds for iteration (cleaned up on epoch transitions)
+- `operatorValidationIDsArray[operator]` - Append-only array of all validationIDs ever registered (for historical uptime)
 - `operatorStakeCache[epoch][operator][collateralClass]` - Historical stake snapshots
 
 **Per node:**
 - `validationIdToOperator[validationId]` - Operator owner (private)
-- `nodeToValidationId[nodeId]` - Current validation ID
-- `nodePendingUpdate[nodeId]` - Weight update pending flag
-- `nodePendingRemoval[nodeId]` - Removal pending flag
+- `pendingRemovalValId[nodeId]` - ValidationID pending removal for this nodeId
+- `nodePendingUpdate[validationId]` - Weight update pending flag
+- `nodePendingRemoval[validationId]` - Removal pending flag
 
 **Global:**
 - `lastGlobalNodeStakeUpdateEpoch` - Last epoch with cache updates
@@ -429,6 +434,9 @@ graph LR
 - `AvalancheL1Middleware__NodePending` - Node has pending operation
 - `AvalancheL1Middleware__NodeNotFound` - Node doesn't exist or not owned by operator
 - `CollateralClassRegistry__AssetDecimalsMismatch` - Asset decimals don't match class
+
+**Known edge case:**
+- Calling `removeOperator` on an operator that was never disabled will cause an underflow panic in `getEpochAtTs(0)`. Always call `disableOperator` first, then wait for the grace period before calling `removeOperator`.
 
 ---
 
