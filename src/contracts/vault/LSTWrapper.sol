@@ -4,6 +4,10 @@
 pragma solidity 0.8.25;
 
 import {ERC4626Upgradeable, IERC4626} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC4626Upgradeable.sol";
+import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {ERC20PermitUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PermitUpgradeable.sol";
+import {ERC20VotesUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20VotesUpgradeable.sol";
+import {NoncesUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/NoncesUpgradeable.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -15,22 +19,25 @@ import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.s
 import {IVaultTokenized} from "../../interfaces/vault/IVaultTokenized.sol";
 import {ILSTWrapper} from "../../interfaces/vault/ILSTWrapper.sol";
 import {IRewardsNativeToken} from "../../interfaces/rewards/IRewardsNativeToken.sol";
-import {IVaultHelper} from "../../interfaces/IVaultHelper.sol";
-import {ICollateral} from "../../interfaces/ICollateral.sol";
+import {IDefaultCollateral} from "../../interfaces/defaultCollateral/IDefaultCollateral.sol";
 
 /**
  * @title LSTWrapper
- * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares.
+ * @notice An upgradeable ERC-4626 non-rebasing yield wrapper for VaultTokenized shares with 
+ *         integrated voting and permit functionality.
  * @dev Users deposit VaultTokenized shares (asset). The wrapper claims the native
  * collateral rewards from the Rewards contract and auto-compounds them back
  * into the underlying VaultTokenized instance, increasing the price per share (PPS)
  * of this LSTWrapper token over time.
+ * @dev Implements ERC20Votes for governance participation and ERC20Permit for gasless approvals.
  */
 contract LSTWrapper is
     Initializable,
     ERC4626Upgradeable,
     ReentrancyGuardUpgradeable,
     OwnableUpgradeable,
+    ERC20PermitUpgradeable,
+    ERC20VotesUpgradeable,
     ILSTWrapper
 {
     using SafeERC20 for IERC20;
@@ -45,8 +52,6 @@ contract LSTWrapper is
         IERC20 collateral;
         /// @notice The native token (underlying of collateral) paid by Rewards contract.
         IERC20 nativeToken;
-        /// @notice Helper used for native->collateral conversion and staking.
-        IVaultHelper vaultHelper;
         bool depositsPaused;
     }
 
@@ -62,7 +67,6 @@ contract LSTWrapper is
      * @param admin The initial owner and admin of this wrapper.
      * @param vault_ Address of the specific VaultTokenized instance to wrap.
      * @param rewards_ Address of the associated Rewards contract.
-     * @param helper_ Address of the VaultHelper to use.
      * @param name_ ERC20 name for this new LST wrapper token.
      * @param symbol_ ERC20 symbol for this new LST wrapper token.
      */
@@ -70,7 +74,6 @@ contract LSTWrapper is
         address admin,
         address vault_,
         address rewards_,
-        address helper_,
         string memory name_,
         string memory symbol_
     ) external initializer {
@@ -78,13 +81,14 @@ contract LSTWrapper is
         if (admin == address(0)) revert LSTWrapper__ZeroAddress("admin");
         if (vault_ == address(0)) revert LSTWrapper__ZeroAddress("vault");
         if (rewards_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
-        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
 
         // Initialize Inherited Contracts
         __ERC20_init(name_, symbol_); // name/symbol for this wrapper token
         __ERC4626_init(IERC20(vault_)); // set VaultTokenized shares as asset
         __ReentrancyGuard_init();
         __Ownable_init(admin); // Initialize OwnableUpgradeable with the admin address
+        __ERC20Permit_init(name_);
+        __ERC20Votes_init();
 
         // Set State Variables
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
@@ -96,15 +100,24 @@ contract LSTWrapper is
         if (collateralAddr == address(0)) revert LSTWrapper__InvalidVaultCollateral();
         
         // Determine the native token from collateral
-        address nativeTokenAddr = ICollateral(collateralAddr).asset();
+        address nativeTokenAddr = IDefaultCollateral(collateralAddr).asset();
         if (nativeTokenAddr == address(0)) revert LSTWrapper__InvalidRewardsToken();
         
         lws.collateral = IERC20(collateralAddr);
         lws.nativeToken = IERC20(nativeTokenAddr);
-        lws.vaultHelper = IVaultHelper(helper_);
         // Start paused
         lws.depositsPaused = true;
         // No infinite approvals; per‑harvest allowances only.
+    }
+
+    /**
+     * @inheritdoc ILSTWrapper
+     */
+    function initializeVotes() external reinitializer(2) {
+        // ProxyAdmin-only (typically via upgradeAndCall)
+        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
+        __ERC20Permit_init(name());
+        __ERC20Votes_init();
     }
 
     /**
@@ -137,14 +150,6 @@ contract LSTWrapper is
     function nativeToken() external view returns (address token) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
         token = address(lws.nativeToken);
-    }
-
-    /**
-     * @inheritdoc ILSTWrapper
-     */
-    function vaultHelper() external view returns (address helper) {
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        helper = address(lws.vaultHelper);
     }
 
     /**
@@ -349,18 +354,6 @@ contract LSTWrapper is
     /**
      * @inheritdoc ILSTWrapper
      */
-    function setVaultHelper(address helper_) external {
-        if (helper_ == address(0)) revert LSTWrapper__InvalidVaultHelper();
-        // ProxyAdmin-only (typically via upgradeAndCall)
-        if (msg.sender != ERC1967Utils.getAdmin()) revert OwnableUnauthorizedAccount(msg.sender);
-        LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        lws.vaultHelper = IVaultHelper(helper_);
-        emit VaultHelperUpdated(helper_);
-    }
-
-    /**
-     * @inheritdoc ILSTWrapper
-     */
     function setRewards(address rewards_) external {
         if (rewards_ == address(0)) revert LSTWrapper__ZeroAddress("rewards");
         // ProxyAdmin-only (typically via upgradeAndCall)
@@ -400,7 +393,7 @@ contract LSTWrapper is
         public
         view
         virtual
-        override(ERC4626Upgradeable, IERC20Metadata)
+        override(ERC4626Upgradeable, ERC20Upgradeable, IERC20Metadata)
         returns (uint8)
     {
         try IERC20Metadata(address(asset())).decimals() returns (uint8 assetDecimals) {
@@ -514,7 +507,6 @@ contract LSTWrapper is
      */
     function _harvestNative() internal returns (uint256 claimedNative, uint256 mintedVaultShares) {
         LSTWrapperStorageStruct storage lws = _lstWrapperStorage();
-        address nativeTokenAddr = address(lws.nativeToken);
         
         // Track balance before claim to compute actual claimed amount
         uint256 nativeBalanceBefore = lws.nativeToken.balanceOf(address(this));
@@ -539,7 +531,7 @@ contract LSTWrapper is
         // Gate by underlying vault whitelist only when depositing
         if (lws.vault.depositWhitelist()) {
             if (!lws.vault.isDepositorWhitelisted(msg.sender)) revert LSTWrapper__DepositRestricted();
-            if (!lws.vault.isDepositorWhitelisted(address(lws.vaultHelper))) revert LSTWrapper__DepositRestricted();
+            if (!lws.vault.isDepositorWhitelisted(address(this))) revert LSTWrapper__DepositRestricted();
         }
         // Deposit limit check only when depositing
         if (lws.vault.isDepositLimit()) {
@@ -548,21 +540,25 @@ contract LSTWrapper is
             if (active >= limit) revert LSTWrapper__DepositLimitExceeded(0);
         }
 
-        // Approve helper to pull native token exactly once (use total balance to include dust)
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), totalNativeBalance);
-        (, mintedVaultShares) = lws.vaultHelper.stakeAssetInVault(
-            address(lws.vault),
-            address(this),
-            address(lws.collateral),
-            nativeTokenAddr,
-            totalNativeBalance
-        );
-        // Prevent silent value loss on rounding
+        // Inline staking: native token → collateral → vault shares
+        
+        // Approve collateral contract to pull native tokens
+        lws.nativeToken.forceApprove(address(lws.collateral), totalNativeBalance);
+        
+        // Deposit native tokens into collateral, minting collateral tokens to this contract
+        uint256 collateralMinted = IDefaultCollateral(address(lws.collateral)).deposit(address(this), totalNativeBalance);
+        if (collateralMinted == 0) revert LSTWrapper__ZeroSharesMinted();
+        lws.nativeToken.forceApprove(address(lws.collateral), 0);
+        
+        // Approve vault to pull collateral tokens
+        lws.collateral.forceApprove(address(lws.vault), collateralMinted);
+        
+        // Deposit collateral into vault, minting vault shares to this contract
+        (, mintedVaultShares) = lws.vault.deposit(address(this), collateralMinted);
         if (mintedVaultShares == 0) revert LSTWrapper__ZeroSharesMinted();
-        lws.nativeToken.forceApprove(address(lws.vaultHelper), 0);
-        emit Harvest(msg.sender, claimedNative, mintedVaultShares);
+        lws.collateral.forceApprove(address(lws.vault), 0);
 
+        emit Harvest(msg.sender, claimedNative, mintedVaultShares);
         return (claimedNative, mintedVaultShares);
     }
 
@@ -580,6 +576,35 @@ contract LSTWrapper is
             unitCap = _safePow10(collateralDecimals);
         } catch { }
         return unitCap == 0 ? percentageCap : (percentageCap < unitCap ? percentageCap : unitCap);
+    }
+
+    /**
+     * @dev Internal hook called on all token transfers, mints, and burns.
+     * @dev Overrides both ERC20Upgradeable and ERC20VotesUpgradeable to ensure
+     *      vote tracking is properly updated on balance changes.
+     * @param from Address tokens are transferred from (zero for mints)
+     * @param to Address tokens are transferred to (zero for burns)
+     * @param value Amount of tokens transferred
+     */
+    function _update(address from, address to, uint256 value)
+        internal
+        override(ERC20Upgradeable, ERC20VotesUpgradeable)
+    {
+        super._update(from, to, value);
+    }
+
+    /**
+     * @dev Required override to resolve conflict between ERC20PermitUpgradeable
+     *      and NoncesUpgradeable in the inheritance graph.
+     * @inheritdoc NoncesUpgradeable
+     */
+    function nonces(address owner)
+        public
+        view
+        override(ERC20PermitUpgradeable, NoncesUpgradeable)
+        returns (uint256)
+    {
+        return super.nonces(owner);
     }
 
     function _lstWrapperStorage() internal pure returns (LSTWrapperStorageStruct storage lws) {

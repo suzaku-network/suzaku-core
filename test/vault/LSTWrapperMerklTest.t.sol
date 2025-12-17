@@ -13,6 +13,7 @@ import {IVaultTokenized} from "../../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
+import {LSTWrapperFactory} from "../../src/contracts/vault/LSTWrapperFactory.sol";
 import {Token} from "../mocks/MockToken.sol";
 import {MockCollateral} from "../mocks/MockCollateral.sol";
 import {MockMerkleDistributor} from "../mocks/MockMerkleDistributor.sol";
@@ -38,9 +39,11 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     LSTWrapperMerkl public lstWrapperMerklImplementation;
     MockMerkleDistributor public merkleDistributor;
     VaultHelper public vaultHelper;
+    LSTWrapperFactory public lstWrapperFactory;
     ProxyAdmin public proxyAdmin; // For managing upgrades
     
     address public lstAdmin;
+    address public factoryOwner;
     address public lstUser1;
     address public lstUser2;
     
@@ -54,9 +57,17 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         lstAdmin = makeAddr("lstAdmin");
         lstUser1 = makeAddr("lstUser1");
         lstUser2 = makeAddr("lstUser2");
+        factoryOwner = makeAddr("factoryOwner");
         
-        // Deploy VaultHelper
-        vaultHelper = new VaultHelper(address(vaultFactory));
+        // Deploy LSTWrapperFactory and whitelist implementation
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
+        
+        LSTWrapper wrapperImpl = new LSTWrapper();
+        vm.prank(factoryOwner);
+        lstWrapperFactory.whitelist(address(wrapperImpl));
+        
+        // Deploy VaultHelper with both factories
+        vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
         
         // Deploy Mock Merkl Distributor
         merkleDistributor = new MockMerkleDistributor();
@@ -68,7 +79,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
             admin: lstAdmin,
             vault: address(vault),
             rewards: address(rewards), // Use original rewards for initial setup
-            helper: address(vaultHelper),
             name: "LST Wrapped VaultTokenized",
             symbol: "lstVT"
         });
@@ -180,7 +190,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(lstWrapperMerkl.vault(), address(vault), "Vault should be preserved");
         assertEq(lstWrapperMerkl.collateral(), vault.collateral(), "Collateral should be preserved");
         assertEq(lstWrapperMerkl.nativeToken(), MockCollateral(vault.collateral()).asset(), "Native token should be preserved");
-        assertEq(lstWrapperMerkl.vaultHelper(), address(vaultHelper), "Vault helper should be preserved");
         assertEq(lstWrapperMerkl.owner(), lstAdmin, "Owner should be preserved");
     }
     
@@ -355,20 +364,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         lstWrapperMerkl.sweep(address(collateral), lstAdmin, 100 ether);
     }
     
-    function test_SetVaultHelper() public {
-        VaultHelper newHelper = new VaultHelper(address(vaultFactory));
-        
-        // Call setVaultHelper via ProxyAdmin's upgradeAndCall
-        vm.prank(lstAdmin);
-        proxyAdmin.upgradeAndCall(
-            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
-            address(lstWrapperMerklImplementation), // same implementation
-            abi.encodeWithSelector(ILSTWrapper.setVaultHelper.selector, address(newHelper))
-        );
-        
-        assertEq(lstWrapperMerkl.vaultHelper(), address(newHelper), "Vault helper should be updated");
-    }
-    
     function test_SetDepositsPaused() public {
         vm.prank(lstAdmin);
         lstWrapperMerkl.setDepositsPaused(true);
@@ -397,7 +392,6 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
             lstAdmin,
             address(vault),
             address(rewards),
-            address(vaultHelper),
             "Test Wrapper",
             "TEST"
         );
@@ -453,6 +447,154 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         (uint256 claimed2,) = lstWrapperMerkl.harvest(totalClaimable, proof2);
         assertGt(claimed2, 0, "Second harvest should succeed");
         assertEq(claimed2, HARVEST_AMOUNT, "Second harvest should claim remaining HARVEST_AMOUNT");
+    }
+    
+    // ========================== ERC20Votes TESTS ==========================
+    
+    function test_VotesAfterUpgrade_InitializeVotes() public {
+        // After upgrade, voting functionality needs to be initialized
+        // Must be called through ProxyAdmin, not directly with lstAdmin
+        bytes memory callData = abi.encodeWithSelector(ILSTWrapper.initializeVotes.selector);
+        vm.prank(lstAdmin);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
+            address(lstWrapperMerklImplementation),
+            callData
+        );
+        
+        // Now voting should work
+        uint256 shares = _depositToWrapper(lstUser1, 50 ether);
+        
+        // Without delegation, no votes
+        assertEq(lstWrapperMerkl.getVotes(lstUser1), 0);
+        
+        // Self-delegate
+        vm.prank(lstUser1);
+        lstWrapperMerkl.delegate(lstUser1);
+        
+        assertEq(lstWrapperMerkl.getVotes(lstUser1), shares);
+    }
+    
+    function test_VotesAfterUpgrade_DoubleInitializeFails() public {
+        // First initialization through ProxyAdmin
+        bytes memory callData = abi.encodeWithSelector(ILSTWrapper.initializeVotes.selector);
+        vm.prank(lstAdmin);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
+            address(lstWrapperMerklImplementation),
+            callData
+        );
+        
+        // Try to initialize again - should fail
+        vm.expectRevert();
+        vm.prank(lstAdmin);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
+            address(lstWrapperMerklImplementation),
+            callData
+        );
+    }
+    
+    function test_Permit_WorksWithMerkl() public {
+        uint256 ownerPk = 0xBEEF;
+        address owner = vm.addr(ownerPk);
+        address spender = lstUser2;
+        
+        uint256 shares = _depositToWrapper(owner, 25 ether);
+        uint256 permitAmount = shares / 2;
+        uint256 deadline = block.timestamp + 1 days;
+        uint256 nonce = lstWrapperMerkl.nonces(owner);
+        
+        bytes32 domainSeparator = lstWrapperMerkl.DOMAIN_SEPARATOR();
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)"),
+                owner,
+                spender,
+                permitAmount,
+                nonce,
+                deadline
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, digest);
+        
+        lstWrapperMerkl.permit(owner, spender, permitAmount, deadline, v, r, s);
+        
+        // Verify permit worked
+        assertEq(lstWrapperMerkl.allowance(owner, spender), permitAmount);
+        assertEq(lstWrapperMerkl.nonces(owner), nonce + 1);
+    }
+    
+    function test_Votes_DelegationWithMerkl() public {
+        // Initialize voting through ProxyAdmin
+        bytes memory callData = abi.encodeWithSelector(ILSTWrapper.initializeVotes.selector);
+        vm.prank(lstAdmin);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
+            address(lstWrapperMerklImplementation),
+            callData
+        );
+        
+        uint256 user1Shares = _depositToWrapper(lstUser1, 100 ether);
+        uint256 user2Shares = _depositToWrapper(lstUser2, 50 ether);
+        
+        // User1 delegates to User2
+        vm.prank(lstUser1);
+        lstWrapperMerkl.delegate(lstUser2);
+        
+        // User2 self-delegates
+        vm.prank(lstUser2);
+        lstWrapperMerkl.delegate(lstUser2);
+        
+        // Check voting power
+        assertEq(lstWrapperMerkl.getVotes(lstUser1), 0);
+        assertEq(lstWrapperMerkl.getVotes(lstUser2), user1Shares + user2Shares);
+    }
+    
+    function test_Votes_HistoricalTracking() public {
+        // Initialize voting through ProxyAdmin
+        bytes memory callData = abi.encodeWithSelector(ILSTWrapper.initializeVotes.selector);
+        vm.prank(lstAdmin);
+        proxyAdmin.upgradeAndCall(
+            ITransparentUpgradeableProxy(payable(address(lstWrapperMerkl))),
+            address(lstWrapperMerklImplementation),
+            callData
+        );
+        
+        uint256 shares = _depositToWrapper(lstUser1, 100 ether);
+        
+        // Block 100: Self-delegate
+        vm.roll(100);
+        vm.prank(lstUser1);
+        lstWrapperMerkl.delegate(lstUser1);
+        uint256 block100 = vm.getBlockNumber();
+        
+        // Block 110: Transfer half
+        vm.roll(110);
+        vm.prank(lstUser1);
+        lstWrapperMerkl.transfer(lstUser2, shares / 2);
+        
+        // Block 120: Check historical
+        vm.roll(120);
+        
+        assertEq(lstWrapperMerkl.getPastVotes(lstUser1, block100), shares);
+        assertEq(lstWrapperMerkl.getPastTotalSupply(block100), 1000 + shares); // Include seed
+    }
+    
+    // ---- Helper functions ----
+    
+    function _depositToWrapper(address user, uint256 amount) internal returns (uint256) {
+        vm.prank(staker);
+        vault.transfer(user, amount);
+        
+        vm.startPrank(user);
+        vault.approve(address(lstWrapperMerkl), amount);
+        uint256 shares = lstWrapperMerkl.deposit(amount, user);
+        vm.stopPrank();
+        
+        return shares;
     }
 }
 

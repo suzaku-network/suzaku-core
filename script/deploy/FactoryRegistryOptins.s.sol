@@ -14,6 +14,7 @@ import {OperatorRegistry} from "../../src/contracts/OperatorRegistry.sol";
 import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVaultOptInService.sol";
 import {OperatorL1OptInService} from "../../src/contracts/service/OperatorL1OptInService.sol";
 import {VaultHelper} from "../../src/contracts/VaultHelper.sol";
+import {LSTWrapperFactory} from "../../src/contracts/vault/LSTWrapperFactory.sol";
 
 contract DeployFactoriesRegistriesOptIns is Script {
     using stdJson for string;
@@ -59,8 +60,11 @@ contract DeployFactoriesRegistriesOptIns is Script {
         OperatorL1OptInService operatorL1OptInService =
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
+        // Deploy LSTWrapperFactory
+        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(bootstraperConfig.generalConfig.owner);
+
         // Deploy VaultHelper
-        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory));
+        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
 
         vm.stopBroadcast();
 

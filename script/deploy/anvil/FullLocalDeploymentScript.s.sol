@@ -13,6 +13,7 @@ import {L1Registry} from "../../../src/contracts/L1Registry.sol";
 import {OperatorRegistry} from "../../../src/contracts/OperatorRegistry.sol";
 import {OperatorVaultOptInService} from "../../../src/contracts/service/OperatorVaultOptInService.sol";
 import {OperatorL1OptInService} from "../../../src/contracts/service/OperatorL1OptInService.sol";
+import {LSTWrapperFactory} from "../../../src/contracts/vault/LSTWrapperFactory.sol";
 import {VaultTokenized} from "../../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {IVaultTokenized} from "../../../src/interfaces/vault/IVaultTokenized.sol";
@@ -193,8 +194,12 @@ contract FullLocalDeploymentScript is Script {
             VaultTokenized(vault).setSlasher(slasher);
         }
 
+        // Deploy LSTWrapperFactory
+        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(params.owner);
+        console2.log("LSTWrapperFactory deployed at:", address(lstWrapperFactory));
+
         // Deploy VaultHelper
-        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory));
+        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
         console2.log("VaultHelper deployed at:", address(vaultHelper));
 
         console2.log("Full local deployment completed successfully.");

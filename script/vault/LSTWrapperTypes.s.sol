@@ -6,7 +6,6 @@ struct LSTWrapperConfig {
     address admin;
     address vault;
     address rewards;
-    address helper;
     string name;
     string symbol;
 }

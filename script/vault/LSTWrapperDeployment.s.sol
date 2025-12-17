@@ -36,19 +36,18 @@ contract DeployLSTWrapper is Script {
             config.admin,
             config.vault,
             config.rewards,
-            config.helper,
             config.name,
             config.symbol
         );
         
-        TransparentUpgradeableProxy p = new TransparentUpgradeableProxy(
+        TransparentUpgradeableProxy transparentProxy = new TransparentUpgradeableProxy(
             implementation,
             config.admin,
             initData
         );
         vm.stopBroadcast();
 
-        proxy = address(p);
+        proxy = address(transparentProxy);
         // Get the ProxyAdmin address using OZ utilities
         proxyAdminAddr = Upgrades.getAdminAddress(proxy);
 
@@ -59,29 +58,8 @@ contract DeployLSTWrapper is Script {
         console2.log("- ProxyAdmin:", proxyAdminAddr);
         console2.log("- Vault:", config.vault);
         console2.log("- Rewards:", config.rewards);
-        console2.log("- Helper:", config.helper);
         console2.log("- Name:", config.name);
         console2.log("- Symbol:", config.symbol);
-    }
-    
-    /**
-     * @dev Entry point for forge script - reads config from JSON
-     * @param configFile The JSON file containing deployment configuration
-     */
-    function run(string memory configFile) external {
-        string memory json = vm.readFile(string(abi.encodePacked("configs/", configFile)));
-        
-        LSTWrapperConfig memory config = LSTWrapperConfig({
-            implementation: vm.parseJsonString(json, ".implementation"),
-            admin: vm.parseJsonAddress(json, ".admin"),
-            vault: vm.parseJsonAddress(json, ".vault"),
-            rewards: vm.parseJsonAddress(json, ".rewards"),
-            helper: vm.parseJsonAddress(json, ".helper"),
-            name: vm.parseJsonString(json, ".name"),
-            symbol: vm.parseJsonString(json, ".symbol")
-        });
-        
-        executeLSTWrapperDeployment(config);
     }
 }
 
