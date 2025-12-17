@@ -27,6 +27,8 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
     * Past the funding window (`currentEpoch > epoch + 4`): allowed even if unfunded.
   * Sequential: must finish `epoch-1` before `epoch`.
   * Batches over operators. On completion: `distributionBatches[epoch].isComplete = true` and `epochStatus[epoch].distributionComplete = true`.
+  * **Vault bucketing**: Vaults are bucketed by collateral class in batches before operator processing to avoid gas spikes.
+  * **Early cap termination**: If total distributed shares reach 10,000 bp, distribution stops early.
 
 * **Claim**
 
@@ -52,9 +54,10 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
   * Allowed when `distributionComplete` and `currentEpoch >= epoch + 2 + 1`.
   * Computes:
 
-    * `usedShares = min(ΣoperatorShares + ΣvaultShares + ΣcuratorShares, 10_000)`
+    * Uses cached `_epochTotalDistributedShares[epoch]` for O(1) lookup
+    * `usedShares = min(totalDistributedShares, 10_000)`
     * `undistributed = epochPool * (1 - usedShares/10_000)`
-  * Transfers `undistributed` and shrinks the epoch pool so users can still claim the remaining part. One‑time per epoch.
+  * Transfers `undistributed` to recipient. One‑time per epoch (guarded by `_undistributedSwept`).
 
 ---
 
@@ -64,7 +67,9 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
    * From `UptimeTracker`. For epoch `e`, `operatorUptimePerEpoch[e][op]` is the arithmetic mean of the uptimes of all active validators for `op` in `e`.
    * Uses `middleware.getOperatorValidationIDs(op)` to get all historical validationIDs, then filters by validator start/end times to find validators active during the epoch.
    * Units: seconds.
-   * **Write-once guard**: `computeOperatorUptimeAt` can only be called once per (epoch, operator). Subsequent calls revert with `UptimeTracker__OperatorUptimeAlreadySet`. This prevents manipulation after node removals.
+   * **Reprocessing rules**: 
+     * Same epoch: `computeOperatorUptimeAt` can be called multiple times within the same epoch. Updates only if the new computed value is higher.
+     * Different epoch: Subsequent calls revert with `UptimeTracker__OperatorUptimeAlreadySet`. This prevents manipulation after node removals.
    * Guard: if `operatorUptimePerEpoch[e][op] < minRequiredUptime` then `rawShare = 0` for all classes for that operator in `e`. 
 
 * **Per operator, per class**
@@ -137,7 +142,8 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
   * `epochRewards[epoch]` (single native token amount)
 * Claim pointers (no token dimension):
 
-  * `lastEpochClaimedStaker`, `…Curator`, `…Operator`, `…Protocol`
+  * `lastEpochClaimedStaker`, `lastEpochClaimedCurator`, `lastEpochClaimedOperator`
+  * Protocol fee is a bucket (`protocolRewards`), not epoch-based
 * Sweep guard: `_undistributedSwept[epoch]`
 * Curator index: `_epochCurators[epoch]` (unique set)
 
@@ -235,6 +241,7 @@ Result:
 * Single reward token: simplified claim logic without token iteration.
 * No operators: inside window, unfunded epoch does not revert funding check; distribution completes with no shares.
 * Vault removal and class changes: reads historical snapshots via `active*At` and `stakeAt`.
+* **Defensive try/catch**: External calls to vaults, delegators, and middleware are wrapped in try/catch to prevent single misbehaving contract from blocking entire distribution or claim.
 
 ---
 
@@ -247,6 +254,7 @@ Result:
 * `claimCuratorFee(recipient)` → curator claim (native token).
 * `claimProtocolFee(recipient)` → protocol owner claim (native token).
 * `claimUndistributedRewards(epoch, recipient)` → sweep post‑grace (native token).
+* `getEpochRewards(epoch)` → view epoch reward pool amount.
 * `setRewardsShareForCollateralClass(classId, bp)`, `setMinRequiredUptime(x)`.
 * `updateProtocolFee/OperatorFee/CuratorFee`, `updateAllFees`.
 * `setRewardsDistributorRole(addr)`, `setRewardsManagerRole(addr)`, `setProtocolOwner(addr)`.

@@ -431,8 +431,9 @@ graph LR
 - `AvalancheL1Middleware__OperatorNotOptedIn` - Operator hasn't opted into L1 or balancer
 - `AvalancheL1Middleware__InsufficientStake` - Not enough free stake for operation
 - `AvalancheL1Middleware__InvalidWindow` - Operation outside allowed time window
-- `AvalancheL1Middleware__NodePending` - Node has pending operation
+- `AvalancheL1Middleware__NodePending` - Node has pending operation (includes pending removal, weight update, or re-add attempt with pending removal)
 - `AvalancheL1Middleware__NodeNotFound` - Node doesn't exist or not owned by operator
+- `AvalancheL1Middleware__InvalidNodeIdFormat` - NodeId has non-zero high 96 bits (not canonical format)
 - `CollateralClassRegistry__AssetDecimalsMismatch` - Asset decimals don't match class
 
 **Known edge case:**
