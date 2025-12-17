@@ -184,21 +184,28 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         uptimeTracker.computeValidatorUptime(0);
         assertEq(uptimeTracker.validatorUptimePerEpoch(0, validationID), middleware.EPOCH_DURATION());
 
-        // Test zero uptime delta (validator was already at 4 hours, stays at 4 hours)
-        // Move to next epoch first so we can see the zero delta
+        // Test same-value message is silently ignored (stale replay protection)
+        // This is intentional behavior change from Issue #27 fix
         vm.warp(middleware.START_TIME() + 2 * middleware.EPOCH_DURATION() + 1);
-        _push(middleware.EPOCH_DURATION());  // Total: still 4 hours (no change)
+        _push(middleware.EPOCH_DURATION());  // Total: still 4 hours (same value)
         uptimeTracker.computeValidatorUptime(0);
-        // Since no uptime was added, epoch 1 should have 0 uptime
-        assertEq(uptimeTracker.validatorUptimePerEpoch(1, validationID), 0);  // Delta = 0
+        // Same-value message is rejected, epoch 1 remains unset
+        assertFalse(uptimeTracker.isValidatorUptimeSet(1, validationID), "Same-value message should be ignored");
 
         // Test non-consecutive epochs - jump from epoch 1 to epoch 3
+        // Since epoch 1 wasn't set, the distribution covers epochs 1, 2, 3
         vm.warp(middleware.START_TIME() + 4 * middleware.EPOCH_DURATION() + 1);
         _push(3 * middleware.EPOCH_DURATION());  // Total: 12 hours cumulative
         uptimeTracker.computeValidatorUptime(0);
-        // This should distribute (12-4) = 8 hours across epochs 2 and 3 = 4 hours each
-        assertEq(uptimeTracker.validatorUptimePerEpoch(2, validationID), middleware.EPOCH_DURATION());
-        assertEq(uptimeTracker.validatorUptimePerEpoch(3, validationID), middleware.EPOCH_DURATION());
+        // Delta = 12 - 4 = 8 hours distributed across 3 epochs (1, 2, 3)
+        // 8 hours / 3 = 2h40m each, with remainder distributed to earliest epochs
+        uint256 epoch1 = uptimeTracker.validatorUptimePerEpoch(1, validationID);
+        uint256 epoch2 = uptimeTracker.validatorUptimePerEpoch(2, validationID);
+        uint256 epoch3 = uptimeTracker.validatorUptimePerEpoch(3, validationID);
+        assertEq(epoch1 + epoch2 + epoch3, 2 * middleware.EPOCH_DURATION(), "Total should be 8 hours");
+        assertTrue(uptimeTracker.isValidatorUptimeSet(1, validationID), "Epoch 1 now set");
+        assertTrue(uptimeTracker.isValidatorUptimeSet(2, validationID), "Epoch 2 now set");
+        assertTrue(uptimeTracker.isValidatorUptimeSet(3, validationID), "Epoch 3 now set");
     }
 
     function test_UptimeTruncationCausesRewardLoss() public view {
@@ -573,6 +580,90 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         // FIX VERIFICATION: Uptime uses correct historical set, NOT the drifted set
         assertEq(actualUptime, correctUptime, "Fix works: uptime uses historical validationIDs");
         assertNotEq(actualUptime, driftedUptime, "Fix works: uptime is NOT the drifted value");
+    }
+
+    /// @notice Tests Issue #27 FIX: Stale Uptime Message Replay is now rejected
+    /// 
+    /// Attack vector (from icm-contracts analysis):
+    /// - verifier_backend.go:112-131: verifyUptimeMessage checks currentUptime >= messageUptime at SIGNING time
+    /// - config.go:211-219: VerifyPredicate only checks BLS signatures, NOT uptime content validity
+    /// - Result: Previously-signed stale messages can be included in new block predicates
+    /// 
+    /// Fix: Add monotonicity check matching StakingManager.sol:444-449
+    function test_StaleUptimeMessageReplay_IsRejected() public {
+        // Start at epoch 2 (so we have epochs 0,1 to distribute to)
+        vm.warp(middleware.START_TIME() + 2 * middleware.EPOCH_DURATION() + 1);
+        
+        uint64 cumulativeUptime = 2 hours;
+        
+        // First message: uptime = 7200 (2 hours) - legitimate submission
+        _push(cumulativeUptime);
+        uptimeTracker.computeValidatorUptime(0);
+        
+        // Verify monotonicity tracking
+        assertEq(uptimeTracker.validatorHighestUptime(validationID), cumulativeUptime, "Highest uptime should be tracked");
+        
+        // Epochs 0,1 should have received uptime (split across 2 epochs)
+        uint256 epoch0Uptime = uptimeTracker.validatorUptimePerEpoch(0, validationID);
+        uint256 epoch1Uptime = uptimeTracker.validatorUptimePerEpoch(1, validationID);
+        console2.log("=== ISSUE #27 FIX TEST: Stale Message Rejection ===");
+        console2.log("After first message (uptime=7200):");
+        console2.log("  Epoch 0 uptime:", epoch0Uptime, "seconds");
+        console2.log("  Epoch 1 uptime:", epoch1Uptime, "seconds");
+        console2.log("  validatorHighestUptime:", uptimeTracker.validatorHighestUptime(validationID));
+        
+        assertTrue(uptimeTracker.isValidatorUptimeSet(0, validationID), "Epoch 0 should be set");
+        assertTrue(uptimeTracker.isValidatorUptimeSet(1, validationID), "Epoch 1 should be set");
+        assertGt(epoch0Uptime + epoch1Uptime, 0, "Total uptime should be positive");
+        
+        // Advance to epoch 4 (2 more epochs have elapsed: epochs 2,3)
+        vm.warp(middleware.START_TIME() + 4 * middleware.EPOCH_DURATION() + 1);
+        
+        // ATTACK: Replay the SAME message (same cumulative uptime = 7200)
+        // This simulates an attacker including a previously-signed warp message in a new block.
+        // Block predicate verification only checks BLS signatures (config.go:211-219), not content.
+        _push(cumulativeUptime);  // Same value as before!
+        uptimeTracker.computeValidatorUptime(0);  // Should be silently ignored
+        
+        // FIX VERIFICATION: Epochs 2,3 should NOT be set (stale message was rejected)
+        bool epoch2Set = uptimeTracker.isValidatorUptimeSet(2, validationID);
+        bool epoch3Set = uptimeTracker.isValidatorUptimeSet(3, validationID);
+        
+        console2.log("");
+        console2.log("After REPLAY attempt (same uptime=7200):");
+        console2.log("  Epoch 2 set:", epoch2Set);
+        console2.log("  Epoch 3 set:", epoch3Set);
+        console2.log("  validatorHighestUptime:", uptimeTracker.validatorHighestUptime(validationID));
+        
+        // Stale message was rejected - epochs 2,3 are NOT set (not zeroed)
+        assertFalse(epoch2Set, "FIX: Epoch 2 should NOT be set (stale replay rejected)");
+        assertFalse(epoch3Set, "FIX: Epoch 3 should NOT be set (stale replay rejected)");
+        
+        // Highest uptime unchanged (stale message didn't update it)
+        assertEq(uptimeTracker.validatorHighestUptime(validationID), cumulativeUptime, "Highest uptime unchanged");
+        
+        console2.log("");
+        console2.log("=== FIX VERIFIED ===");
+        console2.log("Stale warp message was silently rejected (monotonicity check)");
+        console2.log("Epochs 2,3 remain unset - awaiting fresh uptime message");
+        
+        // Now submit a FRESH message with higher uptime
+        uint64 freshUptime = 4 hours;  // Higher than previous 7200
+        _push(freshUptime);
+        uptimeTracker.computeValidatorUptime(0);
+        
+        // Now epochs 2,3 should be properly set with real uptime
+        assertTrue(uptimeTracker.isValidatorUptimeSet(2, validationID), "Epoch 2 now set with fresh message");
+        assertTrue(uptimeTracker.isValidatorUptimeSet(3, validationID), "Epoch 3 now set with fresh message");
+        assertEq(uptimeTracker.validatorHighestUptime(validationID), freshUptime, "Highest uptime updated");
+        
+        uint256 epoch2Uptime = uptimeTracker.validatorUptimePerEpoch(2, validationID);
+        uint256 epoch3Uptime = uptimeTracker.validatorUptimePerEpoch(3, validationID);
+        console2.log("");
+        console2.log("After FRESH message (uptime=14400):");
+        console2.log("  Epoch 2 uptime:", epoch2Uptime, "seconds");
+        console2.log("  Epoch 3 uptime:", epoch3Uptime, "seconds");
+        assertGt(epoch2Uptime + epoch3Uptime, 0, "Fresh message distributed real uptime");
     }
 
 }

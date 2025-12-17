@@ -76,8 +76,8 @@ interface IUptimeTracker {
     event OperatorUptimeComputed(address indexed operator, uint48 indexed epoch, uint256 uptime);
 
     /**
-     * @notice Computes and records the validator's uptime for each epoch.
-     * @dev TODO: get the (`validationID`, `uptime`) from a ValidationUptimeMessage or make this function permissioned as last resort
+     * @notice Computes and records the validator's uptime for each epoch from a ValidationUptimeMessage.
+     * @dev Reads uptime proof via Warp precompile. Allows same-epoch reprocessing to correct stale distributions.
      * @param messageIndex The index of the uptime message in the WarpMessenger.
      */
     function computeValidatorUptime(
@@ -85,8 +85,9 @@ interface IUptimeTracker {
     ) external;
 
     /**
-     * @notice Computes and records an operato  r’s uptime for a given epoch.
-     * @dev Aggregates uptime from all validators operated by the given operator for a given epoch.
+     * @notice Computes and records an operator's uptime for a given epoch.
+     * @dev Aggregates uptime from all validators operated by the given operator.
+     *      Allows same-epoch reprocessing (updates if higher), reverts if called from a later epoch.
      * @param operator Address of the operator.
      * @param epoch Epoch for which uptime is computed.
      */
