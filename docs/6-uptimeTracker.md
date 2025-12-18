@@ -8,6 +8,69 @@ Tracks validator uptime from P-Chain warp messages and aggregates it per operato
 
 The UptimeTracker receives cumulative uptime proofs via Avalanche Warp Messaging and distributes them across epochs. It serves as the uptime source for `RewardsNativeToken`.
 
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e2e8f0', 'lineColor': '#64748b'}}}%%
+flowchart LR
+    subgraph PCHAIN["P-Chain"]
+        direction TB
+        W1[Warp Message]
+        W2[validationID + uptime]
+        W1 --> W2
+    end
+
+    subgraph VALIDATOR["computeValidatorUptime"]
+        direction TB
+        V1[Verify warp msg]
+        V2[Monotonicity check]
+        V3[Snapshot baseline]
+        V4[Distribute across epochs]
+        V5[validatorUptimePerEpoch]
+        V1 --> V2 --> V3 --> V4 --> V5
+    end
+
+    subgraph OPERATOR["computeOperatorUptimeAt"]
+        direction TB
+        O1[Get validationIDs]
+        O2[Filter active validators]
+        O3[Sum + average]
+        O4[operatorUptimePerEpoch]
+        O1 --> O2 --> O3 --> O4
+    end
+
+    subgraph REWARDS["RewardsNativeToken"]
+        direction TB
+        R1[Read operatorUptime]
+        R2[Check minRequiredUptime]
+        R3[Calculate shares]
+        R1 --> R2 --> R3
+    end
+
+    PCHAIN --> VALIDATOR
+    VALIDATOR --> OPERATOR
+    OPERATOR --> REWARDS
+
+    style W1 fill:#9333ea,color:#fff
+    style W2 fill:#9333ea,color:#fff
+    style V1 fill:#3b82f6,color:#fff
+    style V2 fill:#3b82f6,color:#fff
+    style V3 fill:#3b82f6,color:#fff
+    style V4 fill:#3b82f6,color:#fff
+    style V5 fill:#3b82f6,color:#fff
+    style O1 fill:#22c55e,color:#fff
+    style O2 fill:#22c55e,color:#fff
+    style O3 fill:#22c55e,color:#fff
+    style O4 fill:#22c55e,color:#fff
+    style R1 fill:#eab308,color:#1e293b
+    style R2 fill:#eab308,color:#1e293b
+    style R3 fill:#eab308,color:#1e293b
+```
+
+**Flow summary:**
+1. **P-Chain** → Warp message with `(validationID, cumulative uptime)`
+2. **computeValidatorUptime** → Distribute uptime across elapsed epochs per validator
+3. **computeOperatorUptimeAt** → Aggregate validator uptimes into operator average
+4. **RewardsNativeToken** → Read operator uptime, check threshold, calculate reward shares
+
 **Message format** (`ValidationUptimeMessage`):
 ```
 | validationID : [32]byte | 32 bytes |
@@ -98,18 +161,56 @@ struct LastUptimeCheckpoint {
 }
 ```
 
-**Calculation:**
-```
-recordedUptime = remainingUptime + (newUptime - attributedUptime)
-elapsedTime = currentEpochStart - lastEpochStart
-uptimeToDistribute = min(recordedUptime, elapsedTime)
-remainingUptime = recordedUptime - uptimeToDistribute
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'lineColor': '#64748b'}}}%%
+flowchart TB
+    subgraph CALC["Uptime Calculation"]
+        direction TB
+        C1["recordedUptime = remaining + (new - attributed)"]
+        C2["elapsedTime = currentEpochStart - lastEpochStart"]
+        C3["uptimeToDistribute = min(recorded, elapsed)"]
+        C4["newRemaining = recorded - distributed"]
+        C1 --> C2 --> C3 --> C4
+    end
+
+    subgraph DIST["Distribution Across Epochs"]
+        direction TB
+        D1["uptimePerEpoch = total / elapsedEpochs"]
+        D2["remainder = total % elapsedEpochs"]
+        D3["earliest epochs get +1 second each"]
+        D4["only increase existing values"]
+        D1 --> D2 --> D3 --> D4
+    end
+
+    subgraph SAME["Same-Epoch Reprocessing"]
+        direction TB
+        S1["baseline = checkpoint at first call"]
+        S2["later calls compute from baseline"]
+        S3["only increase, never decrease"]
+        S1 --> S2 --> S3
+    end
+
+    CALC --> DIST
+    DIST --> SAME
+
+    style C1 fill:#3b82f6,color:#fff
+    style C2 fill:#3b82f6,color:#fff
+    style C3 fill:#3b82f6,color:#fff
+    style C4 fill:#3b82f6,color:#fff
+    style D1 fill:#22c55e,color:#fff
+    style D2 fill:#22c55e,color:#fff
+    style D3 fill:#22c55e,color:#fff
+    style D4 fill:#22c55e,color:#fff
+    style S1 fill:#eab308,color:#1e293b
+    style S2 fill:#eab308,color:#1e293b
+    style S3 fill:#eab308,color:#1e293b
 ```
 
 **Distribution:**
 - Uptime is split evenly across `elapsedEpochs`
 - Remainder seconds distributed one per epoch (earliest first)
-- Uptime per epoch is capped by `epochDuration`
+- Total distributed is capped by `elapsedTime` (implicit cap at `epochDuration` per epoch)
+- Only increases existing values (monotonicity)
 
 ---
 
@@ -159,7 +260,7 @@ Same-epoch reprocessing allowed (increases only). Cross-epoch reprocessing rever
 ## Warp Message Verification
 
 Messages must satisfy:
-- `warpMessage.valid == true` (BLS signatures verified by precompile)
+- `valid == true` from `WARP_MESSENGER.getVerifiedWarpMessage()` (BLS signatures verified)
 - `sourceChainID == uptimeBlockchainID` (L1's blockchain ID)
 - `originSenderAddress == address(0)` (proves off-chain origin, not arbitrary on-chain message)
 
