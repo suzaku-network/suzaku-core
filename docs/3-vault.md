@@ -257,6 +257,6 @@ uint256 tvl = vault.totalSupply();
 
 ## Related Documentation
 
-- [Protocol Overview](./overview.md) - Complete protocol architecture
-- [Delegator Documentation](./overview.md#delegators-owner-curator) - Stake allocation mechanics
-- [Middleware Documentation](./middleware.md) - Validator management integration
+- [Protocol Overview](./1-overview.md) - Complete protocol architecture
+- [Delegator Documentation](./1-overview.md#delegators-owner-curator) - Stake allocation mechanics
+- [Middleware Documentation](./4-middleware.md) - Validator management integration

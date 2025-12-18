@@ -390,7 +390,7 @@ graph LR
 
 **Downstream (Used by):**
 - `MiddlewareVaultManager` - Vault registration and limits
-- `Rewards` - Stake cache for reward distribution
+- `RewardsNativeToken` - Stake cache for reward distribution
 - `UptimeTracker` - Node validation ID lookups
 
 ---
@@ -420,7 +420,7 @@ graph LR
 2. Optionally `addAssetToClass(classId, otherAssets)` for multiple assets
 3. Call `activateSecondaryCollateralClass(classId)`
 4. Register vaults with this collateral class via `MiddlewareVaultManager`
-5. Set reward share via `Rewards.setRewardsShareForCollateralClass(classId, basisPoints)`
+5. Set reward share via `RewardsNativeToken.setRewardsShareForCollateralClass(classId, basisPoints)`
 
 ---
 
@@ -475,6 +475,6 @@ graph LR
 ## Related Documentation
 
 - [BalancerValidatorManager](../lib/suzaku-contracts-library/src/contracts/ValidatorManager/README.md) - Security module architecture
-- [Rewards](./rewards.md) - Stake cache usage in reward distribution
-- [Protocol Overview](./overview.md) - Full protocol architecture
+- [RewardsNativeToken](./5-rewardsNativeToken.md) - Stake cache usage in reward distribution
+- [Protocol Overview](./1-overview.md) - Full protocol architecture
 - [Post-Audit Updates](../post-audit-updates.md) - Recent changes and migrations
