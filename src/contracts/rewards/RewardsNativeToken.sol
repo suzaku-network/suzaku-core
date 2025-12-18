@@ -16,6 +16,7 @@ import {IRewardsNativeToken, DistributionBatch} from "../../interfaces/rewards/I
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {ICollateral} from "../../interfaces/ICollateral.sol";
+import {Validator} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
 contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewardsNativeToken {
     using SafeERC20 for IERC20;
@@ -715,11 +716,16 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             if (totalStake == 0) continue;
 
             uint256 operatorStake;
-            // tolerate view-call failures to avoid epoch-wide DoS
-            try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
-                operatorStake = s;
-            } catch {
-                operatorStake = 0;
+            if (collateralClass == middleware.PRIMARY_ASSET_CLASS()) {
+                // Use historical validationIDs to avoid live nodeID→validationID drift (Issue #47)
+                operatorStake = _getOperatorUsedStakePrimaryCached(epoch, operator);
+            } else {
+                // tolerate view-call failures to avoid epoch-wide DoS
+                try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
+                    operatorStake = s;
+                } catch {
+                    operatorStake = 0;
+                }
             }
 
             rawShare = Math.mulDiv(
@@ -834,6 +840,25 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     function _processOperator(uint48 epoch, address operator) private {
         _calculateOperatorShare(epoch, operator);
         _calculateAndStoreVaultShares(epoch, operator);
+    }
+
+    /// @dev PRIMARY_ASSET_CLASS stake using historical validationIDs (same pattern as UptimeTracker)
+    function _getOperatorUsedStakePrimaryCached(
+        uint48 epoch,
+        address operator
+    ) private view returns (uint256 stake) {
+        uint48 epochStartTs = middleware.getEpochStartTs(epoch);
+        bytes32[] memory valIDs = middleware.getOperatorValidationIDs(operator);
+
+        for (uint256 i = 0; i < valIDs.length; i++) {
+            Validator memory v = middleware.balancerValidatorManager().getValidator(valIDs[i]);
+            uint48 start = uint48(v.startTime);
+            uint48 end = uint48(v.endTime);
+            if (start == 0 || start > epochStartTs || (end != 0 && end <= epochStartTs)) {
+                continue;
+            }
+            stake += middleware.nodeStakeCache(epoch, valIDs[i]);
+        }
     }
 
 }
