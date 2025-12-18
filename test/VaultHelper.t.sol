@@ -56,7 +56,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         factoryOwner = makeAddr("factoryOwner");
 
         // Deploy LSTWrapperFactory and whitelist implementation
-        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner, address(vaultFactory));
         
         LSTWrapper wrapperImpl = new LSTWrapper();
         vm.prank(factoryOwner);
@@ -958,6 +958,109 @@ contract VaultHelperTest is MiddlewareTestBase {
         vaultHelper.withdrawFromWrappedVault(address(maliciousWrapper), 1000 ether);
         vm.stopPrank();
     }
+
+    /// @notice Test that LSTWrapperFactory rejects wrapper creation with invalid vault
+    function test_LSTWrapperFactory_InvalidVault_Reverts() public {
+        address fakeVault = makeAddr("fakeVault");
+        
+        vm.expectRevert(abi.encodeWithSelector(LSTWrapperFactory.LSTWrapperFactory__InvalidVault.selector, fakeVault));
+        lstWrapperFactory.create(
+            1,  // version
+            factoryOwner,  // admin
+            fakeVault,  // invalid vault
+            address(0),  // rewards
+            "Test LST",
+            "tLST"
+        );
+    }
+
+    /// @notice Test defense-in-depth: VaultHelper rejects if registered wrapper points to invalid vault
+    /// @dev This uses a mock factory to simulate a wrapper being registered despite having invalid vault
+    function test_VaultHelper_DefenseInDepth_InvalidVaultInRegisteredWrapper() public {
+        // Create a permissive mock factory that registers any wrapper
+        MockPermissiveFactory mockFactory = new MockPermissiveFactory();
+        
+        // Create VaultHelper with the mock LST factory but real vault factory
+        VaultHelper testHelper = new VaultHelper(address(vaultFactory), address(mockFactory));
+        
+        // Deploy malicious wrapper pointing to fake vault
+        address fakeVault = makeAddr("fakeVault");
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(testHelper),
+            fakeVault,
+            defaultCollateral1,
+            address(underlyingToken1)
+        );
+        
+        // Register the malicious wrapper in mock factory
+        mockFactory.registerEntity(address(maliciousWrapper));
+        
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(testHelper), 1000 ether);
+        
+        // Should revert with InvalidVault because vault is not in VAULT_FACTORY
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
+        testHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test defense-in-depth: VaultHelper rejects collateral mismatch even if wrapper is registered
+    function test_VaultHelper_DefenseInDepth_CollateralMismatch() public {
+        // Create a permissive mock factory
+        MockPermissiveFactory mockFactory = new MockPermissiveFactory();
+        VaultHelper testHelper = new VaultHelper(address(vaultFactory), address(mockFactory));
+        
+        // Deploy malicious wrapper with valid vault but WRONG collateral
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(testHelper),
+            address(vaultWithDC1),    // Valid vault (uses defaultCollateral1)
+            defaultCollateral2,        // WRONG collateral
+            address(underlyingToken2)
+        );
+        
+        mockFactory.registerEntity(address(maliciousWrapper));
+        
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(testHelper), 1000 ether);
+        
+        // Should revert with CollateralMismatch
+        vm.expectRevert(abi.encodeWithSelector(
+            VaultHelper.VaultHelper__CollateralMismatch.selector, 
+            defaultCollateral1,  // expected (from vault)
+            defaultCollateral2   // actual (from wrapper)
+        ));
+        testHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test defense-in-depth: VaultHelper rejects asset mismatch even if wrapper is registered
+    function test_VaultHelper_DefenseInDepth_AssetMismatch() public {
+        // Create a permissive mock factory
+        MockPermissiveFactory mockFactory = new MockPermissiveFactory();
+        VaultHelper testHelper = new VaultHelper(address(vaultFactory), address(mockFactory));
+        
+        // Deploy malicious wrapper with valid vault, correct collateral, but WRONG nativeToken
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(testHelper),
+            address(vaultWithDC1),      // Valid vault
+            defaultCollateral1,          // Correct collateral
+            address(underlyingToken2)    // WRONG native token
+        );
+        
+        mockFactory.registerEntity(address(maliciousWrapper));
+        
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(testHelper), 1000 ether);
+        
+        // Should revert with AssetMismatch
+        vm.expectRevert(abi.encodeWithSelector(
+            VaultHelper.VaultHelper__AssetMismatch.selector,
+            address(underlyingToken1),  // expected (from collateral)
+            address(underlyingToken2)   // actual (from wrapper)
+        ));
+        testHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
 }
 
 contract MockLSTWrapper {
@@ -1000,5 +1103,18 @@ contract MaliciousLSTWrapper {
 
     function redeem(uint256, address, address) external pure returns (uint256) {
         return 0;
+    }
+}
+
+/// @notice Mock factory that registers any wrapper (for testing defense-in-depth)
+contract MockPermissiveFactory {
+    mapping(address => bool) private _entities;
+    
+    function registerEntity(address entity) external {
+        _entities[entity] = true;
+    }
+    
+    function isEntity(address entity) external view returns (bool) {
+        return _entities[entity];
     }
 }

@@ -51,7 +51,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         factoryOwner = makeAddr("factoryOwner");
         
         // Deploy LSTWrapperFactory and whitelist implementation
-        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner, address(vaultFactory));
         lstWrapperImplementation = new LSTWrapper();
         
         vm.prank(factoryOwner);

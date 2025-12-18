@@ -195,7 +195,7 @@ contract FullLocalDeploymentScript is Script {
         }
 
         // Deploy LSTWrapperFactory
-        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(params.owner);
+        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(params.owner, address(vaultFactory));
         console2.log("LSTWrapperFactory deployed at:", address(lstWrapperFactory));
 
         // Deploy VaultHelper

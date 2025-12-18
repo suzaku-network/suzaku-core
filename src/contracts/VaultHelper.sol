@@ -52,6 +52,8 @@ contract VaultHelper is ReentrancyGuard {
     error VaultHelper__ZeroLSTWrapperSharesBurned(uint256 lstSharesBurned);
     error VaultHelper__ZeroCollateralWithdraw(uint256 collateralAmount);
     error VaultHelper__LSTWrapperMismatch(address lstWrapper);
+    error VaultHelper__CollateralMismatch(address expected, address actual);
+    error VaultHelper__AssetMismatch(address expected, address actual);
 
     // -------------------------------
     // Proxy function
@@ -131,10 +133,21 @@ contract VaultHelper is ReentrancyGuard {
             revert VaultHelper__LSTWrapperMismatch(lstWrapper);
         }
 
-        // Cache addresses from the factory-validated wrapper
+        // Cache addresses from wrapper
         address vault = ILSTWrapper(lstWrapper).vault();
         address collateral = ILSTWrapper(lstWrapper).collateral();
         address nativeToken = ILSTWrapper(lstWrapper).nativeToken();
+
+        // Validate vault is a trusted factory entity
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+
+        // Validate collateral consistency: vault's collateral must match wrapper's
+        address vaultCollateral = IVaultTokenized(vault).collateral();
+        if (vaultCollateral != collateral) revert VaultHelper__CollateralMismatch(vaultCollateral, collateral);
+
+        // Validate asset consistency: collateral's underlying must match wrapper's nativeToken
+        address collateralAsset = IDefaultCollateral(collateral).asset();
+        if (collateralAsset != nativeToken) revert VaultHelper__AssetMismatch(collateralAsset, nativeToken);
 
         // --- Step 1: Measure balance before the transfer ---
         uint256 balanceBefore = IERC20(nativeToken).balanceOf(address(this));
@@ -182,8 +195,10 @@ contract VaultHelper is ReentrancyGuard {
         if (lstWrapper == address(0)) revert VaultHelper__ZeroAddress("lstWrapper");
         if (!LST_WRAPPER_FACTORY.isEntity(lstWrapper)) revert VaultHelper__LSTWrapperMismatch(lstWrapper);
 
-        // Cache addresses from the factory-validated wrapper
+        // Cache vault address from wrapper
         address vault = ILSTWrapper(lstWrapper).vault();
+
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
 
         // --- Step 1: Burn LST shares to receive vault shares ---
         uint256 vaultSharesReceived = ILSTWrapper(lstWrapper).redeem(amount, address(this), msg.sender);

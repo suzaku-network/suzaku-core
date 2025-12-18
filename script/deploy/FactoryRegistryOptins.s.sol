@@ -61,7 +61,7 @@ contract DeployFactoriesRegistriesOptIns is Script {
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
         // Deploy LSTWrapperFactory
-        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(bootstraperConfig.generalConfig.owner);
+        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(bootstraperConfig.generalConfig.owner, address(vaultFactory));
 
         // Deploy VaultHelper
         VaultHelper vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));

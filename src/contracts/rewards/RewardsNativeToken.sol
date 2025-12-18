@@ -717,7 +717,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
             uint256 operatorStake;
             if (collateralClass == middleware.PRIMARY_ASSET_CLASS()) {
-                // Use historical validationIDs to avoid live nodeID→validationID drift (Issue #47)
+                // Use historical validationIDs
                 operatorStake = _getOperatorUsedStakePrimaryCached(epoch, operator);
             } else {
                 // tolerate view-call failures to avoid epoch-wide DoS
@@ -842,7 +842,13 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         _calculateAndStoreVaultShares(epoch, operator);
     }
 
-    /// @dev PRIMARY_ASSET_CLASS stake using historical validationIDs (same pattern as UptimeTracker)
+    /**
+     * @dev Calculates PRIMARY_ASSET_CLASS stake using historical validationIDs
+     * @dev Uses same pattern as UptimeTracker
+     * @param epoch The epoch to calculate stake for
+     * @param operator The operator address
+     * @return stake The operator's used stake for the epoch
+     */
     function _getOperatorUsedStakePrimaryCached(
         uint48 epoch,
         address operator
