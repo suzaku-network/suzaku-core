@@ -400,44 +400,73 @@ graph LR
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e2e8f0', 'lineColor': '#64748b'}}}%%
-flowchart TB
-    subgraph ADD["addNode()"]
-        A1[operatorNodes.add nodeId]
-        A2[operatorNodesArray.push nodeId]
-        A3[validationIdToOperator = operator]
-        A4[operatorValidationIDsArray.push valID]
-        A5[nodeStakeCache epoch+epoch+1 = stake]
+flowchart LR
+    subgraph ADD["addNode"]
+        direction TB
+        A1[nodes.add]
+        A2[nodesArray.push]
+        A3[valIDs.push]
+        A4[stakeCache = X]
+        A1 --> A2 --> A3 --> A4
     end
 
-    subgraph REMOVE["removeNode() → completeRemoval"]
-        R1[nodePendingRemoval = true]
-        R2[pendingRemovalValId = valID]
-        R3[nodeStakeCache next = 0]
-        R4["_removeNodeFromArray()"]
-        R5[nodePendingRemoval = false]
+    subgraph UPDATE["weightUpdate"]
+        direction TB
+        U1[_pendingStake = X]
+        U2[lockedStake += delta]
+        U3[initiate → P-Chain]
+        U4[complete: cache next]
+        U5[unlock delta]
+        U1 --> U2 --> U3 --> U4 --> U5
     end
 
-    subgraph KEPT["Never removed (historical)"]
-        K1[operatorNodes - permanent]
-        K2[operatorValidationIDsArray - append only]
+    subgraph REMOVE["removeNode"]
+        direction TB
+        R1[pending = true]
+        R2[stakeCache next = 0]
+        R3[initiate → P-Chain]
+        R4[complete: cleanup]
+        R1 --> R2 --> R3 --> R4
     end
 
+    subgraph HIST["Historical"]
+        direction TB
+        H1[operatorNodes]
+        H2[validationIDsArray]
+        H1 --> H2
+    end
+
+    ADD --> UPDATE
     ADD --> REMOVE
-    ADD --> KEPT
+    ADD --> HIST
+    UPDATE --> REMOVE
 
     style A1 fill:#22c55e,color:#fff
     style A2 fill:#22c55e,color:#fff
     style A3 fill:#22c55e,color:#fff
     style A4 fill:#22c55e,color:#fff
-    style A5 fill:#22c55e,color:#fff
-    style R1 fill:#f97316,color:#fff
-    style R2 fill:#f97316,color:#fff
+    style U1 fill:#eab308,color:#1e293b
+    style U2 fill:#eab308,color:#1e293b
+    style U3 fill:#eab308,color:#1e293b
+    style U4 fill:#eab308,color:#1e293b
+    style U5 fill:#eab308,color:#1e293b
+    style R1 fill:#ef4444,color:#fff
+    style R2 fill:#ef4444,color:#fff
     style R3 fill:#ef4444,color:#fff
     style R4 fill:#ef4444,color:#fff
-    style R5 fill:#ef4444,color:#fff
-    style K1 fill:#3b82f6,color:#fff
-    style K2 fill:#3b82f6,color:#fff
+    style H1 fill:#3b82f6,color:#fff
+    style H2 fill:#3b82f6,color:#fff
 ```
+
+**State transitions:**
+
+| Operation | State Changes |
+|-----------|---------------|
+| `addNode` | `operatorNodes.add`, `operatorNodesArray.push`, `validationIDsArray.push`, `nodeStakeCache[epoch] = stake` |
+| `initiateWeightUpdate` | `_pendingStake = newStake`, `operatorLockedStake += delta` |
+| `completeWeightUpdate` | `nodeStakeCache[epoch+1] = newStake`, unlock delta from `operatorLockedStake` |
+| `removeNode` | `nodePendingRemoval = true`, `nodeStakeCache[epoch+1] = 0` |
+| `completeRemoval` | `_removeNodeFromArray()`, `nodePendingRemoval = false`, cleanup |
 
 **Two-tier node tracking:**
 - **`operatorNodes`** (Set) — permanent record, never removes nodes. Used for `getActiveNodesForEpoch()` historical queries
