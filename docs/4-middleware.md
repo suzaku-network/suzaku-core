@@ -36,6 +36,43 @@ The middleware orchestrates validator management and stake tracking for Avalanch
 
 **AvalancheL1Middleware** bridges restaking infrastructure with Avalanche's validator management system. It implements the `ISecurityModule` interface, managing operator lifecycle, node registration, and stake allocation across multiple collateral classes.
 
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e2e8f0', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b'}}}%%
+flowchart LR
+    subgraph OPERATOR["Operator Lifecycle"]
+        direction TB
+        OR[Register] --> OE[Enable]
+        OE --> OD[Disable]
+        OD --> ORM[Remove]
+    end
+
+    subgraph NODE["Node Lifecycle"]
+        direction TB
+        NA[addNode] --> NR[completeRegistration]
+        NR --> NU[updateNodeWeight]
+        NU --> NRM[removeNode]
+        NRM --> NC[completeRemoval]
+    end
+
+    subgraph PCHAIN["P-Chain"]
+        VAL((Validators))
+    end
+
+    OPERATOR --> NODE
+    NODE -->|ICM| PCHAIN
+
+    style OR fill:#22c55e,color:#fff
+    style OE fill:#22c55e,color:#fff
+    style OD fill:#f97316,color:#fff
+    style ORM fill:#ef4444,color:#fff
+    style NA fill:#3b82f6,color:#fff
+    style NR fill:#3b82f6,color:#fff
+    style NU fill:#eab308,color:#1e293b
+    style NRM fill:#ef4444,color:#fff
+    style NC fill:#ef4444,color:#fff
+    style VAL fill:#64748b,color:#fff
+```
+
 **Key responsibilities:**
 - Operator and node lifecycle management
 - Multi-collateral stake tracking and weight calculation
@@ -237,16 +274,19 @@ Ensures:
 ```mermaid
 graph LR
     subgraph "Epoch N"
-        A[Operators have nodes<br/>with weights from N-1]
-        B[Mid-epoch changes:<br/>locked stake, pending flags]
-        C[Update window:<br/>force node updates]
+        A[Nodes use weights<br/>cached at N-1]
+        B[Mid-epoch changes<br/>lock stake + set<br/>pending flags]
+        C[Update window<br/>forceUpdateNodes]
     end
     
-    subgraph "Epoch N → N+1 Transition"
-        D[Resolve pending<br/>registrations/removals]
-        E[Update node<br/>stake cache]
-        F[Unlock stake deltas<br/>from completed updates]
-        G[Carry forward<br/>active nodes]
+    subgraph "Transition (lazy, on first op)"
+        D[_updateGlobalNodeStakeOncePerEpoch]
+        E[Process pending<br/>removals per operator]
+        F[Carry forward<br/>nodeStakeCache]
+    end
+
+    subgraph "Async (on P-Chain ack)"
+        G[completeValidatorWeightUpdate<br/>unlocks stake delta]
     end
     
     A --> B
@@ -254,16 +294,22 @@ graph LR
     C --> D
     D --> E
     E --> F
-    F --> G
+    C -.-> G
     
     style A fill:#e3f2fd
     style B fill:#fff3e0
     style C fill:#ffebee
     style D fill:#e8f5e9
     style E fill:#f3e5f5
-    style F fill:#fce4ec
-    style G fill:#e1f5fe
+    style F fill:#e1f5fe
+    style G fill:#fce4ec
 ```
+
+**Key mechanics:**
+- **Lazy transition**: `_updateGlobalNodeStakeOncePerEpoch()` runs on first operation in new epoch
+- **Carry forward**: `nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID]` for active nodes
+- **Stake unlock**: Happens in `completeValidatorWeightUpdate` when P-Chain acknowledges, not at epoch boundary
+- **Manual fallback**: If too many epochs pending, use `manualProcessNodeStakeCache(numEpochs)`
 
 **Node Stake Cache Updates:**
 - Automatic during first operation in new epoch (if gas permits)
@@ -274,10 +320,11 @@ graph LR
 
 ## Time Windows
 
-**Slashing Window:**
-- Duration: `SLASHING_WINDOW` (e.g., 7 days)
-- Prevents withdrawal during potential slashing period
-- Must be ≥ epoch duration
+**Grace Period (`SLASHING_WINDOW`):**
+- Duration: e.g., 7 days
+- Operator must wait this period after `disableOperator` before `removeOperator` can be called
+- Also limits stake recalculation to epochs within this window
+- **Note:** No actual slashing is implemented — only rewards can be lost for poor uptime
 
 **Update Window:**
 - Duration: `UPDATE_WINDOW` (final portion of epoch)
@@ -349,6 +396,56 @@ graph LR
 
 ## Storage Per Operator
 
+### Node State Tracking
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e2e8f0', 'lineColor': '#64748b'}}}%%
+flowchart TB
+    subgraph ADD["addNode()"]
+        A1[operatorNodes.add nodeId]
+        A2[operatorNodesArray.push nodeId]
+        A3[validationIdToOperator = operator]
+        A4[operatorValidationIDsArray.push valID]
+        A5[nodeStakeCache epoch+epoch+1 = stake]
+    end
+
+    subgraph REMOVE["removeNode() → completeRemoval"]
+        R1[nodePendingRemoval = true]
+        R2[pendingRemovalValId = valID]
+        R3[nodeStakeCache next = 0]
+        R4["_removeNodeFromArray()"]
+        R5[nodePendingRemoval = false]
+    end
+
+    subgraph KEPT["Never removed (historical)"]
+        K1[operatorNodes - permanent]
+        K2[operatorValidationIDsArray - append only]
+    end
+
+    ADD --> REMOVE
+    ADD --> KEPT
+
+    style A1 fill:#22c55e,color:#fff
+    style A2 fill:#22c55e,color:#fff
+    style A3 fill:#22c55e,color:#fff
+    style A4 fill:#22c55e,color:#fff
+    style A5 fill:#22c55e,color:#fff
+    style R1 fill:#f97316,color:#fff
+    style R2 fill:#f97316,color:#fff
+    style R3 fill:#ef4444,color:#fff
+    style R4 fill:#ef4444,color:#fff
+    style R5 fill:#ef4444,color:#fff
+    style K1 fill:#3b82f6,color:#fff
+    style K2 fill:#3b82f6,color:#fff
+```
+
+**Two-tier node tracking:**
+- **`operatorNodes`** (Set) — permanent record, never removes nodes. Used for `getActiveNodesForEpoch()` historical queries
+- **`operatorNodesArray`** (Array) — mutable, cleaned up on epoch transitions. Used for iteration during rebalancing
+
+**Historical data (append-only):**
+- **`operatorValidationIDsArray`** — all validationIDs ever registered. Used by UptimeTracker to find validators active during past epochs
+
 **Per operator:**
 - `operators[operator]` - Registration status, enabled/disabled
 - `operatorNodes[operator]` - EnumerableSet of nodeIds (permanent record)
@@ -361,6 +458,7 @@ graph LR
 - `pendingRemovalValId[nodeId]` - ValidationID pending removal for this nodeId
 - `nodePendingUpdate[validationId]` - Weight update pending flag
 - `nodePendingRemoval[validationId]` - Removal pending flag
+- `nodeStakeCache[epoch][validationId]` - Stake per epoch (carried forward or set to 0)
 
 **Global:**
 - `lastGlobalNodeStakeUpdateEpoch` - Last epoch with cache updates
