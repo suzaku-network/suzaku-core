@@ -5,15 +5,13 @@ pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
-import {MiddlewareTestBase} from "./middleware/MiddlewareTestBase.t.sol";
+import {RewardsNativeTokenIntegrationTestBase} from "./rewards/RewardsNativeTokenIntegrationTestBase.t.sol";
 import {VaultHelper, PendingWithdraw, ClaimAmountsPerToken} from "../src/contracts/VaultHelper.sol";
 import {LSTWrapperFactory} from "../src/contracts/vault/LSTWrapperFactory.sol";
 import {MockFeeOnTransferToken} from "./mocks/MockFeeOnTransferToken.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Token} from "./mocks/MockToken.sol";
-import {MockRewardsNativeToken} from "./mocks/MockRewardsNativeToken.sol";
-import {RewardsNativeToken} from "../src/contracts/rewards/RewardsNativeToken.sol";
 import {DefaultCollateralFactory} from "../src/contracts/defaultCollateral/DefaultCollateralFactory.sol";
 import {IDefaultCollateral} from "../src/interfaces/defaultCollateral/IDefaultCollateral.sol";
 import {VaultTokenized} from "../src/contracts/vault/VaultTokenized.sol";
@@ -23,11 +21,9 @@ import {
     ITransparentUpgradeableProxy
 } from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
-contract VaultHelperTest is MiddlewareTestBase {
+contract VaultHelperTest is RewardsNativeTokenIntegrationTestBase {
     VaultHelper public vaultHelper;
     LSTWrapperFactory public lstWrapperFactory;
-    MockRewardsNativeToken public rewards;
-    Token public rewardsToken;
     Token public rewardsToken2;
     address public lstAdmin;
     address public factoryOwner;
@@ -139,10 +135,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         );
         vaultWithDC2 = VaultTokenized(vaultAddress2);
 
-        // Deploy mock rewards for the rewards tests
-        rewardsToken = new Token("Rewards");
         rewardsToken2 = new Token("Rewards2");
-        rewards = new MockRewardsNativeToken(address(middleware), address(vault), address(rewardsToken));
 
         // Deploy wrappers through factory (permissionless - anyone can call)
         lstWrapper1 = LSTWrapper(
@@ -733,12 +726,12 @@ contract VaultHelperTest is MiddlewareTestBase {
         // Test fromEpoch >= toEpoch
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
         vaultHelper.getStakerClaimableRewardInRange(
-            alice, address(rewards), address(vault), address(rewardsToken), 1055, 1055
+            alice, address(rewards), address(vault), address(token), 1055, 1055
         );
 
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
         vaultHelper.getStakerClaimableRewardInRange(
-            alice, address(rewards), address(vault), address(rewardsToken), 1055, 1050
+            alice, address(rewards), address(vault), address(token), 1055, 1050
         );
     }
 

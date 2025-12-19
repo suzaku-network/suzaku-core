@@ -28,7 +28,6 @@ import {OperatorVaultOptInService} from "../../src/contracts/service/OperatorVau
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
 import {L1RestakeDelegator} from "../../src/contracts/delegator/L1RestakeDelegator.sol";
 import {MiddlewareHelperConfig} from "../../script/middleware/anvil/MiddlewareHelperConfig.s.sol";
-import {MockBalancerValidatorManager} from "../mocks/MockBalancerValidatorManager.sol";
 
 import {BalancerValidatorManager} from
     "@suzaku/contracts-library/contracts/ValidatorManager/BalancerValidatorManager.sol";
@@ -54,6 +53,8 @@ import {IAvalancheL1Middleware} from "../../src/interfaces/middleware/IAvalanche
 import {StakeConversion} from "../../src/contracts/middleware/libraries/StakeConversion.sol";
 import {IMiddlewareVaultManager} from "../../src/interfaces/middleware/IMiddlewareVaultManager.sol";
 import {IOptInService} from "../../src/interfaces/service/IOptInService.sol";
+import {ISecurityModule} from "@suzaku/contracts-library/interfaces/ValidatorManager/ISecurityModule.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
@@ -1221,22 +1222,11 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
 
         // Operator deposits
         uint256 depositAmountA = bound(uint256(seedNodeCountA) * 10, 50 ether, 100 ether);
-        // Use staker to deposit for Alice
-        collateral.transfer(staker, depositAmountA);
-        vm.startPrank(staker);
-        collateral.approve(address(vault), depositAmountA);
-        (uint256 depositUsedA, uint256 mintedSharesA) = vault.deposit(staker, depositAmountA);
-        vm.stopPrank();
-
+        (uint256 depositUsedA, uint256 mintedSharesA) = _deposit(staker, depositAmountA);
         _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, alice, mintedSharesA, delegator);
 
         uint256 depositAmountB = bound(uint256(seedNodeCountB) * 10, 50 ether, 100 ether);
-        // Use staker to deposit for Charlie
-        collateral.transfer(staker, depositAmountB);
-        vm.startPrank(staker);
-        collateral.approve(address(vault), depositAmountB);
-        (uint256 depositUsedB, uint256 mintedSharesB) = vault.deposit(staker, depositAmountB);
-        vm.stopPrank();
+        (uint256 depositUsedB, uint256 mintedSharesB) = _deposit(staker, depositAmountB);
 
         _setL1Limit(curatorOwner1, balancer, collateralClassId, depositUsedA + depositUsedB, delegator);
         _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, charlie, mintedSharesB, delegator);
@@ -2048,19 +2038,11 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         uint256 stakeAmountOpB = 30_000_000_000_000; // e.g., 30k tokens
 
         // Operator A deposits and sets shares
-        collateral.transfer(staker, stakeAmountOpA);
-        vm.startPrank(staker);
-        collateral.approve(address(vault), stakeAmountOpA);
-        (,uint256 sharesA) = vault.deposit(operatorA, stakeAmountOpA);
-        vm.stopPrank();
+        (,uint256 sharesA) = _deposit(operatorA, stakeAmountOpA);
         _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, operatorA, sharesA, delegator);
 
         // Operator B deposits and sets shares
-        collateral.transfer(staker, stakeAmountOpB);
-        vm.startPrank(staker);
-        collateral.approve(address(vault), stakeAmountOpB);
-        (,uint256 sharesB) = vault.deposit(operatorB, stakeAmountOpB);
-        vm.stopPrank();
+        (,uint256 sharesB) = _deposit(operatorB, stakeAmountOpB);
         _setOperatorL1Shares(curatorOwner1, balancer, collateralClassId, operatorB, sharesB, delegator);
         
         _calcAndWarpOneEpoch(); // Ensure stakes are recognized
@@ -3556,5 +3538,814 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
             console2.log("  Secondary stake:", aliceSecondaryStake);
             console2.log("  Required for 2 nodes:", 2 * minSecondaryStakePerNode);
         }
+    }
+
+    // ============================================================
+    // CONSTRUCTOR VALIDATION TESTS
+    // ============================================================
+
+    function test_Constructor_ZeroAddress_Balancer() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: address(0), // Zero address
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__ZeroAddress.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_ZeroAddress_OperatorRegistry() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(0), // Zero address
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__ZeroAddress.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_ZeroAddress_VaultRegistry() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(0), // Zero address
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__ZeroAddress.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_ZeroAddress_OperatorL1Optin() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(0), // Zero address
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__ZeroAddress.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_ZeroAddress_PrimaryCollateral() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__ZeroAddress.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(0), // Zero address primary collateral
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_InvalidWindow_SlashingLessThanEpoch() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 3 hours, // Less than epochDuration
+            stakeUpdateWindow: 2 hours
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidWindow.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_InvalidWindow_StakeUpdateWindowZero() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 0 // Zero
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidWindow.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_InvalidWindow_StakeUpdateWindowGreaterThanEpoch() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 5 hours // >= epochDuration
+        });
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidWindow.selector);
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+    }
+
+    function test_Constructor_ScaleFactorOutOfBounds_TooSmall() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        // minAllowed = ceiling(maxStake / (2^64-1))
+        // With maxStake = 1000 ether, minAllowed is very small
+        // maxAllowed = minStake = 1 ether
+        // ScaleFactor = 0 is below minAllowed (which is at least 1)
+        vm.expectRevert();
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether, // maxStake
+            1 ether,    // minStake
+            0           // scaleFactor = 0, too small
+        );
+    }
+
+    function test_Constructor_ScaleFactorOutOfBounds_TooLarge() public {
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        // maxAllowed = minStake = 1 ether
+        // scaleFactor = 2 ether > maxAllowed
+        vm.expectRevert();
+        new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether, // maxStake
+            1 ether,    // minStake
+            2 ether     // scaleFactor > minStake, too large
+        );
+    }
+
+    // ============================================================
+    // SET VAULT MANAGER TESTS
+    // ============================================================
+
+    function test_SetVaultManager_ZeroAddress_Reverts() public {
+        // Deploy a new middleware without vault manager set
+        AvalancheL1MiddlewareSettings memory settings = AvalancheL1MiddlewareSettings({
+            balancer: balancer,
+            operatorRegistry: address(operatorRegistry),
+            vaultRegistry: address(vaultFactory),
+            operatorL1Optin: address(operatorL1OptInService),
+            epochDuration: 4 hours,
+            slashingWindow: 5 hours,
+            stakeUpdateWindow: 3 hours
+        });
+
+        AvalancheL1Middleware newMiddleware = new AvalancheL1Middleware(
+            settings,
+            l1Owner,
+            address(collateral),
+            1000 ether,
+            1 ether,
+            1 ether
+        );
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__ZeroAddress.selector);
+        vm.prank(l1Owner);
+        newMiddleware.setVaultManager(address(0));
+    }
+
+    // ============================================================
+    // REGISTER OPERATOR TESTS
+    // ============================================================
+
+    function test_RegisterOperator_AlreadyRegistered_Reverts() public {
+        // Alice is already registered in setUp
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorAlreadyRegistered.selector, alice)
+        );
+        vm.prank(l1Owner);
+        middleware.registerOperator(alice);
+    }
+
+    function test_RegisterOperator_NotInOperatorRegistry_Reverts() public {
+        address unregisteredOperator = makeAddr("unregisteredOperator");
+        
+        // Opt in the operator to L1 (even though not registered in operator registry)
+        // This should fail at the operator registry check first
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, unregisteredOperator)
+        );
+        vm.prank(l1Owner);
+        middleware.registerOperator(unregisteredOperator);
+    }
+
+    function test_RegisterOperator_NotOptedIn_Reverts() public {
+        address newOperator = makeAddr("newOperator");
+        
+        // Register in operator registry but don't opt in to L1
+        vm.prank(newOperator);
+        operatorRegistry.registerOperator("new operator metadata");
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotOptedIn.selector, newOperator, balancer)
+        );
+        vm.prank(l1Owner);
+        middleware.registerOperator(newOperator);
+    }
+
+    // ============================================================
+    // REMOVE OPERATOR TESTS
+    // ============================================================
+
+    function test_RemoveOperator_GracePeriodNotPassed_Reverts() public {
+        // Create a fresh operator to test with
+        address testOperator = makeAddr("gracePeriodOperator");
+        _registerOperator(testOperator, "grace period test");
+        _optInOperatorL1(testOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(testOperator);
+        
+        // Disable the operator
+        vm.prank(l1Owner);
+        middleware.disableOperator(testOperator);
+        
+        // Try to remove immediately - should fail because grace period hasn't passed
+        vm.expectRevert();
+        vm.prank(l1Owner);
+        middleware.removeOperator(testOperator);
+    }
+
+    function test_RemoveOperator_StillEnabled_Reverts() public {
+        // Create a fresh operator
+        address testOperator = makeAddr("stillEnabledOperator");
+        _registerOperator(testOperator, "still enabled test");
+        _optInOperatorL1(testOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(testOperator);
+        
+        // Try to remove without disabling first
+        vm.expectRevert();
+        vm.prank(l1Owner);
+        middleware.removeOperator(testOperator);
+    }
+
+    // ============================================================
+    // ADD NODE / REMOVE NODE ERROR TESTS
+    // ============================================================
+
+    function test_AddNode_BelowMinStake_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("belowMinStake")))));
+        
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidStakeAmount.selector);
+        vm.prank(alice);
+        middleware.addNode(
+            nodeId,
+            new bytes(48),
+            _pOwner1(alice),
+            _pOwner1(alice),
+            minStake - 1 // Below minimum
+        );
+    }
+
+    function test_AddNode_DisabledOperator_Reverts() public {
+        // Create a fresh operator
+        address testOperator = makeAddr("disabledAddNode");
+        _registerOperator(testOperator, "disabled add node test");
+        _optInOperatorL1(testOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(testOperator);
+        
+        // Disable the operator
+        vm.prank(l1Owner);
+        middleware.disableOperator(testOperator);
+        
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("disabledOperatorNode")))));
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, testOperator)
+        );
+        vm.prank(testOperator);
+        middleware.addNode(
+            nodeId,
+            new bytes(48),
+            _pOwner1(testOperator),
+            _pOwner1(testOperator),
+            0
+        );
+    }
+
+    function test_RemoveNode_NodeNotFound_Reverts() public {
+        bytes32 nonExistentNodeId = bytes32(uint256(uint160(uint256(keccak256("nonExistent")))));
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NodeNotFound.selector, nonExistentNodeId)
+        );
+        vm.prank(alice);
+        middleware.removeNode(nonExistentNodeId);
+    }
+
+    function test_RemoveNode_WrongOperator_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        // Alice adds a node
+        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        
+        // Charlie tries to remove Alice's node
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NodeNotFound.selector, nodeId)
+        );
+        vm.prank(charlie);
+        middleware.removeNode(nodeId);
+    }
+
+    // ============================================================
+    // INITIALIZE VALIDATOR STAKE UPDATE TESTS
+    // ============================================================
+
+    function test_InitializeValidatorStakeUpdate_NodeNotFound_Reverts() public {
+        bytes32 nonExistentNodeId = bytes32(uint256(uint160(uint256(keccak256("nonExistentUpdate")))));
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__NodeNotFound.selector, nonExistentNodeId)
+        );
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nonExistentNodeId, 1 ether);
+    }
+
+    function test_InitializeValidatorStakeUpdate_AboveMaxStake_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        
+        (, uint256 maxStake) = middleware.getClassStakingRequirements(1);
+        
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidStakeAmount.selector);
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, maxStake + 1);
+    }
+
+    function test_InitializeValidatorStakeUpdate_BelowMinStake_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+        
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidStakeAmount.selector);
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, minStake - 1);
+    }
+
+    function test_InitializeValidatorStakeUpdate_WeightUpdatePending_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+        uint256 newStake = minStake * 2;
+        
+        // First update - should succeed
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, newStake);
+        
+        // Verify update is pending
+        assertTrue(IBalancerValidatorManager(balancer).isValidatorPendingWeightUpdate(validationIDs[0]));
+        
+        // Second update while first is pending - should revert
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__WeightUpdatePending.selector, validationIDs[0])
+        );
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, newStake + 100);
+    }
+
+    // ============================================================
+    // FORCE UPDATE NODES TESTS
+    // ============================================================
+
+    function test_ForceUpdateNodes_NotInUpdateWindow_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        // We're at the start of the epoch, not in the final window
+        uint48 currentEpoch = middleware.getCurrentEpoch();
+        uint48 epochStart = middleware.getEpochStartTs(currentEpoch);
+        
+        // Warp to just after epoch start (before update window)
+        vm.warp(epochStart + 1);
+        
+        vm.expectRevert();
+        middleware.forceUpdateNodes(alice, 0);
+    }
+
+    function test_ForceUpdateNodes_OperatorNotRegistered_Reverts() public {
+        _warpToLastHourOfCurrentEpoch();
+        
+        address unregistered = makeAddr("unregisteredForce");
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, unregistered)
+        );
+        middleware.forceUpdateNodes(unregistered, 0);
+    }
+
+    function test_ForceUpdateNodes_LimitStakeBelowScaleFactor_Reverts() public {
+        _calcAndWarpOneEpoch();
+        
+        // Create a node for alice using a larger stake multiplier (5x minStake = 5e14)
+        // This uses most of the deposited amount (5.5e14)
+        _createAndConfirmNodes(alice, 1, 0, true, 5);
+        
+        _calcAndWarpOneEpoch();
+        
+        // Simulate stake reduction by having staker withdraw from vault
+        // After withdrawing half (2.75e14), alice will have less than her registered 5e14 stake
+        uint256 withdrawAmount = depositedAmount / 2;
+        vm.prank(staker);
+        vault.withdraw(staker, withdrawAmount);
+        
+        // Move to next epoch so withdrawal takes effect
+        _calcAndWarpOneEpoch();
+        _warpToLastHourOfCurrentEpoch();
+        
+        // Now alice's available stake (2.75e14) < registered stake (5e14)
+        // leftoverStake = 5e14 - 2.75e14 = 2.25e14 > WEIGHT_SCALE_FACTOR (1e14)
+        // So forceUpdate is required, but we pass a dust limitStake
+        uint256 dust = middleware.WEIGHT_SCALE_FACTOR() - 1;
+        
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InvalidStakeAmount.selector);
+        middleware.forceUpdateNodes(alice, dust);
+    }
+
+    // ============================================================
+    // SLASH TESTS
+    // ============================================================
+
+    function test_Slash_NotImplemented_Reverts() public {
+        uint48 epoch = middleware.getCurrentEpoch();
+        
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__NotImplemented.selector);
+        vm.prank(l1Owner);
+        middleware.slash(epoch, alice, 1 ether, 1);
+    }
+
+    // ============================================================
+    // MANUAL PROCESS NODE STAKE CACHE TESTS
+    // ============================================================
+
+    function test_ManualProcessNodeStakeCache_ZeroEpochs_Reverts() public {
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__NoEpochsToProcess.selector);
+        middleware.manualProcessNodeStakeCache(0);
+    }
+
+    // ============================================================
+    // ACCESS CONTROL TESTS
+    // ============================================================
+
+    function test_SetVaultManager_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.setVaultManager(address(0x123));
+    }
+
+    function test_ActivateSecondaryCollateralClass_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        
+        // First create a collateral class
+        vm.prank(l1Owner);
+        middleware.addCollateralClass(99, 1 ether, 100 ether, address(collateral2));
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.activateSecondaryCollateralClass(99);
+    }
+
+    function test_DeactivateSecondaryCollateralClass_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.deactivateSecondaryCollateralClass(2);
+    }
+
+    function test_RegisterOperator_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        address newOperator = makeAddr("newOperatorAC");
+        
+        _registerOperator(newOperator, "new operator access control");
+        _optInOperatorL1(newOperator, balancer);
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.registerOperator(newOperator);
+    }
+
+    function test_DisableOperator_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.disableOperator(alice);
+    }
+
+    function test_EnableOperator_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        
+        // First disable the operator as admin
+        vm.prank(l1Owner);
+        middleware.disableOperator(dave); // dave has no nodes
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.enableOperator(dave);
+        
+        // Re-enable for other tests
+        vm.prank(l1Owner);
+        middleware.enableOperator(dave);
+    }
+
+    function test_RemoveOperator_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.removeOperator(alice);
+    }
+
+    function test_Slash_NonAdmin_Reverts() public {
+        address randomUser = makeAddr("randomUser");
+        uint48 epoch = middleware.getCurrentEpoch();
+        
+        vm.expectRevert();
+        vm.prank(randomUser);
+        middleware.slash(epoch, alice, 1 ether, 1);
+    }
+
+    // ============================================================
+    // ERC165 INTERFACE TESTS
+    // ============================================================
+
+    function test_SupportsInterface_ISecurityModule() public view {
+        // ISecurityModule interface ID
+        bytes4 securityModuleInterfaceId = type(ISecurityModule).interfaceId;
+        assertTrue(middleware.supportsInterface(securityModuleInterfaceId), "Should support ISecurityModule");
+    }
+
+    function test_SupportsInterface_IERC165() public view {
+        // IERC165 interface ID = 0x01ffc9a7
+        bytes4 erc165InterfaceId = 0x01ffc9a7;
+        assertTrue(middleware.supportsInterface(erc165InterfaceId), "Should support IERC165");
+    }
+
+    function test_SupportsInterface_AccessControl() public view {
+        // IAccessControl interface ID
+        bytes4 accessControlInterfaceId = type(IAccessControl).interfaceId;
+        assertTrue(middleware.supportsInterface(accessControlInterfaceId), "Should support IAccessControl");
+    }
+
+    function test_SupportsInterface_InvalidInterface() public view {
+        // Random invalid interface ID
+        bytes4 invalidInterfaceId = 0xdeadbeef;
+        assertFalse(middleware.supportsInterface(invalidInterfaceId), "Should not support invalid interface");
+    }
+
+    // ============================================================
+    // VIEW FUNCTION EDGE CASES
+    // ============================================================
+
+    function test_GetActiveNodesForEpoch_NoNodes() public {
+        // Create a fresh operator with no nodes
+        address noNodesOperator = makeAddr("noNodesOperator");
+        _registerOperator(noNodesOperator, "no nodes operator");
+        _optInOperatorL1(noNodesOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(noNodesOperator);
+        
+        uint48 epoch = middleware.getCurrentEpoch();
+        
+        bytes32[] memory nodes = middleware.getActiveNodesForEpoch(noNodesOperator, epoch);
+        assertEq(nodes.length, 0, "Should return empty array for operator with no nodes");
+    }
+
+    function test_GetOperatorNodesLength_NoNodes() public {
+        // Create a fresh operator with no nodes
+        address noNodesOperator = makeAddr("noNodesLengthOperator");
+        _registerOperator(noNodesOperator, "no nodes length operator");
+        _optInOperatorL1(noNodesOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(noNodesOperator);
+        
+        uint256 length = middleware.getOperatorNodesLength(noNodesOperator);
+        assertEq(length, 0, "Should return 0 for operator with no nodes");
+    }
+
+    function test_GetOperatorValidationIDs_NoNodes() public {
+        // Create a fresh operator with no validation IDs
+        address noValidationIDsOperator = makeAddr("noValidationIDsOperator");
+        _registerOperator(noValidationIDsOperator, "no validation ids operator");
+        _optInOperatorL1(noValidationIDsOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(noValidationIDsOperator);
+        
+        bytes32[] memory ids = middleware.getOperatorValidationIDs(noValidationIDsOperator);
+        assertEq(ids.length, 0, "Should return empty array for operator with no validation IDs");
+    }
+
+    function test_GetOperatorAvailableStake_NoStake() public {
+        // Create a fresh operator with no stake allocated
+        address noStakeOperator = makeAddr("noStakeOperator");
+        _registerOperator(noStakeOperator, "no stake operator");
+        _optInOperatorL1(noStakeOperator, balancer);
+        
+        vm.prank(l1Owner);
+        middleware.registerOperator(noStakeOperator);
+        
+        uint256 available = middleware.getOperatorAvailableStake(noStakeOperator);
+        assertEq(available, 0, "Should return 0 for operator with no stake");
+    }
+
+    // ============================================================
+    // DISABLE OPERATOR ERROR TESTS
+    // ============================================================
+
+    function test_DisableOperator_NotRegistered_Reverts() public {
+        address unregisteredOperator = makeAddr("unregisteredDisable");
+        
+        vm.expectRevert();
+        vm.prank(l1Owner);
+        middleware.disableOperator(unregisteredOperator);
+    }
+
+    // ============================================================
+    // ENABLE OPERATOR ERROR TESTS
+    // ============================================================
+
+    function test_EnableOperator_NotRegistered_Reverts() public {
+        address unregisteredOperator = makeAddr("unregisteredEnable");
+        
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__OperatorNotRegistered.selector, unregisteredOperator)
+        );
+        vm.prank(l1Owner);
+        middleware.enableOperator(unregisteredOperator);
+    }
+
+    // ============================================================
+    // COLLATERAL CLASS TESTS
+    // ============================================================
+
+    function test_RemoveCollateralClass_ActiveSecondary_Reverts() public {
+        // Create and activate a secondary class
+        uint96 testClassId = 55;
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(testClassId, 1 ether, 100 ether, address(collateral2));
+        middleware.activateSecondaryCollateralClass(testClassId);
+        
+        // Try to remove while still active
+        vm.expectRevert(
+            abi.encodeWithSelector(IAvalancheL1Middleware.AvalancheL1Middleware__ActiveSecondaryCollateralClass.selector, testClassId)
+        );
+        middleware.removeCollateralClass(testClassId);
+        vm.stopPrank();
+    }
+
+    function test_ActivateSecondaryCollateralClass_NotFound_Reverts() public {
+        uint96 nonExistentClassId = 999;
+        
+        vm.expectRevert();
+        vm.prank(l1Owner);
+        middleware.activateSecondaryCollateralClass(nonExistentClassId);
+    }
+
+    function test_ActivateSecondaryCollateralClass_AlreadyActive_Reverts() public {
+        // Create and activate a secondary class
+        uint96 testClassId = 56;
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(testClassId, 1 ether, 100 ether, address(collateral2));
+        middleware.activateSecondaryCollateralClass(testClassId);
+        
+        // Try to activate again
+        vm.expectRevert();
+        middleware.activateSecondaryCollateralClass(testClassId);
+        vm.stopPrank();
+    }
+
+    function test_ActivateSecondaryCollateralClass_PrimaryClass_Reverts() public {
+        // Primary class is 1, cannot be activated as secondary
+        vm.expectRevert();
+        vm.prank(l1Owner);
+        middleware.activateSecondaryCollateralClass(1);
+    }
+
+    function test_DeactivateSecondaryCollateralClass_NotActive_Reverts() public {
+        // Create a class but don't activate it
+        uint96 testClassId = 57;
+        vm.prank(l1Owner);
+        middleware.addCollateralClass(testClassId, 1 ether, 100 ether, address(collateral2));
+        
+        // Try to deactivate when not active
+        vm.expectRevert();
+        vm.prank(l1Owner);
+        middleware.deactivateSecondaryCollateralClass(testClassId);
     }
 }

@@ -88,11 +88,7 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
     function _setupInitialVaultDeposits() internal {
         // Add more liquidity to vault
         uint256 additionalDeposit = 1000 ether;
-        collateral.transfer(staker, additionalDeposit);
-        vm.startPrank(staker);
-        collateral.approve(address(vault), additionalDeposit);
-        vault.deposit(staker, additionalDeposit);
-        vm.stopPrank();
+        _deposit(staker, additionalDeposit);
     }
     
     function _distributeVaultShares() internal {

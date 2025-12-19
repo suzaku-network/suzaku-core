@@ -29,7 +29,11 @@ contract DefaultCollateralScript is Script {
         uint256 collateralInitLimit = json.readUint(".collateralInitLimit");
         address collateralLimitIncreaser = json.readAddress(".collateralLimitIncreaser");
 
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         // Deploy the collateral
         address newCollateral = IDefaultCollateralFactory(collateralFactory).create(
@@ -38,7 +42,9 @@ contract DefaultCollateralScript is Script {
             collateralLimitIncreaser
         );
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Create a simplified deployment directory
         string memory path = "./deployments";

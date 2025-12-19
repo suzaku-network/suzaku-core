@@ -40,7 +40,11 @@ contract DeployFactoriesRegistriesOptIns is Script {
             address vaultHelperAddr
         )
     {
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         // Deploy factories, registries, and opt-in services
         vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);
@@ -66,7 +70,9 @@ contract DeployFactoriesRegistriesOptIns is Script {
         // Deploy VaultHelper
         VaultHelper vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Assign them to the return variables
         vaultFactoryAddr = address(vaultFactory);

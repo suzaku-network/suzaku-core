@@ -33,7 +33,7 @@ import {DeployBalancerValidatorManager} from "lib/suzaku-contracts-library/scrip
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
-import {Token} from "../mocks/Token.sol";
+import {Token} from "../mocks/MockToken.sol";
 
 contract MiddlewareCollateralDecimalsTest is Test {
     // Constants

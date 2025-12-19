@@ -16,7 +16,11 @@ contract DeployRewardsNativeToken is Script {
     function executeRewardsNativeTokenDeployment(
         RewardsNativeTokenConfig memory config
     ) public returns (address rewardsNativeToken, address uptimeTracker, address implementation, address proxyAdmin) {
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         // Deploy UptimeTracker first
         UptimeTracker uptimeTrackerContract = new UptimeTracker(
@@ -47,7 +51,9 @@ contract DeployRewardsNativeToken is Script {
             initData
         );
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Return addresses
         rewardsNativeToken = address(proxy);
