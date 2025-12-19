@@ -206,4 +206,5 @@ graph TB
 | [5. RewardsNativeToken](./5-rewardsNativeToken.md) | Distribution mechanics, share calculations |
 | [6. UptimeTracker](./6-uptimeTracker.md) | Validator uptime tracking |
 | [7. LST Wrapper](./7-lst-wrapper.md) | Auto-compounding wrapper mechanics |
-| [8. BalancerValidatorManager](../lib/suzaku-contracts-library/src/contracts/ValidatorManager/README.md) | Security module integration |
+| [9. BalancerValidatorManager](./9-balancer-validator-manager.md) | Multi-tenant security module integration |
+| [10. ICM & P-Chain Integration](./10-icm-pchain-integration.md) | Warp messaging, validator lifecycle, uptime |
