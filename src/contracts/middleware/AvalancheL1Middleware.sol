@@ -122,9 +122,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         if (settings.operatorL1Optin == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress();
         }
-        if (owner == address(0)) {
-            revert AvalancheL1Middleware__ZeroAddress();
-        }
         if (primaryCollateral == address(0)) {
             revert AvalancheL1Middleware__ZeroAddress();
         }
