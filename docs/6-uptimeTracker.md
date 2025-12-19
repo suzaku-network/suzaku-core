@@ -161,56 +161,125 @@ struct LastUptimeCheckpoint {
 }
 ```
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'lineColor': '#64748b'}}}%%
-flowchart TB
-    subgraph CALC["Uptime Calculation"]
-        direction TB
-        C1["recordedUptime = remaining + (new - attributed)"]
-        C2["elapsedTime = currentEpochStart - lastEpochStart"]
-        C3["uptimeToDistribute = min(recorded, elapsed)"]
-        C4["newRemaining = recorded - distributed"]
-        C1 --> C2 --> C3 --> C4
-    end
+**Terms:**
 
-    subgraph DIST["Distribution Across Epochs"]
-        direction TB
-        D1["uptimePerEpoch = total / elapsedEpochs"]
-        D2["remainder = total % elapsedEpochs"]
-        D3["earliest epochs get +1 second each"]
-        D4["only increase existing values"]
-        D1 --> D2 --> D3 --> D4
-    end
+| Term | Meaning |
+|------|---------|
+| `cumulativeUptime` | Total seconds validator was online since it started (from P-Chain warp message) |
+| `attributedUptime` | Last cumulative value we processed (stored in checkpoint) |
+| `remainingUptime` | Excess seconds carried over when uptime > elapsed time |
+| `elapsedEpochs` | Number of epochs between last checkpoint and current epoch |
+| `elapsedTime` | `elapsedEpochs × epochDuration` in seconds |
+| `epoch baseline` | Snapshot of checkpoint, frozen on first call of the current epoch. Seals all previous epochs. Same-epoch recalculations reuse this frozen baseline |
 
-    subgraph SAME["Same-Epoch Reprocessing"]
-        direction TB
-        S1["baseline = checkpoint at first call"]
-        S2["later calls compute from baseline"]
-        S3["only increase, never decrease"]
-        S1 --> S2 --> S3
-    end
+**How uptime distribution works:**
 
-    CALC --> DIST
-    DIST --> SAME
+*Running example: Last checkpoint was epoch 7 with `attributedUptime = 60s`, `remainingUptime = 10s`. Now in epoch 10. Epoch duration = 30s.*
 
-    style C1 fill:#3b82f6,color:#fff
-    style C2 fill:#3b82f6,color:#fff
-    style C3 fill:#3b82f6,color:#fff
-    style C4 fill:#3b82f6,color:#fff
-    style D1 fill:#22c55e,color:#fff
-    style D2 fill:#22c55e,color:#fff
-    style D3 fill:#22c55e,color:#fff
-    style D4 fill:#22c55e,color:#fff
-    style S1 fill:#eab308,color:#1e293b
-    style S2 fill:#eab308,color:#1e293b
-    style S3 fill:#eab308,color:#1e293b
+1. **Receive warp message** from P-Chain containing `(validationID, cumulativeUptime)`
+   - Example (1st message): `cumulativeUptime = 110s`
+
+2. **Reject stale messages**: If `cumulativeUptime ≤ validatorHighestUptime[validationID]`, ignore it
+   - Example: 110s > 60s (last highest), so message is valid, continue
+
+3. **Calculate seconds to distribute** (using epoch baseline):
+   - `remainingUptime` + (`cumulativeUptime` - `attributedUptime`)
+   - = excess from previous epoch + (total uptime - already distributed)
+   - Example: `10 + (110 - 60) = 60s` to distribute (note: uses the 10s remainingUptime from previous epoch)
+
+4. **Cap at elapsed time**: 
+   - Can't distribute more than `elapsedEpochs × epochDuration` (elapsed time)
+   - If there's excess uptime, it is saved as `remainingUptime` for next epochs
+   - Example: 3 epochs × 30s = 90s max. 60s < 90s, so distribute all 60s, `remainingUptime = 0`
+
+5. **Split and write to per-epoch storage**:
+   - Divide evenly across elapsed epochs, remainder goes to earliest epochs
+   - Save the distributed uptime to each epoch from baseline epoch to current epoch - 1 (i.e., epochs 7, 8, 9 when in epoch 10 with baseline from epoch 7)
+   - Only increase values, never decrease
+   - **Window of opportunity**: All epochs since baseline remain updatable until the current epoch ends. Multiple warp messages during epoch 10 can improve values for epochs 7, 8, and 9.
+   - **Sealing**: When epoch 11 begins, a new baseline is taken. Epochs 7, 8, 9 are now sealed and can never be modified again.
+   - Example (1st message): 60s ÷ 3 epochs = 20s each. Write 20s to epochs 7, 8, 9. Epochs not fully filled yet.
+   - Example (2nd message in epoch 10): `cumulativeUptime = 170s` arrives. Baseline still frozen at epoch 7 values (`attributedUptime = 60`, `remainingUptime = 10`). Calculate: `10 + (170 - 60) = 120s`. Cap at 90s → distribute 90s, save `remainingUptime = 30s`. Split: 90s ÷ 3 = 30s each. Write 30s to epochs 7, 8, 9. Since 30s > 20s (existing), all three epochs are updated. Once epoch 11 starts, epochs 7-9 are sealed forever with 30s each.
+
+6. **Update checkpoint**: 
+   - `attributedUptime = cumulativeUptime` (mark what we've processed)
+   - `remainingUptime = total - distributed`
+   - Checkpoint updates every call, but calculations always use the frozen baseline
+   - Example (1st message): `attributedUptime` = 110, `remainingUptime` = 0. Checkpoint saved, but baseline stays frozen at epoch 7 values.
+   - Example (2nd message): `attributedUptime` = 170, `remainingUptime` = 30. This checkpoint becomes the new baseline when epoch 11 starts.
+
+**Epoch 11 starts:**
+- New baseline taken from checkpoint (`attributedUptime = 170`, `remainingUptime = 30`)
+- Epochs 7, 8, 9 are sealed forever
+- Next calculation will write to epochs 10 (...) currentEpoch, using the 30s `remainingUptime`
+
+### Visual: State Progression
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ STATE 1: 1st message arrives in epoch 10                                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ 📩 Message: cumulativeUptime = 110s                                             │
+│                                                                                 │
+│ Baseline (frozen from epoch 7): attributedUptime=60, remainingUptime=10         │
+│ Checkpoint (same as baseline):  attributedUptime=60, remainingUptime=10         │
+│                                                                                 │
+│ Calculation: 10 + (110 - 60) = 60s to distribute                                │
+│              └─remainingUptime  └─cumulative - attributed                       │
+│                                                                                 │
+│ Epochs to write: lastUptimeEpoch(7) + i, where i=0,1,2 → epochs 7, 8, 9         │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Per-epoch storage (max 30s each):                                               │
+│   Epoch 7:  [░░░░░░░░░░] 0/30s                                                  │
+│   Epoch 8:  [░░░░░░░░░░] 0/30s                                                  │
+│   Epoch 9:  [░░░░░░░░░░] 0/30s                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ STATE 2: After 1st message processed, 2nd message arrives                       │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Baseline (still frozen): attributedUptime=60, remainingUptime=10                │
+│ Checkpoint (UPDATED):    attributedUptime=110, remainingUptime=0                │
+│                          └─set to cumulativeUptime  └─60s distributed, no excess│
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Per-epoch storage (max 30s each):                                               │
+│   Epoch 7:  [██████░░░░] 20/30s   (60s ÷ 3 = 20s each)                          │
+│   Epoch 8:  [██████░░░░] 20/30s                                                 │
+│   Epoch 9:  [██████░░░░] 20/30s                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ 📩 2nd message: cumulativeUptime = 170s                                         │
+│                                                                                 │
+│ Calculation (uses frozen baseline, NOT checkpoint):                             │
+│   10 + (170 - 60) = 120s to distribute                                          │
+│   Cap at 90s (3 epochs × 30s) → distribute 90s, save 30s as remainingUptime     │
+│   Still writes to epochs 7, 8, 9 (same range, baseline unchanged)               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ STATE 3: After 2nd message processed + Epoch 11 starts                          │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Checkpoint (after 2nd msg): attributedUptime=170, remainingUptime=30            │
+│                             └─set to cumulativeUptime  └─120s - 90s distributed │
+│                                                                                 │
+│ Baseline (NEW - snapshot when epoch 11 started):                                │
+│   attributedUptime=170, remainingUptime=30, timestamp=epoch 10 start            │
+│   → Next lastUptimeEpoch will be 10, so future writes go to epochs 10, 11, ...  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Per-epoch storage (SEALED - epoch 11 started):                                  │
+│   Epoch 7:  [██████████] 30/30s 🔒  (90s ÷ 3 = 30s, updated from 20s)           │
+│   Epoch 8:  [██████████] 30/30s 🔒                                              │
+│   Epoch 9:  [██████████] 30/30s 🔒                                              │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│ Epoch 11+: Next calculation writes to epochs 10, 11, ... with remainingUptime=30│
+└─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Distribution:**
-- Uptime is split evenly across `elapsedEpochs`
-- Remainder seconds distributed one per epoch (earliest first)
-- Total distributed is capped by `elapsedTime` (implicit cap at `epochDuration` per epoch)
-- Only increases existing values (monotonicity)
+**Key rules:**
+- Values only ever **increase** (never decrease existing uptime)
+- Same-epoch reprocessing: uses baseline snapshot from first call in epoch
+- Excess uptime (beyond elapsed time) carried forward as `remainingUptime`
 
 ---
 
