@@ -337,30 +337,6 @@ contract VaultHelper is ReentrancyGuard {
     }
 
     /**
-     * @notice Returns the claimable rewards for a staker.
-     * @param staker Address of the staker.
-     * @param rewards Address of the rewards contract.
-     * @param vault Address of the vault.
-     * @param rewardsTokens Addresses of the rewards tokens.
-     */
-    function getStakerClaimableRewards(
-        address staker,
-        address rewards,
-        address vault,
-        address[] memory rewardsTokens
-    ) external view returns (ClaimAmountsPerToken[] memory) {
-        if (staker == address(0)) revert VaultHelper__InvalidUser(staker);
-        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
-        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
-        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
-        ClaimAmountsPerToken[] memory claimAmountsPerToken = new ClaimAmountsPerToken[](rewardsTokens.length);
-        for (uint256 i = 0; i < rewardsTokens.length; i++) {
-            claimAmountsPerToken[i] = getStakerClaimableReward(staker, rewards, vault, rewardsTokens[i]);
-        }
-        return claimAmountsPerToken;
-    }
-
-    /**
      * @notice Returns aggregated rewards per token for a staker across unclaimed epochs.
      * @param staker Address of the staker.
      * @param rewards Address of the rewards contract.
@@ -468,5 +444,41 @@ contract VaultHelper is ReentrancyGuard {
         }
 
         return ClaimAmountsPerToken({token: RewardsNativeToken(rewards).rewardsToken(), amount: totalAmount});
+    }
+
+    /**
+     * @notice Returns the latest distributed rewards for a vault.
+     * @param vault Address of the vault.
+     * @param rewards Address of the rewards contract.
+     * @return amount The amount of rewards distributed to the vault.
+     */
+    function getVaultLatestDistributedRewards(address vault, address rewards) external view returns (uint256 amount) {
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+        uint48 currentEpoch = RewardsNativeToken(rewards).middleware().getCurrentEpoch();
+        if (currentEpoch < 3) {
+            // Not enough finalized epochs to consider; return zeros
+            return 0;
+        }
+        // Scan newest to oldest over a 5-epoch window starting from (currentEpoch - 3)
+        // Window: [start, start-1, start-2, start-3, start-4]
+        uint48 start = currentEpoch - 3;
+        for (uint48 i = 0; i < 5; i++) {
+            uint48 epoch = start - i;
+            // Avoid underflow / sentinel epoch if ever reached
+            if (epoch == 0) break;
+            (, bool distributionComplete) = RewardsNativeToken(rewards).epochStatus(epoch);
+            if (!distributionComplete) continue;
+
+            uint256 rewardsAmount = RewardsNativeToken(rewards).getEpochRewards(epoch);
+            uint256 vaultShare = RewardsNativeToken(rewards).vaultShares(epoch, vault);
+            if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
+
+            amount = Math.mulDiv(rewardsAmount, vaultShare, BASIS_POINTS_DENOMINATOR);
+            return amount;
+        }
+        // No distributed epoch found in the window
+        return 0;
     }
 }
