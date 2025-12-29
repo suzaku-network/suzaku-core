@@ -36,6 +36,15 @@ contract FullLocalDeploymentScript is Script {
     L1Registry internal l1Registry;
     OperatorRegistry internal operatorRegistry;
 
+    // Storage for deployed addresses to reduce stack depth
+    OperatorVaultOptInService internal s_operatorVaultOptInService;
+    OperatorL1OptInService internal s_operatorL1OptInService;
+    address internal s_vault;
+    address internal s_delegator;
+    address internal s_slasher;
+    LSTWrapperFactory internal s_lstWrapperFactory;
+    VaultHelper internal s_vaultHelper;
+
     struct InitParams {
         uint64 version;
         address owner;
@@ -53,6 +62,23 @@ contract FullLocalDeploymentScript is Script {
 
         vm.startBroadcast();
 
+        _deployCoreContracts();
+        _deployOptInServices();
+        _deployDelegatorImpl();
+
+        InitParams memory params = _buildInitParams();
+
+        _deployVaultAndDelegator(params);
+        _deployHelperContracts(params);
+
+        console2.log("Full local deployment completed successfully.");
+
+        _writeDeploymentJson(params);
+
+        vm.stopBroadcast();
+    }
+
+    function _deployCoreContracts() internal {
         collateralAsset = new Token("CollateralToken");
         console2.log("Test Collateral Deployed at:", address(collateralAsset));
 
@@ -62,10 +88,10 @@ contract FullLocalDeploymentScript is Script {
         delegatorFactory = new DelegatorFactory(config.generalConfig.owner);
         slasherFactory = new SlasherFactory(config.generalConfig.owner);
         l1Registry = new L1Registry(
-            payable(config.generalConfig.owner), // fee collector
-            0.01 ether, // initial register fee
-            1 ether, // MAX_FEE
-            config.generalConfig.owner // owner
+            payable(config.generalConfig.owner),
+            0.01 ether,
+            1 ether,
+            config.generalConfig.owner
         );
         operatorRegistry = new OperatorRegistry();
 
@@ -78,35 +104,58 @@ contract FullLocalDeploymentScript is Script {
         address vaultTokenizedImpl = address(new VaultTokenized(address(vaultFactory)));
         vaultFactory.whitelist(vaultTokenizedImpl);
         console2.log("VaultTokenized implementation whitelisted at version:", vaultFactory.lastVersion());
+    }
 
-        OperatorVaultOptInService operatorVaultOptInService = new OperatorVaultOptInService(
-            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(vaultFactory), // WHERE_REGISTRY (isRegistered)
+    function _deployOptInServices() internal {
+        s_operatorVaultOptInService = new OperatorVaultOptInService(
+            address(operatorRegistry),
+            address(vaultFactory),
             "OperatorVaultOptInService"
         );
-        console2.log("OperatorVaultOptInService deployed at:", address(operatorVaultOptInService));
+        console2.log("OperatorVaultOptInService deployed at:", address(s_operatorVaultOptInService));
 
-        OperatorL1OptInService operatorL1OptInService = new OperatorL1OptInService(
-            address(operatorRegistry), // WHO_REGISTRY (isRegistered)
-            address(l1Registry), // WHERE_REGISTRY (isEntity)
+        s_operatorL1OptInService = new OperatorL1OptInService(
+            address(operatorRegistry),
+            address(l1Registry),
             "OperatorL1OptInService"
         );
-        console2.log("OperatorL1OptInService deployed at:", address(operatorL1OptInService));
+        console2.log("OperatorL1OptInService deployed at:", address(s_operatorL1OptInService));
+    }
 
+    function _deployDelegatorImpl() internal {
         address l1RestakeDelegatorImpl = address(
             new L1RestakeDelegator(
                 address(l1Registry),
                 address(vaultFactory),
-                address(operatorVaultOptInService),
-                address(operatorL1OptInService),
+                address(s_operatorVaultOptInService),
+                address(s_operatorL1OptInService),
                 address(delegatorFactory),
                 delegatorFactory.totalTypes()
             )
         );
         delegatorFactory.whitelist(l1RestakeDelegatorImpl);
         console2.log("L1RestakeDelegator implementation whitelisted at type:", delegatorFactory.totalTypes() - 1);
+    }
 
-        bytes memory vaultParams = abi.encode(
+    function _buildInitParams() internal view returns (InitParams memory) {
+        bytes memory vaultParams = _buildVaultParams();
+        bytes memory delegatorParams = _buildDelegatorParams();
+        bytes memory slasherParams = _buildSlasherParams();
+
+        return InitParams({
+            version: config.generalConfig.initialVaultVersion,
+            owner: config.generalConfig.owner,
+            vaultParams: vaultParams,
+            delegatorIndex: config.delegatorConfig.delegatorIndex,
+            delegatorParams: delegatorParams,
+            withSlasher: config.generalConfig.defaultIncludeSlasher,
+            slasherIndex: config.slasherConfig.slasherIndex,
+            slasherParams: slasherParams
+        });
+    }
+
+    function _buildVaultParams() internal view returns (bytes memory) {
+        return abi.encode(
             IVaultTokenized.InitParams({
                 collateral: address(collateralAsset),
                 burner: address(0xdEaD),
@@ -123,14 +172,15 @@ contract FullLocalDeploymentScript is Script {
                 symbol: config.vaultConfig.symbol
             })
         );
+    }
 
-        address[] memory l1LimitSetRoleHolders = new address[](1);
-        l1LimitSetRoleHolders[0] = config.generalConfig.owner;
-        address[] memory operatorL1SharesSetRoleHolders = new address[](1);
-        operatorL1SharesSetRoleHolders[0] = config.generalConfig.owner;
-
-        bytes memory delegatorParams;
+    function _buildDelegatorParams() internal view returns (bytes memory delegatorParams) {
         if (config.delegatorConfig.delegatorIndex == 0) {
+            address[] memory l1LimitSetRoleHolders = new address[](1);
+            l1LimitSetRoleHolders[0] = config.generalConfig.owner;
+            address[] memory operatorL1SharesSetRoleHolders = new address[](1);
+            operatorL1SharesSetRoleHolders[0] = config.generalConfig.owner;
+
             delegatorParams = abi.encode(
                 IL1RestakeDelegator.InitParams({
                     baseParams: IBaseDelegator.BaseParams({
@@ -143,8 +193,9 @@ contract FullLocalDeploymentScript is Script {
                 })
             );
         }
+    }
 
-        bytes memory slasherParams;
+    function _buildSlasherParams() internal view returns (bytes memory slasherParams) {
         if (config.generalConfig.defaultIncludeSlasher) {
             if (config.slasherConfig.slasherIndex == 0) {
                 slasherParams =
@@ -159,54 +210,40 @@ contract FullLocalDeploymentScript is Script {
                 );
             }
         }
+    }
 
-        InitParams memory params = InitParams({
-            version: config.generalConfig.initialVaultVersion,
-            owner: config.generalConfig.owner,
-            vaultParams: vaultParams,
-            delegatorIndex: config.delegatorConfig.delegatorIndex,
-            delegatorParams: delegatorParams,
-            withSlasher: config.generalConfig.defaultIncludeSlasher,
-            slasherIndex: config.slasherConfig.slasherIndex,
-            slasherParams: slasherParams
-        });
-
-        address vault = vaultFactory.create(
+    function _deployVaultAndDelegator(InitParams memory params) internal {
+        s_vault = vaultFactory.create(
             params.version, params.owner, params.vaultParams, address(delegatorFactory), address(slasherFactory)
         );
-        VaultTokenized(vault).setDepositorWhitelistStatus(config.generalConfig.owner, true);
-        console2.log("Vault deployed at:", vault);
+        VaultTokenized(s_vault).setDepositorWhitelistStatus(config.generalConfig.owner, true);
+        console2.log("Vault deployed at:", s_vault);
 
-        address delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(vault, params.delegatorParams));
-        console2.log("Delegator deployed at:", delegator);
+        s_delegator = delegatorFactory.create(params.delegatorIndex, abi.encode(s_vault, params.delegatorParams));
+        console2.log("Delegator deployed at:", s_delegator);
 
-        // Set delegator in the vault - use the Admin Role Holder
         vm.prank(params.owner);
-        VaultTokenized(vault).setDelegator(delegator);
+        VaultTokenized(s_vault).setDelegator(s_delegator);
 
-        // If slasher included, deploy slasher
-        address slasher;
         if (params.withSlasher) {
-            slasher = slasherFactory.create(params.slasherIndex, abi.encode(vault, params.slasherParams));
-            console2.log("Slasher deployed at:", slasher);
-            
+            s_slasher = slasherFactory.create(params.slasherIndex, abi.encode(s_vault, params.slasherParams));
+            console2.log("Slasher deployed at:", s_slasher);
+
             vm.prank(params.owner);
-            VaultTokenized(vault).setSlasher(slasher);
+            VaultTokenized(s_vault).setSlasher(s_slasher);
         }
+    }
 
-        // Deploy LSTWrapperFactory
-        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(params.owner, address(vaultFactory));
-        console2.log("LSTWrapperFactory deployed at:", address(lstWrapperFactory));
+    function _deployHelperContracts(InitParams memory params) internal {
+        s_lstWrapperFactory = new LSTWrapperFactory(params.owner, address(vaultFactory));
+        console2.log("LSTWrapperFactory deployed at:", address(s_lstWrapperFactory));
 
-        // Deploy VaultHelper
-        VaultHelper vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
-        console2.log("VaultHelper deployed at:", address(vaultHelper));
+        s_vaultHelper = new VaultHelper(address(vaultFactory), address(s_lstWrapperFactory));
+        console2.log("VaultHelper deployed at:", address(s_vaultHelper));
+    }
 
-        console2.log("Full local deployment completed successfully.");
-
-        // Optionally write out deployment details
-        string memory deploymentFileName = "fullLocalDeployment.json";
-        string memory filePath = string.concat("./deployments/", deploymentFileName);
+    function _writeDeploymentJson(InitParams memory params) internal {
+        string memory filePath = "./deployments/fullLocalDeployment.json";
 
         if (vm.exists(filePath)) {
             vm.removeFile(filePath);
@@ -214,21 +251,19 @@ contract FullLocalDeploymentScript is Script {
 
         string memory key = "full_deployment";
         vm.serializeAddress(key, "CollateralAsset", address(collateralAsset));
-        vm.serializeAddress(key, "Vault", vault);
-        vm.serializeAddress(key, "Delegator", delegator);
+        vm.serializeAddress(key, "Vault", s_vault);
+        vm.serializeAddress(key, "Delegator", s_delegator);
         if (params.withSlasher) {
-            vm.serializeAddress(key, "Slasher", slasher);
+            vm.serializeAddress(key, "Slasher", s_slasher);
         }
         vm.serializeAddress(key, "VaultFactory", address(vaultFactory));
         vm.serializeAddress(key, "DelegatorFactory", address(delegatorFactory));
         vm.serializeAddress(key, "SlasherFactory", address(slasherFactory));
         vm.serializeAddress(key, "L1Registry", address(l1Registry));
         vm.serializeAddress(key, "OperatorRegistry", address(operatorRegistry));
-        vm.serializeAddress(key, "OperatorVaultOptInService", address(operatorVaultOptInService));
-        vm.serializeAddress(key, "OperatorL1OptInService", address(operatorL1OptInService));
-        string memory output = vm.serializeAddress(key, "VaultHelper", address(vaultHelper));
+        vm.serializeAddress(key, "OperatorVaultOptInService", address(s_operatorVaultOptInService));
+        vm.serializeAddress(key, "OperatorL1OptInService", address(s_operatorL1OptInService));
+        string memory output = vm.serializeAddress(key, "VaultHelper", address(s_vaultHelper));
         vm.writeJson(output, filePath);
-
-        vm.stopBroadcast();
     }
 }

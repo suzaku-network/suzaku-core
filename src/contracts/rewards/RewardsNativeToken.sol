@@ -174,26 +174,42 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         nonReentrant
         onlyRole(REWARDS_DISTRIBUTOR_ROLE)
     {
-        // Validate epoch
         EpochStatus storage st = epochStatus[epoch];
         if (st.distributionComplete) revert AlreadyCompleted(epoch);
+
         uint48 currentEpoch = middleware.getCurrentEpoch();
-        // window guards (identical to multi‑token)
+        _validateDistributionEpoch(epoch, currentEpoch);
+
+        if (_handleAutoComplete(epoch, currentEpoch, st)) return;
+
+        _snapshotRegistries(epoch);
+        _checkFundingWindow(epoch, currentEpoch, st);
+
+        if (!_bucketVaults(epoch, batchSize)) return;
+
+        _executeDistributionBatch(epoch, batchSize, st);
+    }
+
+    function _validateDistributionEpoch(uint48 epoch, uint48 currentEpoch) internal view {
         if (currentEpoch < DISTRIBUTION_EARLIEST_OFFSET)
             revert RewardsDistributionTooEarly(epoch, 0);
         uint48 earliestDistributionEpoch = currentEpoch - DISTRIBUTION_EARLIEST_OFFSET;
         if (epoch > earliestDistributionEpoch)
             revert RewardsDistributionTooEarly(epoch, earliestDistributionEpoch);
 
-        // Enforce sequential distribution, include epoch 0
         if (epoch > 0) {
             EpochStatus storage prevSt = epochStatus[epoch - 1];
             if (!prevSt.distributionComplete) {
                 revert DistributionNotComplete(epoch - 1);
             }
         }
+    }
 
-        // only auto-complete when there are no operators.
+    function _handleAutoComplete(
+        uint48 epoch,
+        uint48 currentEpoch,
+        EpochStatus storage st
+    ) internal returns (bool) {
         bool fundingWindowClosedUnfunded = (currentEpoch > epoch + FUNDING_DEADLINE_OFFSET) && !st.funded;
         if (fundingWindowClosedUnfunded) {
             address[] memory opsNow = middleware.getAllOperators();
@@ -201,45 +217,55 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
                 distributionBatches[epoch].isComplete = true;
                 st.distributionComplete = true;
                 emit RewardsDistributed(epoch);
-                return;
+                return true;
             }
         }
+        return false;
+    }
 
-        // Snapshot registries once per epoch to avoid index drift
+    function _snapshotRegistries(uint48 epoch) internal {
         if (_epochOperators[epoch].length == 0) {
             _epochOperators[epoch] = middleware.getAllOperators();
         }
         if (_epochVaults[epoch].length == 0 && _epochOperators[epoch].length != 0) {
             _epochVaults[epoch] = middlewareVaultManager.getVaults(epoch);
         }
+    }
 
-        // Funding window: during [epoch, epoch+FUNDING_DEADLINE_OFFSET] require funded if operators exist
+    function _checkFundingWindow(uint48 epoch, uint48 currentEpoch, EpochStatus storage st) internal view {
         bool fundingWindowOpen = epoch + FUNDING_DEADLINE_OFFSET >= currentEpoch;
         if (fundingWindowOpen && !st.funded) {
             if (_epochOperators[epoch].length != 0) revert EpochNotFunded(epoch);
         }
+    }
 
-        // Bucket vaults by class in batches to avoid gas spikes
-        if (!_epochVaultsBucketed[epoch]) {
-            address[] storage vaults = _epochVaults[epoch];
-            uint256 start = _vaultBucketCursor[epoch];
-            uint256 effective = (batchSize == 0) ? 1 : uint256(batchSize);
-            uint256 end = Math.min(start + effective, vaults.length);
-            for (uint256 i = start; i < end; i++) {
-                address vault = vaults[i];
-                uint96 collateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
-                _epochVaultsByClass[epoch][collateralClass].push(vault);
-            }
-            _vaultBucketCursor[epoch] = end;
-            if (end == vaults.length) {
-                _epochVaultsBucketed[epoch] = true;
-            } else {
-                // continue bucketing on next call
-                return;
-            }
+    function _bucketVaults(uint48 epoch, uint48 batchSize) internal returns (bool complete) {
+        if (_epochVaultsBucketed[epoch]) return true;
+
+        address[] storage vaults = _epochVaults[epoch];
+        uint256 start = _vaultBucketCursor[epoch];
+        uint256 effective = (batchSize == 0) ? 1 : uint256(batchSize);
+        uint256 end = Math.min(start + effective, vaults.length);
+
+        for (uint256 i = start; i < end; i++) {
+            address vault = vaults[i];
+            uint96 collateralClass = middlewareVaultManager.getVaultCollateralClass(vault);
+            _epochVaultsByClass[epoch][collateralClass].push(vault);
         }
 
-        // Execute distribution in batches
+        _vaultBucketCursor[epoch] = end;
+        if (end == vaults.length) {
+            _epochVaultsBucketed[epoch] = true;
+            return true;
+        }
+        return false;
+    }
+
+    function _executeDistributionBatch(
+        uint48 epoch,
+        uint48 batchSize,
+        EpochStatus storage st
+    ) internal {
         DistributionBatch storage batch = distributionBatches[epoch];
         address[] storage operators = _epochOperators[epoch];
         uint256 operatorCount = operators.length;
@@ -248,7 +274,6 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
         for (uint256 i = startIdx; i < endIdx; i++) {
             _processOperator(epoch, operators[i]);
-            // finalize early if epoch cap is reached
             if (_epochTotalDistributedShares[epoch] >= BASIS_POINTS_DENOMINATOR) {
                 batch.lastProcessedOperator = operatorCount;
                 batch.isComplete = true;
@@ -260,7 +285,6 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
         batch.lastProcessedOperator = endIdx;
 
-        // Mark complete if all operators processed
         if (endIdx >= operatorCount) {
             batch.isComplete = true;
             st.distributionComplete = true;
@@ -281,60 +305,12 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             revert AlreadyClaimedForLatestEpoch(msg.sender, lastClaimedEpoch);
         }
 
-        uint256 totalRewards = 0;
-        uint48 newLast = lastClaimedEpoch;
+        (uint256 totalRewards, uint48 newLast) = _calculateStakerRewards(
+            msg.sender,
+            lastClaimedEpoch,
+            currentEpoch
+        );
 
-        uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
-        
-        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
-            EpochStatus memory st = epochStatus[epoch];
-
-            if (!st.distributionComplete) break;
-
-            uint256 epochAmt = epochRewards[epoch];
-            if (epochAmt > 0) {
-                uint48 epochTs = middleware.getEpochStartTs(epoch);
-                uint256 vCount = _epochVaultsWithShares[epoch].length();
-                for (uint256 i = 0; i < vCount; i++) {
-                    address vault = _epochVaultsWithShares[epoch].at(i);
-                    uint256 vaultShare = vaultShares[epoch][vault];
-                    if (vaultShare == 0) continue;
-
-                    uint256 stakerVaultShare;
-                    // tolerate vault view failures to avoid claim DoS
-                    try IVaultTokenized(vault).activeSharesOfAt(msg.sender, epochTs, new bytes(0)) returns (uint256 s) {
-                        stakerVaultShare = s;
-                    } catch { continue; }
-                    if (stakerVaultShare == 0) continue;
-
-                    // Get total raw shares in this specific vault at that time
-                    uint256 totalRawSharesInVault;
-                    try IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0)) returns (uint256 t) {
-                        totalRawSharesInVault = t;
-                    } catch { continue; }
-                    if (totalRawSharesInVault == 0) continue;
-
-                    uint256 tokensForVault = Math.mulDiv(
-                        epochAmt,
-                        vaultShare,
-                        BASIS_POINTS_DENOMINATOR
-                    );
-
-                    uint256 rewards = Math.mulDiv(
-                        tokensForVault,
-                        stakerVaultShare,
-                        totalRawSharesInVault
-                    );
-                    
-                    totalRewards += rewards;
-                }
-            }
-            newLast = epoch;
-        }
-
-        // Always update pointer
         lastEpochClaimedStaker[msg.sender] = newLast;
 
         if (totalRewards == 0) {
@@ -346,6 +322,67 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         }
 
         IERC20(rewardsToken).safeTransfer(recipient, totalRewards);
+    }
+
+    function _calculateStakerRewards(
+        address staker,
+        uint48 lastClaimedEpoch,
+        uint48 currentEpoch
+    ) internal view returns (uint256 totalRewards, uint48 newLast) {
+        newLast = lastClaimedEpoch;
+        uint48 maxEpoch = currentEpoch;
+        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+
+        for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
+            EpochStatus memory st = epochStatus[epoch];
+            if (!st.distributionComplete) break;
+
+            totalRewards += _calculateEpochStakerRewards(staker, epoch);
+            newLast = epoch;
+        }
+    }
+
+    function _calculateEpochStakerRewards(
+        address staker,
+        uint48 epoch
+    ) internal view returns (uint256 epochReward) {
+        uint256 epochAmt = epochRewards[epoch];
+        if (epochAmt == 0) return 0;
+
+        uint48 epochTs = middleware.getEpochStartTs(epoch);
+        uint256 vCount = _epochVaultsWithShares[epoch].length();
+
+        for (uint256 i = 0; i < vCount; i++) {
+            epochReward += _calculateVaultStakerReward(staker, epoch, epochTs, epochAmt, i);
+        }
+    }
+
+    function _calculateVaultStakerReward(
+        address staker,
+        uint48 epoch,
+        uint48 epochTs,
+        uint256 epochAmt,
+        uint256 vaultIndex
+    ) internal view returns (uint256) {
+        address vault = _epochVaultsWithShares[epoch].at(vaultIndex);
+        uint256 vaultShare = vaultShares[epoch][vault];
+        if (vaultShare == 0) return 0;
+
+        uint256 stakerVaultShare;
+        try IVaultTokenized(vault).activeSharesOfAt(staker, epochTs, new bytes(0)) returns (uint256 s) {
+            stakerVaultShare = s;
+        } catch { return 0; }
+        if (stakerVaultShare == 0) return 0;
+
+        uint256 totalRawSharesInVault;
+        try IVaultTokenized(vault).activeSharesAt(epochTs, new bytes(0)) returns (uint256 t) {
+            totalRawSharesInVault = t;
+        } catch { return 0; }
+        if (totalRawSharesInVault == 0) return 0;
+
+        uint256 tokensForVault = Math.mulDiv(epochAmt, vaultShare, BASIS_POINTS_DENOMINATOR);
+        return Math.mulDiv(tokensForVault, stakerVaultShare, totalRawSharesInVault);
     }
 
     /**
@@ -701,56 +738,82 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         }
 
         uint256 operatorUptime = Math.mulDiv(uptime, BASIS_POINTS_DENOMINATOR, epochDuration);
+        uint256 totalOperatorFeeShare = _processCollateralClasses(epoch, operator, operatorUptime);
 
-        uint256 totalBeneficiaryShare = 0;
-        uint256 totalOperatorFeeShare = 0;
-
-        uint96[] memory collateralClasses = middleware.getCollateralClassIds();
-        uint256 rawShare;
-        uint256 operatorFeeShare;
-        for (uint256 i = 0; i < collateralClasses.length; i++) {
-            uint96 collateralClass = collateralClasses[i];
-            uint16 collateralClassShare = rewardsSharePerCollateralClass[collateralClass];
-            if (collateralClassShare == 0) continue;
-            uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
-            if (totalStake == 0) continue;
-
-            uint256 operatorStake;
-            if (collateralClass == middleware.PRIMARY_ASSET_CLASS()) {
-                // Use historical validationIDs
-                operatorStake = _getOperatorUsedStakePrimaryCached(epoch, operator);
-            } else {
-                // tolerate view-call failures to avoid epoch-wide DoS
-                try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
-                    operatorStake = s;
-                } catch {
-                    operatorStake = 0;
-                }
-            }
-
-            rawShare = Math.mulDiv(
-                Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
-                collateralClassShare,
-                BASIS_POINTS_DENOMINATOR
-            );
-            rawShare = Math.mulDiv(rawShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
-
-            operatorFeeShare = Math.mulDiv(rawShare, operatorFee, BASIS_POINTS_DENOMINATOR);
-
-            operatorBeneficiariesSharesPerCollateralClass[epoch][operator][collateralClass] = rawShare - operatorFeeShare;
-
-            totalOperatorFeeShare += operatorFeeShare;
-            totalBeneficiaryShare += rawShare - operatorFeeShare;
-        }
-
-        // Cap per-epoch distributed shares at 10_000 bp
         uint256 capRemaining = BASIS_POINTS_DENOMINATOR - _epochTotalDistributedShares[epoch];
         uint256 operatorBpToAdd = totalOperatorFeeShare > capRemaining ? capRemaining : totalOperatorFeeShare;
-        // set once per operator; lastProcessedOperator prevents re-entry
         operatorShares[epoch][operator] = operatorBpToAdd;
         if (operatorBpToAdd > 0) {
             _epochTotalDistributedShares[epoch] += operatorBpToAdd;
         }
+    }
+
+    function _processCollateralClasses(
+        uint48 epoch,
+        address operator,
+        uint256 operatorUptime
+    ) internal returns (uint256 totalOperatorFeeShare) {
+        uint96[] memory collateralClasses = middleware.getCollateralClassIds();
+
+        for (uint256 i = 0; i < collateralClasses.length; i++) {
+            totalOperatorFeeShare += _processCollateralClass(
+                epoch,
+                operator,
+                collateralClasses[i],
+                operatorUptime
+            );
+        }
+    }
+
+    function _processCollateralClass(
+        uint48 epoch,
+        address operator,
+        uint96 collateralClass,
+        uint256 operatorUptime
+    ) internal returns (uint256 operatorFeeShare) {
+        uint16 collateralClassShare = rewardsSharePerCollateralClass[collateralClass];
+        if (collateralClassShare == 0) return 0;
+
+        uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
+        if (totalStake == 0) return 0;
+
+        uint256 operatorStake = _getOperatorStakeForClass(epoch, operator, collateralClass);
+        if (operatorStake == 0) return 0;
+
+        uint256 rawShare = _calculateRawShare(operatorStake, totalStake, collateralClassShare, operatorUptime);
+        operatorFeeShare = Math.mulDiv(rawShare, operatorFee, BASIS_POINTS_DENOMINATOR);
+
+        operatorBeneficiariesSharesPerCollateralClass[epoch][operator][collateralClass] = rawShare - operatorFeeShare;
+    }
+
+    function _getOperatorStakeForClass(
+        uint48 epoch,
+        address operator,
+        uint96 collateralClass
+    ) internal view returns (uint256 operatorStake) {
+        if (collateralClass == middleware.PRIMARY_ASSET_CLASS()) {
+            return _getOperatorUsedStakePrimaryCached(epoch, operator);
+        }
+
+        try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
+            return s;
+        } catch {
+            return 0;
+        }
+    }
+
+    function _calculateRawShare(
+        uint256 operatorStake,
+        uint256 totalStake,
+        uint16 collateralClassShare,
+        uint256 operatorUptime
+    ) internal pure returns (uint256 rawShare) {
+        rawShare = Math.mulDiv(
+            Math.mulDiv(operatorStake, BASIS_POINTS_DENOMINATOR, totalStake),
+            collateralClassShare,
+            BASIS_POINTS_DENOMINATOR
+        );
+        rawShare = Math.mulDiv(rawShare, operatorUptime, BASIS_POINTS_DENOMINATOR);
     }
 
     /**
@@ -761,79 +824,143 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     function _calculateAndStoreVaultShares(uint48 epoch, address operator) internal {
         uint48 epochTs = middleware.getEpochStartTs(epoch);
         uint96[] memory classes = middleware.getCollateralClassIds();
-        uint256 addedBp; // bp actually credited in this call (stakers + curators)
+        uint256 addedBp;
 
         for (uint256 c = 0; c < classes.length; c++) {
-            uint96 cls = classes[c];
-            uint256 operatorClassShare = operatorBeneficiariesSharesPerCollateralClass[epoch][operator][cls];
-            if (operatorClassShare == 0) continue;
-
-            address[] storage vaultsForClass = _epochVaultsByClass[epoch][cls];
-            for (uint256 i = 0; i < vaultsForClass.length; i++) {
-                address vault = vaultsForClass[i];
-                // stop if cap already reached by prior credits in this call
-                uint256 capRemainingLocal = BASIS_POINTS_DENOMINATOR - (_epochTotalDistributedShares[epoch] + addedBp);
-                if (capRemainingLocal == 0) { _epochTotalDistributedShares[epoch] += addedBp; return; }
-
-                // delegator() may revert → read defensively
-                address delegator;
-                try IVaultTokenized(vault).delegator() returns (address d) {
-                    delegator = d;
-                } catch { continue; }
-
-                uint256 vaultStake;
-                // tolerate bad/misbehaving delegators
-                try BaseDelegator(delegator).stakeAt(
-                    middleware.BALANCER(), cls, operator, epochTs, new bytes(0)
-                ) returns (uint256 s) { vaultStake = s; } catch { continue; }
-                if (vaultStake == 0) continue;
-
-                uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][cls];
-                if (!_operatorActiveStakeComputed[epoch][operator][cls]) {
-                    uint256 sum;
-                    // tolerate middleware view failure
-                    try middleware.getOperatorStake(operator, epoch, cls) returns (uint256 s2) { sum = s2; } catch { sum = 0; }
-                    _operatorActiveStakeComputed[epoch][operator][cls] = true;
-                    _operatorActiveStake[epoch][operator][cls] = sum;
-                    operatorActiveStake = sum;
-                }
-                if (operatorActiveStake == 0) continue;
-
-                uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
-                vaultShare = Math.mulDiv(vaultShare, operatorClassShare, BASIS_POINTS_DENOMINATOR);
-
-                uint256 curatorBp = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
-                uint256 stakerBp = vaultShare - curatorBp;
-
-                // Stop when epoch cap would be exceeded. Leave remainder sweepable.
-                if (stakerBp + curatorBp > capRemainingLocal) {
-                    _epochTotalDistributedShares[epoch] += addedBp;
-                    return;
-                }
-
-                // Credit curator if owner() available
-                if (curatorBp > 0) {
-                    address curator;
-                    try VaultTokenized(vault).owner() returns (address o) { curator = o; } catch { curator = address(0); }
-                    if (curator != address(0)) {
-                        curatorShares[epoch][curator] += curatorBp;
-                        _epochCurators[epoch].add(curator);
-                        addedBp += curatorBp;
-                    } else {
-                        curatorBp = 0; // not credited; remains sweepable
-                    }
-                }
-
-                // Credit stakers only if positive to keep claim set small
-                if (stakerBp > 0) {
-                    vaultShares[epoch][vault] += stakerBp;
-                    _epochVaultsWithShares[epoch].add(vault);
-                    addedBp += stakerBp;
-                }
-            }
+            (uint256 classAddedBp, bool shouldReturn) = _processVaultClass(
+                epoch,
+                operator,
+                classes[c],
+                epochTs,
+                addedBp
+            );
+            addedBp += classAddedBp;
+            if (shouldReturn) return;
         }
+
         if (addedBp > 0) {
             _epochTotalDistributedShares[epoch] += addedBp;
+        }
+    }
+
+    function _processVaultClass(
+        uint48 epoch,
+        address operator,
+        uint96 cls,
+        uint48 epochTs,
+        uint256 currentAddedBp
+    ) internal returns (uint256 classAddedBp, bool shouldReturn) {
+        uint256 operatorClassShare = operatorBeneficiariesSharesPerCollateralClass[epoch][operator][cls];
+        if (operatorClassShare == 0) return (0, false);
+
+        address[] storage vaultsForClass = _epochVaultsByClass[epoch][cls];
+        for (uint256 i = 0; i < vaultsForClass.length; i++) {
+            uint256 capRemainingLocal = BASIS_POINTS_DENOMINATOR - (_epochTotalDistributedShares[epoch] + currentAddedBp + classAddedBp);
+            if (capRemainingLocal == 0) {
+                _epochTotalDistributedShares[epoch] += currentAddedBp + classAddedBp;
+                return (classAddedBp, true);
+            }
+
+            (uint256 vaultAddedBp, bool capExceeded) = _processVault(
+                epoch,
+                operator,
+                cls,
+                epochTs,
+                vaultsForClass[i],
+                operatorClassShare,
+                capRemainingLocal
+            );
+
+            if (capExceeded) {
+                _epochTotalDistributedShares[epoch] += currentAddedBp + classAddedBp;
+                return (classAddedBp, true);
+            }
+            classAddedBp += vaultAddedBp;
+        }
+    }
+
+    function _processVault(
+        uint48 epoch,
+        address operator,
+        uint96 cls,
+        uint48 epochTs,
+        address vault,
+        uint256 operatorClassShare,
+        uint256 capRemainingLocal
+    ) internal returns (uint256 addedBp, bool capExceeded) {
+        uint256 vaultStake = _getVaultStake(vault, cls, operator, epochTs);
+        if (vaultStake == 0) return (0, false);
+
+        uint256 operatorActiveStake = _getOrComputeOperatorActiveStake(epoch, operator, cls);
+        if (operatorActiveStake == 0) return (0, false);
+
+        uint256 vaultShare = Math.mulDiv(vaultStake, BASIS_POINTS_DENOMINATOR, operatorActiveStake);
+        vaultShare = Math.mulDiv(vaultShare, operatorClassShare, BASIS_POINTS_DENOMINATOR);
+
+        uint256 curatorBp = Math.mulDiv(vaultShare, curatorFee, BASIS_POINTS_DENOMINATOR);
+        uint256 stakerBp = vaultShare - curatorBp;
+
+        if (stakerBp + curatorBp > capRemainingLocal) {
+            return (0, true);
+        }
+
+        addedBp = _creditVaultShares(epoch, vault, stakerBp, curatorBp);
+    }
+
+    function _getVaultStake(
+        address vault,
+        uint96 cls,
+        address operator,
+        uint48 epochTs
+    ) internal view returns (uint256) {
+        address delegator;
+        try IVaultTokenized(vault).delegator() returns (address d) {
+            delegator = d;
+        } catch { return 0; }
+
+        try BaseDelegator(delegator).stakeAt(
+            middleware.BALANCER(), cls, operator, epochTs, new bytes(0)
+        ) returns (uint256 s) { return s; } catch { return 0; }
+    }
+
+    function _getOrComputeOperatorActiveStake(
+        uint48 epoch,
+        address operator,
+        uint96 cls
+    ) internal returns (uint256 operatorActiveStake) {
+        if (_operatorActiveStakeComputed[epoch][operator][cls]) {
+            return _operatorActiveStake[epoch][operator][cls];
+        }
+
+        try middleware.getOperatorStake(operator, epoch, cls) returns (uint256 s) {
+            operatorActiveStake = s;
+        } catch {
+            operatorActiveStake = 0;
+        }
+        _operatorActiveStakeComputed[epoch][operator][cls] = true;
+        _operatorActiveStake[epoch][operator][cls] = operatorActiveStake;
+    }
+
+    function _creditVaultShares(
+        uint48 epoch,
+        address vault,
+        uint256 stakerBp,
+        uint256 curatorBp
+    ) internal returns (uint256 addedBp) {
+        if (curatorBp > 0) {
+            address curator;
+            try VaultTokenized(vault).owner() returns (address o) { curator = o; } catch { curator = address(0); }
+            if (curator != address(0)) {
+                curatorShares[epoch][curator] += curatorBp;
+                _epochCurators[epoch].add(curator);
+                addedBp += curatorBp;
+            }
+        }
+
+        if (stakerBp > 0) {
+            vaultShares[epoch][vault] += stakerBp;
+            _epochVaultsWithShares[epoch].add(vault);
+            addedBp += stakerBp;
         }
     }
 

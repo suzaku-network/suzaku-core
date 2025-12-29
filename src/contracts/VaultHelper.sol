@@ -410,40 +410,67 @@ contract VaultHelper is ReentrancyGuard {
         uint48 fromEpoch,
         uint48 toEpoch
     ) external view returns (ClaimAmountsPerToken memory) {
-        if (staker == address(0)) revert VaultHelper__InvalidUser(staker);
-        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
-        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
-        if (rewardsToken == address(0)) revert VaultHelper__ZeroAddress("rewardsToken");
-        if (toEpoch <= fromEpoch) revert VaultHelper__InvalidRange();
-        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+        _validateStakerClaimableParams(staker, rewards, vault, rewardsToken, fromEpoch, toEpoch);
 
         uint48 currentEpoch = RewardsNativeToken(rewards).middleware().getCurrentEpoch();
         if (toEpoch > currentEpoch) toEpoch = currentEpoch;
         uint256 span = uint256(toEpoch) - uint256(fromEpoch);
         if (span > MAX_EPOCH_SPAN) revert VaultHelper__InvalidRange();
 
-        uint256 totalAmount;
-        for (uint48 epoch = fromEpoch; epoch < toEpoch; epoch++) {
-            uint48 epochTs = RewardsNativeToken(rewards).middleware().getEpochStartTs(epoch);
-            uint256 rewardsAmount = RewardsNativeToken(rewards).getEpochRewards(epoch);
-            uint256 vaultShare = RewardsNativeToken(rewards).vaultShares(epoch, vault);
-            if (vaultShare == 0) continue;
-            if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
-
-            uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(staker, epochTs, "");
-            if (stakerVaultShare == 0) continue;
-
-            uint256 vaultTotalShares = IVaultTokenized(vault).activeSharesAt(epochTs, "");
-            if (vaultTotalShares == 0) continue;
-
-            uint256 vaultRewardsAmount = Math.mulDiv(rewardsAmount, vaultShare, BASIS_POINTS_DENOMINATOR);
-            uint256 stakerRewardsAmount = Math.mulDiv(vaultRewardsAmount, stakerVaultShare, vaultTotalShares);
-            if (stakerRewardsAmount == 0) continue;
-
-            totalAmount += stakerRewardsAmount;
-        }
+        uint256 totalAmount = _calculateStakerRewardsInRange(staker, rewards, vault, fromEpoch, toEpoch);
 
         return ClaimAmountsPerToken({token: RewardsNativeToken(rewards).rewardsToken(), amount: totalAmount});
+    }
+
+    function _validateStakerClaimableParams(
+        address staker,
+        address rewards,
+        address vault,
+        address rewardsToken,
+        uint48 fromEpoch,
+        uint48 toEpoch
+    ) internal view {
+        if (staker == address(0)) revert VaultHelper__InvalidUser(staker);
+        if (rewards == address(0)) revert VaultHelper__ZeroAddress("rewards");
+        if (vault == address(0)) revert VaultHelper__ZeroAddress("vault");
+        if (rewardsToken == address(0)) revert VaultHelper__ZeroAddress("rewardsToken");
+        if (toEpoch <= fromEpoch) revert VaultHelper__InvalidRange();
+        if (!VAULT_FACTORY.isEntity(vault)) revert VaultHelper__InvalidVault(vault);
+    }
+
+    function _calculateStakerRewardsInRange(
+        address staker,
+        address rewards,
+        address vault,
+        uint48 fromEpoch,
+        uint48 toEpoch
+    ) internal view returns (uint256 totalAmount) {
+        for (uint48 epoch = fromEpoch; epoch < toEpoch; epoch++) {
+            totalAmount += _calculateEpochStakerReward(staker, rewards, vault, epoch);
+        }
+    }
+
+    function _calculateEpochStakerReward(
+        address staker,
+        address rewards,
+        address vault,
+        uint48 epoch
+    ) internal view returns (uint256) {
+        uint256 vaultShare = RewardsNativeToken(rewards).vaultShares(epoch, vault);
+        if (vaultShare == 0) return 0;
+        if (vaultShare > BASIS_POINTS_DENOMINATOR) revert VaultHelper__InvalidVaultShare(vaultShare);
+
+        uint48 epochTs = RewardsNativeToken(rewards).middleware().getEpochStartTs(epoch);
+
+        uint256 stakerVaultShare = IVaultTokenized(vault).activeSharesOfAt(staker, epochTs, "");
+        if (stakerVaultShare == 0) return 0;
+
+        uint256 vaultTotalShares = IVaultTokenized(vault).activeSharesAt(epochTs, "");
+        if (vaultTotalShares == 0) return 0;
+
+        uint256 rewardsAmount = RewardsNativeToken(rewards).getEpochRewards(epoch);
+        uint256 vaultRewardsAmount = Math.mulDiv(rewardsAmount, vaultShare, BASIS_POINTS_DENOMINATOR);
+        return Math.mulDiv(vaultRewardsAmount, stakerVaultShare, vaultTotalShares);
     }
 
     /**

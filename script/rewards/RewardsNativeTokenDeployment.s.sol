@@ -16,51 +16,67 @@ contract DeployRewardsNativeToken is Script {
     function executeRewardsNativeTokenDeployment(
         RewardsNativeTokenConfig memory config
     ) public returns (address rewardsNativeToken, address uptimeTracker, address implementation, address proxyAdmin) {
-        // Only broadcast if not in test (chainid 31337 is Anvil/test)
         bool isTest = block.chainid == 31337;
         if (!isTest) {
             vm.startBroadcast();
         }
 
-        // Deploy UptimeTracker first
-        UptimeTracker uptimeTrackerContract = new UptimeTracker(
-            payable(config.middleware),
-            config.uptimeBlockchainID
-        );
-
-        // Deploy RewardsNativeToken implementation
-        RewardsNativeToken rewardsNativeTokenImpl = new RewardsNativeToken();
-
-        // Encode initialization data
-        bytes memory initData = abi.encodeWithSelector(
-            RewardsNativeToken.initialize.selector,
-            config.admin,
-            config.protocolOwner,
-            payable(config.middleware),
-            address(uptimeTrackerContract),
-            config.protocolFee,
-            config.operatorFee,
-            config.curatorFee,
-            config.minRequiredUptime
-        );
-
-        // Deploy proxy with initialization
-        TransparentUpgradeableProxy proxy = new TransparentUpgradeableProxy(
-            address(rewardsNativeTokenImpl),
-            config.admin,
-            initData
-        );
+        uptimeTracker = _deployUptimeTracker(config);
+        (rewardsNativeToken, implementation) = _deployRewardsNativeToken(config, uptimeTracker);
 
         if (!isTest) {
             vm.stopBroadcast();
         }
 
-        // Return addresses
-        rewardsNativeToken = address(proxy);
-        uptimeTracker = address(uptimeTrackerContract);
-        implementation = address(rewardsNativeTokenImpl);
         proxyAdmin = Upgrades.getAdminAddress(rewardsNativeToken);
+        _logDeployment(rewardsNativeToken, implementation, proxyAdmin, uptimeTracker, config);
+    }
 
+    function _deployUptimeTracker(RewardsNativeTokenConfig memory config) internal returns (address) {
+        return address(new UptimeTracker(
+            payable(config.middleware),
+            config.uptimeBlockchainID
+        ));
+    }
+
+    function _deployRewardsNativeToken(
+        RewardsNativeTokenConfig memory config,
+        address uptimeTracker
+    ) internal returns (address proxy, address implementation) {
+        implementation = address(new RewardsNativeToken());
+        bytes memory initData = _encodeInitData(config, uptimeTracker);
+
+        proxy = address(new TransparentUpgradeableProxy(
+            implementation,
+            config.admin,
+            initData
+        ));
+    }
+
+    function _encodeInitData(
+        RewardsNativeTokenConfig memory config,
+        address uptimeTracker
+    ) internal pure returns (bytes memory) {
+        return abi.encodeWithSelector(
+            RewardsNativeToken.initialize.selector,
+            config.admin,
+            config.protocolOwner,
+            payable(config.middleware),
+            uptimeTracker,
+            config.protocolFee,
+            config.operatorFee,
+            config.curatorFee,
+            config.minRequiredUptime
+        );
+    }
+
+    function _logDeployment(
+        address rewardsNativeToken,
+        address implementation,
+        address proxyAdmin,
+        address uptimeTracker,
+        RewardsNativeTokenConfig memory config
+    ) internal pure {
         console2.log("RewardsNativeToken deployment:");
         console2.log("- Proxy:", rewardsNativeToken);
         console2.log("- Implementation:", implementation);

@@ -604,75 +604,126 @@ contract VaultTokenized is
             revert Vault__InvalidCaptureEpoch();
         }
 
-        uint256 activeStake_ = activeStake();
-        uint256 nextWithdrawals = vs.withdrawals[currentEpoch_ + 1];
-        
-        if (captureEpoch == currentEpoch_) {
-            uint256 slashableStake = activeStake_ + nextWithdrawals;
-            slashedAmount = Math.min(amount, slashableStake);
-            if (slashedAmount > 0) {
-                uint256 activeSlashed = slashedAmount.mulDiv(activeStake_, slashableStake);
-                uint256 nextWithdrawalsSlashed = slashedAmount - activeSlashed;
-
-                // Check for overflow and redistribute
-                uint256 requestedNext = nextWithdrawalsSlashed;
-                if (nextWithdrawals < requestedNext) {
-                    uint256 deficit = requestedNext - nextWithdrawals;
-                    nextWithdrawalsSlashed = nextWithdrawals;
-                    activeSlashed += deficit;
-                    
-                    emit SlashWithRedistribution(
-                        requestedNext,
-                        nextWithdrawalsSlashed,
-                        deficit,
-                        currentEpoch_ + 1
-                    );
-                }
-
-                vs._activeStake.push(Time.timestamp(), activeStake_ - activeSlashed);
-                vs.withdrawals[currentEpoch_ + 1] = nextWithdrawals - nextWithdrawalsSlashed;
-            }
-        } else {
-            uint256 withdrawals_ = vs.withdrawals[currentEpoch_];
-            uint256 slashableStake = activeStake_ + withdrawals_ + nextWithdrawals;
-            slashedAmount = Math.min(amount, slashableStake);
-            if (slashedAmount > 0) {
-                uint256 activeSlashed = slashedAmount.mulDiv(activeStake_, slashableStake);
-                uint256 nextWithdrawalsSlashed = slashedAmount.mulDiv(nextWithdrawals, slashableStake);
-                uint256 withdrawalsSlashed = slashedAmount - activeSlashed - nextWithdrawalsSlashed;
-
-                if (withdrawals_ < withdrawalsSlashed) {
-                    nextWithdrawalsSlashed += withdrawalsSlashed - withdrawals_;
-                    withdrawalsSlashed = withdrawals_;
-                }
-
-                // Check for overflow and redistribute
-                uint256 requestedNext = nextWithdrawalsSlashed;
-                if (nextWithdrawals < requestedNext) {
-                    uint256 deficit = requestedNext - nextWithdrawals;
-                    nextWithdrawalsSlashed = nextWithdrawals;
-                    activeSlashed += deficit;
-                    
-                    emit SlashWithRedistribution(
-                        requestedNext,
-                        nextWithdrawalsSlashed,
-                        deficit,
-                        currentEpoch_ + 1
-                    );
-                }
-
-                vs._activeStake.push(Time.timestamp(), activeStake_ - activeSlashed);
-                vs.withdrawals[currentEpoch_ + 1] = nextWithdrawals - nextWithdrawalsSlashed;
-                vs.withdrawals[currentEpoch_] = withdrawals_ - withdrawalsSlashed;
-            }
-        }
+        slashedAmount = _executeSlash(vs, amount, currentEpoch_, captureEpoch);
 
         if (slashedAmount > 0) {
             IERC20(vs.collateral).safeTransfer(vs.burner, slashedAmount);
         }
 
-        // Keep only the original event for normal cases
         emit OnSlash(amount, captureTimestamp, slashedAmount);
+    }
+
+    function _executeSlash(
+        VaultStorageStruct storage vs,
+        uint256 amount,
+        uint256 currentEpoch_,
+        uint256 captureEpoch
+    ) internal returns (uint256 slashedAmount) {
+        uint256 activeStake_ = activeStake();
+        uint256 nextWithdrawals = vs.withdrawals[currentEpoch_ + 1];
+
+        if (captureEpoch == currentEpoch_) {
+            slashedAmount = _slashCurrentEpoch(vs, amount, activeStake_, nextWithdrawals, currentEpoch_);
+        } else {
+            slashedAmount = _slashPreviousEpoch(vs, amount, activeStake_, nextWithdrawals, currentEpoch_);
+        }
+    }
+
+    function _slashCurrentEpoch(
+        VaultStorageStruct storage vs,
+        uint256 amount,
+        uint256 activeStake_,
+        uint256 nextWithdrawals,
+        uint256 currentEpoch_
+    ) internal returns (uint256 slashedAmount) {
+        uint256 slashableStake = activeStake_ + nextWithdrawals;
+        slashedAmount = Math.min(amount, slashableStake);
+
+        if (slashedAmount > 0) {
+            (uint256 activeSlashed, uint256 nextSlashed) = _calculateCurrentEpochSlash(
+                slashedAmount, activeStake_, nextWithdrawals, slashableStake, currentEpoch_
+            );
+            vs._activeStake.push(Time.timestamp(), activeStake_ - activeSlashed);
+            vs.withdrawals[currentEpoch_ + 1] = nextWithdrawals - nextSlashed;
+        }
+    }
+
+    function _calculateCurrentEpochSlash(
+        uint256 slashedAmount,
+        uint256 activeStake_,
+        uint256 nextWithdrawals,
+        uint256 slashableStake,
+        uint256 currentEpoch_
+    ) internal returns (uint256 activeSlashed, uint256 nextSlashed) {
+        activeSlashed = slashedAmount.mulDiv(activeStake_, slashableStake);
+        nextSlashed = slashedAmount - activeSlashed;
+
+        uint256 requestedNext = nextSlashed;
+        if (nextWithdrawals < requestedNext) {
+            uint256 deficit = requestedNext - nextWithdrawals;
+            nextSlashed = nextWithdrawals;
+            activeSlashed += deficit;
+            emit SlashWithRedistribution(requestedNext, nextSlashed, deficit, currentEpoch_ + 1);
+        }
+    }
+
+    function _slashPreviousEpoch(
+        VaultStorageStruct storage vs,
+        uint256 amount,
+        uint256 activeStake_,
+        uint256 nextWithdrawals,
+        uint256 currentEpoch_
+    ) internal returns (uint256 slashedAmount) {
+        uint256 withdrawals_ = vs.withdrawals[currentEpoch_];
+        uint256 slashableStake = activeStake_ + withdrawals_ + nextWithdrawals;
+        slashedAmount = Math.min(amount, slashableStake);
+
+        if (slashedAmount > 0) {
+            _applyPreviousEpochSlash(vs, slashedAmount, activeStake_, withdrawals_, nextWithdrawals, slashableStake, currentEpoch_);
+        }
+    }
+
+    function _applyPreviousEpochSlash(
+        VaultStorageStruct storage vs,
+        uint256 slashedAmount,
+        uint256 activeStake_,
+        uint256 withdrawals_,
+        uint256 nextWithdrawals,
+        uint256 slashableStake,
+        uint256 currentEpoch_
+    ) internal {
+        (uint256 activeSlashed, uint256 nextSlashed, uint256 withdrawalsSlashed) = 
+            _computePreviousEpochSlashAmounts(slashedAmount, activeStake_, withdrawals_, nextWithdrawals, slashableStake, currentEpoch_);
+
+        vs._activeStake.push(Time.timestamp(), activeStake_ - activeSlashed);
+        vs.withdrawals[currentEpoch_ + 1] = nextWithdrawals - nextSlashed;
+        vs.withdrawals[currentEpoch_] = withdrawals_ - withdrawalsSlashed;
+    }
+
+    function _computePreviousEpochSlashAmounts(
+        uint256 slashedAmount,
+        uint256 activeStake_,
+        uint256 withdrawals_,
+        uint256 nextWithdrawals,
+        uint256 slashableStake,
+        uint256 currentEpoch_
+    ) internal returns (uint256 activeSlashed, uint256 nextSlashed, uint256 withdrawalsSlashed) {
+        activeSlashed = slashedAmount.mulDiv(activeStake_, slashableStake);
+        nextSlashed = slashedAmount.mulDiv(nextWithdrawals, slashableStake);
+        withdrawalsSlashed = slashedAmount - activeSlashed - nextSlashed;
+
+        if (withdrawals_ < withdrawalsSlashed) {
+            nextSlashed += withdrawalsSlashed - withdrawals_;
+            withdrawalsSlashed = withdrawals_;
+        }
+
+        if (nextWithdrawals < nextSlashed) {
+            uint256 deficit = nextSlashed - nextWithdrawals;
+            uint256 requestedNext = nextSlashed;
+            nextSlashed = nextWithdrawals;
+            activeSlashed += deficit;
+            emit SlashWithRedistribution(requestedNext, nextSlashed, deficit, currentEpoch_ + 1);
+        }
     }
 
 
