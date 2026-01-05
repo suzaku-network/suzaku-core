@@ -242,6 +242,7 @@ Result:
 * No operators: inside window, unfunded epoch does not revert funding check; distribution completes with no shares.
 * Vault removal and class changes: reads historical snapshots via `active*At` and `stakeAt`.
 * **Defensive try/catch**: External calls to vaults, delegators, and middleware are wrapped in try/catch to prevent single misbehaving contract from blocking entire distribution or claim.
+* **Zero collateral class shares**: If `_totalCollateralClassShares() == 0` (no class has rewards configured), distribution reverts with `CollateralClassSharesNotConfigured`. Prevents silent 0-allocation when shares are not set up.
 
 ---
 

@@ -211,6 +211,7 @@ The middleware initiates validator operations (registration, removal, weight upd
 - Locks/unlocks stake delta
 - Initiates weight update via balancer
 - Completion via `completeValidatorWeightUpdate(messageIndex)` (permissionless)
+- Nodes in `PendingWeightUpdate` state are skipped; complete pending updates first if needed
 
 **Node Removal:**
 - Operator calls `removeNode(nodeId)`
@@ -540,6 +541,8 @@ flowchart LR
 4. Wait for P-Chain processing
 5. Anyone calls `completeValidatorWeightUpdate(messageIndex)`
 6. Next epoch begins with new weight
+
+**Note:** `forceUpdateNodes` skips nodes in `PendingWeightUpdate` state. If enforcement is needed and nodes are pending, first complete pending updates via `completeValidatorWeightUpdate`, then call `forceUpdateNodes`.
 
 ### Adding a Secondary Collateral Class
 

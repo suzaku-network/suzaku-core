@@ -193,6 +193,11 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             }
         }
 
+        // Revert early if no collateral class shares configured
+        if (_totalCollateralClassShares() == 0) {
+            revert CollateralClassSharesNotConfigured();
+        }
+
         // only auto-complete when there are no operators.
         bool fundingWindowClosedUnfunded = (currentEpoch > epoch + FUNDING_DEADLINE_OFFSET) && !st.funded;
         if (fundingWindowClosedUnfunded) {

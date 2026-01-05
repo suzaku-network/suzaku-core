@@ -204,7 +204,12 @@ interface IRewardsNativeToken {
      * @notice Error thrown when trying to fund an epoch outside the funding window
      * @param epoch Epoch that cannot be funded
      */
-    error FundingWindowClosed(uint48 epoch);  
+    error FundingWindowClosed(uint48 epoch);
+
+    /**
+     * @notice Error thrown when trying to distribute rewards but no collateral class shares are configured
+     */
+    error CollateralClassSharesNotConfigured();
 
     // ============================
     //         EVENTS

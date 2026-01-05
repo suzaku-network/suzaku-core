@@ -796,6 +796,30 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         rewards.distributeRewards(epoch, 1);
     }
 
+    function test_distributeRewards_revertsIfNoClassSharesConfigured() public {
+        uint48 epoch = middleware.getCurrentEpoch(); if (epoch == 0) epoch = 1;
+        _setupRealStakes(epoch, 4 hours);
+        
+        // Set all collateral class shares to 0
+        vm.startPrank(rewardsManager);
+        uint96[] memory classIds = middleware.getCollateralClassIds();
+        for (uint256 i = 0; i < classIds.length; i++) {
+            rewards.setRewardsShareForCollateralClass(classIds[i], 0);
+        }
+        vm.stopPrank();
+        
+        // Fund the epoch
+        _fundEpoch(epoch, 100_000 ether);
+        
+        // Move to distribution window
+        _moveToNextEpochAndCalc(rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
+        
+        // Distribution should revert because no class shares are configured
+        vm.prank(rewardsDistributor);
+        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.CollateralClassSharesNotConfigured.selector));
+        rewards.distributeRewards(epoch, 10);
+    }
+
     function test_distributionWithoutFunding_afterWindow_ok() public {
         uint48 epoch = middleware.getCurrentEpoch(); if (epoch == 0) epoch = 1;
         _setupRealStakes(epoch, 4 hours);
