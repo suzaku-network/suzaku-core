@@ -94,7 +94,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     mapping(address operator => uint48 epoch) public lastEpochClaimedOperator;
 
     // Asset class configuration
-    mapping(uint96 collateralClass => uint16 rewardsShare) public rewardsSharePerCollateralClass;
+    mapping(uint96 collateralClass => uint16 rewardsShare) public rewardsBipsPerCollateralClass;
 
     // Epoch curators tracking
     mapping(uint48 epoch => EnumerableSet.AddressSet curators) private _epochCurators;
@@ -193,9 +193,9 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             }
         }
 
-        // Revert early if no collateral class shares configured
-        if (_totalCollateralClassShares() == 0) {
-            revert CollateralClassSharesNotConfigured();
+        // Revert if collateral class bips don't sum to 100%
+        if (_totalCollateralClassBips() != BASIS_POINTS_DENOMINATOR) {
+            revert CollateralClassBipsNotSet();
         }
 
         // only auto-complete when there are no operators.
@@ -585,15 +585,15 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     /**
      * @inheritdoc IRewardsNativeToken
      */
-    function setRewardsShareForCollateralClass(uint96 collateralClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
+    function setRewardsBipsForCollateralClass(uint96 collateralClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
 
-        uint16 prev = rewardsSharePerCollateralClass[collateralClass];
-        uint256 newTotal = _totalCollateralClassShares() - prev + share;
-        if (newTotal > BASIS_POINTS_DENOMINATOR) revert CollateralClassSharesExceed100(newTotal);
+        uint16 prev = rewardsBipsPerCollateralClass[collateralClass];
+        uint256 newTotal = _totalCollateralClassBips() - prev + share;
+        if (newTotal > BASIS_POINTS_DENOMINATOR) revert CollateralClassBipsExceed10000(newTotal);
 
-        rewardsSharePerCollateralClass[collateralClass] = share;
-        emit RewardsShareUpdated(collateralClass, share);
+        rewardsBipsPerCollateralClass[collateralClass] = share;
+        emit RewardsBipsUpdated(collateralClass, share);
     }
 
     /**
@@ -668,15 +668,15 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
     // INTERNAL FUNCTIONS
     // Helper functions
-    function _totalCollateralClassShares() internal view returns (uint256 total) {
+    function _totalCollateralClassBips() internal view returns (uint256 total) {
         uint96[] memory ids = middleware.getCollateralClassIds();
-        for (uint256 i; i < ids.length; ++i) total += rewardsSharePerCollateralClass[ids[i]];
+        for (uint256 i; i < ids.length; ++i) total += rewardsBipsPerCollateralClass[ids[i]];
     }
 
     /// @dev Reverts if fees exceed 100 % (10 000 bp)
     function _checkFees(uint16 protocolFee_, uint16 operatorFee_, uint16 curatorFee_) internal pure {
         if (protocolFee_ + operatorFee_ + curatorFee_ > BASIS_POINTS_DENOMINATOR)
-            revert FeeConfigurationExceeds100(protocolFee_ + operatorFee_ + curatorFee_);
+            revert FeeConfigurationExceeds10000(protocolFee_ + operatorFee_ + curatorFee_);
     }
 
     // Calculation functions
@@ -715,7 +715,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint256 operatorFeeShare;
         for (uint256 i = 0; i < collateralClasses.length; i++) {
             uint96 collateralClass = collateralClasses[i];
-            uint16 collateralClassShare = rewardsSharePerCollateralClass[collateralClass];
+            uint16 collateralClassShare = rewardsBipsPerCollateralClass[collateralClass];
             if (collateralClassShare == 0) continue;
             uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
             if (totalStake == 0) continue;

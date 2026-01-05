@@ -416,16 +416,16 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         uint96 collateralClassId = 1;
         uint16 rewardsPercentage = 5000; // 50%
 
-        // Expect the RewardsShareUpdated event to be emitted with the new rewards percentage
+        // Expect the RewardsBipsUpdated event to be emitted with the new rewards percentage
         vm.expectEmit(true, true, false, false);
-        emit IRewardsNativeToken.RewardsShareUpdated(collateralClassId, rewardsPercentage);
+        emit IRewardsNativeToken.RewardsBipsUpdated(collateralClassId, rewardsPercentage);
 
         vm.prank(rewardsManager);
         // Set the rewards share for the asset class
-        rewards.setRewardsShareForCollateralClass(collateralClassId, rewardsPercentage);
+        rewards.setRewardsBipsForCollateralClass(collateralClassId, rewardsPercentage);
 
         // Verify the new rewards share has been set
-        assertEq(rewards.rewardsSharePerCollateralClass(collateralClassId), rewardsPercentage);
+        assertEq(rewards.rewardsBipsPerCollateralClass(collateralClassId), rewardsPercentage);
     }
 
     /* ─── SPECIAL TESTS ----------------------------------------------- */
@@ -434,18 +434,18 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
 
         // First reduce class 3 to make room, set class 1 to 70% (total = 100%)
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForCollateralClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
-        rewards.setRewardsShareForCollateralClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
+        rewards.setRewardsBipsForCollateralClass(3, 0); // Remove class 3 (now 50% + 30% + 0% = 80%)
+        rewards.setRewardsBipsForCollateralClass(1, 7000); // Set class 1 to 70% (now 70% + 30% + 0% = 100%)
         
         // Now try to set class 1 to 80% - this should fail because 80% + 30% = 110%
         // Should succeed – sum goes to 110 %
         vm.expectRevert(
             abi.encodeWithSelector(
-                IRewardsNativeToken.CollateralClassSharesExceed100.selector,
+                IRewardsNativeToken.CollateralClassBipsExceed10000.selector,
                 11_000                // the attempted total
             )
         );
-        rewards.setRewardsShareForCollateralClass(1, 8000);
+        rewards.setRewardsBipsForCollateralClass(1, 8000);
         vm.stopPrank();
     }
 
@@ -695,9 +695,11 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
 
         _setupRealStakes(epoch, 4 hours);
 
-        // Set one collateral class to 0 shares
-        vm.prank(rewardsManager);
-        rewards.setRewardsShareForCollateralClass(2, 0);
+        // Set one collateral class to 0 bips (rebalance to keep total = 10000)
+        vm.startPrank(rewardsManager);
+        rewards.setRewardsBipsForCollateralClass(2, 0);    // 5000 + 0 + 2000 = 7000
+        rewards.setRewardsBipsForCollateralClass(1, 8000); // 8000 + 0 + 2000 = 10000
+        vm.stopPrank();
 
         _fundEpoch(epoch, 100_000 ether);
 
@@ -796,7 +798,7 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         rewards.distributeRewards(epoch, 1);
     }
 
-    function test_distributeRewards_revertsIfNoClassSharesConfigured() public {
+    function test_distributeRewards_requiresTotalBips10000() public {
         uint48 epoch = middleware.getCurrentEpoch(); if (epoch == 0) epoch = 1;
         _setupRealStakes(epoch, 4 hours);
         
@@ -804,7 +806,7 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         vm.startPrank(rewardsManager);
         uint96[] memory classIds = middleware.getCollateralClassIds();
         for (uint256 i = 0; i < classIds.length; i++) {
-            rewards.setRewardsShareForCollateralClass(classIds[i], 0);
+            rewards.setRewardsBipsForCollateralClass(classIds[i], 0);
         }
         vm.stopPrank();
         
@@ -814,9 +816,9 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         // Move to distribution window
         _moveToNextEpochAndCalc(rewards.DISTRIBUTION_EARLIEST_OFFSET() + 1);
         
-        // Distribution should revert because no class shares are configured
+        // Distribution should revert because no class bips are set
         vm.prank(rewardsDistributor);
-        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.CollateralClassSharesNotConfigured.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.CollateralClassBipsNotSet.selector));
         rewards.distributeRewards(epoch, 10);
     }
 
@@ -855,7 +857,7 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         assertEq(rewards.protocolFee(), 1500);
         assertEq(rewards.operatorFee(), 2500);
         assertEq(rewards.curatorFee(), 1000);
-        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.FeeConfigurationExceeds100.selector, 11000));
+        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.FeeConfigurationExceeds10000.selector, 11000));
         rewards.updateAllFees(4000, 4000, 3000);
         vm.stopPrank();
     }
@@ -1112,20 +1114,20 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         
         // Try to increase class 1 without adjusting others - should fail
         vm.startPrank(rewardsManager);
-        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.CollateralClassSharesExceed100.selector, 11000));
-        rewards.setRewardsShareForCollateralClass(1, 6000); // Would make total 110%
+        vm.expectRevert(abi.encodeWithSelector(IRewardsNativeToken.CollateralClassBipsExceed10000.selector, 11000));
+        rewards.setRewardsBipsForCollateralClass(1, 6000); // Would make total 110%
         
         // Correct way: adjust multiple classes to keep total at 100%
         // First reduce class 3 to 10%
-        rewards.setRewardsShareForCollateralClass(3, 1000); // Now total is 90%
+        rewards.setRewardsBipsForCollateralClass(3, 1000); // Now total is 90%
         // Then we can increase class 1 to 60%
-        rewards.setRewardsShareForCollateralClass(1, 6000); // Now total is 100% again
+        rewards.setRewardsBipsForCollateralClass(1, 6000); // Now total is 100% again
         vm.stopPrank();
         
         // Verify the new shares
-        assertEq(rewards.rewardsSharePerCollateralClass(1), 6000, "Class 1 should be 60%");
-        assertEq(rewards.rewardsSharePerCollateralClass(2), 3000, "Class 2 should remain 30%"); 
-        assertEq(rewards.rewardsSharePerCollateralClass(3), 1000, "Class 3 should be 10%");
+        assertEq(rewards.rewardsBipsPerCollateralClass(1), 6000, "Class 1 should be 60%");
+        assertEq(rewards.rewardsBipsPerCollateralClass(2), 3000, "Class 2 should remain 30%"); 
+        assertEq(rewards.rewardsBipsPerCollateralClass(3), 1000, "Class 3 should be 10%");
     }
     
     function test_SingleCollateralClass100Percent() public {
@@ -1139,9 +1141,9 @@ contract RewardsNativeTokenIntegrationTest is RewardsNativeTokenIntegrationTestB
         // This mimics a scenario where only one collateral class is active
         vm.startPrank(rewardsManager);
         // Adjust shares one by one to maintain 100% total
-        rewards.setRewardsShareForCollateralClass(3, 0);    // 80% total now
-        rewards.setRewardsShareForCollateralClass(2, 0);    // 50% total now  
-        rewards.setRewardsShareForCollateralClass(1, 10_000); // 100% total
+        rewards.setRewardsBipsForCollateralClass(3, 0);    // 80% total now
+        rewards.setRewardsBipsForCollateralClass(2, 0);    // 50% total now  
+        rewards.setRewardsBipsForCollateralClass(1, 10_000); // 100% total
         vm.stopPrank();
 
         // Override uptimes - only alice has uptime

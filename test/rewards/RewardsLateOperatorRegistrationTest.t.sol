@@ -93,7 +93,7 @@ contract RewardsLateOperatorTest is MiddlewareTestBase {
 
         // Set up collateral class shares (only primary class 1 for simplicity)
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForCollateralClass(1, 10000); // 100% to primary class
+        rewards.setRewardsBipsForCollateralClass(1, 10000); // 100% to primary class
         vm.stopPrank();
     }
 

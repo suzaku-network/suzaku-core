@@ -550,7 +550,7 @@ flowchart LR
 2. Optionally `addAssetToClass(classId, otherAssets)` for multiple assets
 3. Call `activateSecondaryCollateralClass(classId)`
 4. Register vaults with this collateral class via `MiddlewareVaultManager`
-5. Set reward share via `RewardsNativeToken.setRewardsShareForCollateralClass(classId, basisPoints)`
+5. Set reward share via `RewardsNativeToken.setRewardsBipsForCollateralClass(classId, basisPoints)`
 
 ---
 

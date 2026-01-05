@@ -104,9 +104,9 @@ contract RewardsNativeTokenIntegrationTestBase is MiddlewareTestBase {
 
         // 50‑30‑20 asset‑class split (matches MiddlewareTestBase)
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForCollateralClass(1, 5000);
-        rewards.setRewardsShareForCollateralClass(2, 3000);
-        rewards.setRewardsShareForCollateralClass(3, 2000);
+        rewards.setRewardsBipsForCollateralClass(1, 5000);
+        rewards.setRewardsBipsForCollateralClass(2, 3000);
+        rewards.setRewardsBipsForCollateralClass(3, 2000);
         vm.stopPrank();
     }
 

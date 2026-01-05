@@ -30,6 +30,32 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
   * **Vault bucketing**: Vaults are bucketed by collateral class in batches before operator processing to avoid gas spikes.
   * **Early cap termination**: If total distributed shares reach 10,000 bp, distribution stops early.
 
+  **⚠️ Pre-Distribution Requirements** (must be done BEFORE calling `distributeRewards`):
+
+  1. **Stake cache sync**: If middleware's stake cache is behind, call `middleware.manualProcessNodeStakeCache(numEpochs)` to catch up.
+  2. **Node stake cache**: Call `middleware.calcAndCacheNodeStakeForAllOperators()` during the epoch being distributed. Without this, operator stake reads as 0 → 0 rewards.
+  3. **Secondary class stakes** (if applicable): Call `middleware.calcAndCacheStakes(epoch, collateralClassId)` for each non-primary collateral class.
+  4. **Validator uptime**: Process P-Chain warp messages via `uptimeTracker.computeValidatorUptime(messageIndex)` for each validator.
+  5. **Operator uptime**: Call `uptimeTracker.computeOperatorUptimeAt(operator, epoch)` for each operator. Without uptime data, operators get 0 rewards.
+  6. **Collateral class bips**: Ensure `setRewardsBipsForCollateralClass(classId, bips)` is set to non-zero (e.g., 10000 = 100%). If all classes are 0, distribution reverts with `CollateralClassBipsNotSet`.
+
+  **Typical per-epoch workflow:**
+  ```
+  During epoch N (before it ends):
+    1. manualProcessNodeStakeCache(1)              ← sync middleware cache if behind
+    2. calcAndCacheNodeStakeForAllOperators()      ← cache node stakes for epoch N
+    3. calcAndCacheStakes(N, classId)              ← for each secondary collateral class
+  
+  After epoch N ends:
+    4. computeValidatorUptime(messageIndex)        ← process P-Chain uptime proofs
+    5. computeOperatorUptimeAt(operator, N)        ← for each operator
+  
+  When currentEpoch >= N+2:
+    6. distributeRewards(N, batchSize)             ← distribute epoch N
+  ```
+  
+  **Note:** Steps 1-3 must happen *during* the epoch (stake is snapshotted at epoch start). Steps 4-5 can happen after the epoch ends but before distribution.
+
 * **Claim**
 
   * Once per epoch per claimer type (no token parameter needed).
@@ -158,9 +184,24 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
 
 ---
 
+## Initial Setup Checklist
+
+Before the first distribution, ensure these are configured:
+
+| Setting | Function | Example |
+|---------|----------|---------|
+| Collateral class shares | `setRewardsBipsForCollateralClass(classId, bp)` | `(1, 10000)` = 100% to primary class |
+| Fees (optional) | `updateAllFees(protocol, operator, curator)` | `(500, 1000, 500)` = 5%, 10%, 5% |
+| Min uptime (optional) | `setMinRequiredUptime(seconds)` | `241200` = ~2.8 days |
+| Roles | `setRewardsDistributorRole(addr)` | Grant to automation/multisig |
+
+**Common mistake:** Forgetting to set `rewardsBipsPerCollateralClass` results in 0 rewards distributed (now reverts with `CollateralClassBipsNotSet`).
+
+---
+
 ## Admin knobs and guards
 
-* Class weights: sum ≤ `10_000`. Per‑class `setRewardsShareForCollateralClass`.
+* Class weights: sum ≤ `10_000`. Per‑class `setRewardsBipsForCollateralClass`. **Must be set before first distribution** (e.g., 10000 = 100% to primary class). Value is in basis points, not percentage.
 * Fees: `protocolFee + operatorFee + curatorFee ≤ 10_000`. Update singly or `updateAllFees`.
 * Min uptime: `≤ epochDuration`.
 * Reentrancy: all external mutating flows are `nonReentrant`.
@@ -176,7 +217,7 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
 
 ### How Weights Work
 
-**Key behavior:** `rewardsSharePerCollateralClass` is **not stored per epoch**. The contract reads the **current** value during distribution. This means:
+**Key behavior:** `rewardsBipsPerCollateralClass` is **not stored per epoch**. The contract reads the **current** value during distribution. This means:
 
 - Weight changes apply to all **future** distributions
 - Weight changes apply to **past undistributed** epochs
@@ -188,7 +229,7 @@ sweep(undistributed) allowed when currentEpoch ≥ N + 3 and distributionComplet
 **Process:**
 
 1. **Distribute all pending epochs** - Complete distribution for all eligible epochs (currentEpoch - 2 or earlier)
-2. **Change weights** - Call `setRewardsShareForCollateralClass(classId, newBasisPoints)` for each class
+2. **Change weights** - Call `setRewardsBipsForCollateralClass(classId, newBasisPoints)` for each class
 3. **Fund future epochs** - Use `setRewardsAmountForEpochs()` to fund upcoming epochs
 
 **Example:**
@@ -242,7 +283,7 @@ Result:
 * No operators: inside window, unfunded epoch does not revert funding check; distribution completes with no shares.
 * Vault removal and class changes: reads historical snapshots via `active*At` and `stakeAt`.
 * **Defensive try/catch**: External calls to vaults, delegators, and middleware are wrapped in try/catch to prevent single misbehaving contract from blocking entire distribution or claim.
-* **Zero collateral class shares**: If `_totalCollateralClassShares() == 0` (no class has rewards configured), distribution reverts with `CollateralClassSharesNotConfigured`. Prevents silent 0-allocation when shares are not set up.
+* **Zero collateral class bips**: If `_totalCollateralClassBips() == 0` (no class has bips configured), distribution reverts with `CollateralClassBipsNotSet`. Prevents silent 0-allocation when bips are not set up.
 
 ---
 
@@ -256,7 +297,7 @@ Result:
 * `claimProtocolFee(recipient)` → protocol owner claim (native token).
 * `claimUndistributedRewards(epoch, recipient)` → sweep post‑grace (native token).
 * `getEpochRewards(epoch)` → view epoch reward pool amount.
-* `setRewardsShareForCollateralClass(classId, bp)`, `setMinRequiredUptime(x)`.
+* `setRewardsBipsForCollateralClass(classId, bp)`, `setMinRequiredUptime(x)`.
 * `updateProtocolFee/OperatorFee/CuratorFee`, `updateAllFees`.
 * `setRewardsDistributorRole(addr)`, `setRewardsManagerRole(addr)`, `setProtocolOwner(addr)`.
 
