@@ -587,6 +587,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         if (!operatorNodes[msg.sender].contains(nodeId)) {
             revert AvalancheL1Middleware__NodeNotFound(nodeId);
         }
+        // Ensure operator meets secondary collateral requirements
+        if (!_requireMinSecondaryCollateralClasses(0, msg.sender)) {
+            revert AvalancheL1Middleware__InsufficientStake();
+        }
 
         uint256 minStake = collateralClasses[PRIMARY_ASSET_CLASS].minValidatorStake;
         uint256 maxStake = collateralClasses[PRIMARY_ASSET_CLASS].maxValidatorStake;
