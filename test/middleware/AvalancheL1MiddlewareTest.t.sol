@@ -4015,6 +4015,52 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         middleware.initializeValidatorStakeUpdate(nodeId, newStake + 100);
     }
 
+    /// @notice Tests M-1 fix: initializeValidatorStakeUpdate reverts if secondary collateral requirements not met
+    function test_InitializeValidatorStakeUpdate_InsufficientSecondaryCollateral_Reverts() public {
+        // 1. Setup secondary collateral class
+        uint96 secondaryClassId = 2;
+        uint256 minSecondaryStakePerNode = 5 ether;
+
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(secondaryClassId, minSecondaryStakePerNode, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(secondaryClassId);
+        vaultManager.registerVault(address(vault3), secondaryClassId, 3000 ether);
+        vm.stopPrank();
+
+        _setL1Limit(curatorOwner3, balancer, secondaryClassId, 2500 ether, delegator3);
+
+        // 2. Alice deposits secondary stake for 1 node only
+        uint256 aliceSecondaryDeposit = minSecondaryStakePerNode; // Enough for 1 node
+        deal(address(collateral2), alice, aliceSecondaryDeposit);
+
+        vm.startPrank(alice);
+        collateral2.approve(address(vault3), aliceSecondaryDeposit);
+        (, uint256 mintedShares) = vault3.deposit(alice, aliceSecondaryDeposit);
+        vm.stopPrank();
+
+        _setOperatorL1Shares(curatorOwner3, balancer, secondaryClassId, alice, mintedShares, delegator3);
+
+        uint48 currentEpoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(currentEpoch, secondaryClassId);
+
+        // 3. Alice creates 1 node (should succeed with sufficient secondary)
+        (bytes32[] memory nodeIds,,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+
+        // 4. Reduce Alice's secondary stake below requirement
+        _setOperatorL1Shares(curatorOwner3, balancer, secondaryClassId, alice, 0, delegator3);
+
+        currentEpoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(currentEpoch, secondaryClassId);
+
+        // 5. Alice tries to update stake - should revert due to insufficient secondary collateral
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, minStake);
+    }
+
     // ============================================================
     // FORCE UPDATE NODES TESTS
     // ============================================================
