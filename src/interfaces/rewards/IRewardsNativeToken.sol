@@ -332,6 +332,14 @@ interface IRewardsNativeToken {
      */
     event ProtocolOwnerUpdated(address indexed newProtocolOwner);
 
+    /**
+     * @notice Emitted when a vault is skipped during reward distribution due to external call failure
+     * @param epoch Epoch during which the vault was skipped
+     * @param vault Address of the skipped vault
+     * @param reason Reason for skipping (e.g., "delegator_call_failed", "stake_call_failed")
+     */
+    event VaultSkipped(uint48 indexed epoch, address indexed vault, string reason);
+
     // ============================
     //         FUNCTIONS
     // ============================

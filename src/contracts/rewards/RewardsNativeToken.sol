@@ -784,13 +784,21 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
                 address delegator;
                 try IVaultTokenized(vault).delegator() returns (address d) {
                     delegator = d;
-                } catch { continue; }
+                } catch {
+                    emit VaultSkipped(epoch, vault, "delegator_call_failed");
+                    continue;
+                }
 
                 uint256 vaultStake;
                 // tolerate bad/misbehaving delegators
                 try BaseDelegator(delegator).stakeAt(
                     middleware.BALANCER(), cls, operator, epochTs, new bytes(0)
-                ) returns (uint256 s) { vaultStake = s; } catch { continue; }
+                ) returns (uint256 s) {
+                    vaultStake = s;
+                } catch {
+                    emit VaultSkipped(epoch, vault, "stake_call_failed");
+                    continue;
+                }
                 if (vaultStake == 0) continue;
 
                 uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][cls];
