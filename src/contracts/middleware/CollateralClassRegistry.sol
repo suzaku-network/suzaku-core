@@ -14,6 +14,7 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable, 
     using EnumerableSet for EnumerableSet.UintSet;
 
     bytes32 public constant COLLATERAL_CLASS_MANAGER_ROLE = keccak256("COLLATERAL_CLASS_MANAGER_ROLE");
+    uint96 internal constant _PRIMARY_ASSET_CLASS = 1;
 
     struct CollateralClass {
         EnumerableSet.AddressSet assets;
@@ -96,7 +97,7 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable, 
         if (initialAsset == address(0)) {
             revert CollateralClassRegistry__InvalidAsset();
         }
-        if (collateralClassId == 1 && minValidatorStake > maxValidatorStake) {
+        if (collateralClassId == _PRIMARY_ASSET_CLASS && minValidatorStake > maxValidatorStake) {
             revert CollateralClassRegistry__InvalidStakingRequirements();
         }
 
@@ -151,7 +152,7 @@ abstract contract CollateralClassRegistry is ICollateralClassRegistry, Ownable, 
     function _removeCollateralClass(
         uint256 collateralClassId
     ) internal {
-        if (collateralClassId == 1) {
+        if (collateralClassId == _PRIMARY_ASSET_CLASS) {
             revert CollateralClassRegistry__AssetIsPrimaryCollateralClass(collateralClassId);
         }
 

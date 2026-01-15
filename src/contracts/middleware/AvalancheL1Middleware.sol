@@ -273,7 +273,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         address asset
     ) public override onlyRole(COLLATERAL_CLASS_MANAGER_ROLE) {
         _updateGlobalNodeStakeOncePerEpoch();
-        if (collateralClassId == 1 && asset == PRIMARY_ASSET) {
+        if (collateralClassId == PRIMARY_ASSET_CLASS && asset == PRIMARY_ASSET) {
             revert CollateralClassRegistry__AssetIsPrimaryCollateralClass(collateralClassId);
         }
 
