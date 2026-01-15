@@ -48,6 +48,9 @@ contract MiddlewareVaultManager is IMiddlewareVaultManager, Ownable, AccessContr
         if (middlewareAddress == address(0)) {
             revert MiddlewareVaultManager__ZeroAddress("middlewareAddress");
         }
+        if (vaultRemovalEpochDelay_ == 0) {
+            revert MiddlewareVaultManager__InvalidVaultRemovalDelay();
+        }
         VAULT_REGISTRY = vaultRegistry;
         middleware = AvalancheL1Middleware(payable(middlewareAddress));
         VAULT_REMOVAL_EPOCH_DELAY = vaultRemovalEpochDelay_;

@@ -2703,6 +2703,11 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         vm.stopPrank();
     }
 
+    function test_vaultManager_Constructor_ZeroRemovalDelay_Reverts() public {
+        vm.expectRevert(IMiddlewareVaultManager.MiddlewareVaultManager__InvalidVaultRemovalDelay.selector);
+        new MiddlewareVaultManager(address(vaultFactory), l1Owner, address(middleware), 0);
+    }
+
     function test_vaultManager_UpdateVaultMaxL1Limit_ErrorConditions() public {
         // Test updating non-existent vault
         vm.startPrank(l1Owner);
