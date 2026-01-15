@@ -60,6 +60,9 @@ contract UptimeTracker is IUptimeTracker {
         address payable middleware_,
         bytes32 uptimeBlockchainID_
     ) {
+        if (middleware_ == address(0)) revert UptimeTracker__InvalidMiddleware();
+        if (uptimeBlockchainID_ == bytes32(0)) revert UptimeTracker__InvalidBlockchainID();
+
         middleware = AvalancheL1Middleware(middleware_);
         epochDuration = middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(middleware.BALANCER());

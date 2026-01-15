@@ -11,6 +11,16 @@ struct LastUptimeCheckpoint {
 
 interface IUptimeTracker {
     /**
+     * @dev Error thrown when the middleware address is invalid (zero address)
+     */
+    error UptimeTracker__InvalidMiddleware();
+
+    /**
+     * @dev Error thrown when the blockchain ID is invalid (zero)
+     */
+    error UptimeTracker__InvalidBlockchainID();
+
+    /**
      * @dev Error thrown when a validator's uptime is not recorded for a given epoch
      * @param epoch Epoch for which uptime was not recorded
      * @param validator Validator's unique validation ID

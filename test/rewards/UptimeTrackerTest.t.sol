@@ -666,4 +666,15 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         assertGt(epoch2Uptime + epoch3Uptime, 0, "Fresh message distributed real uptime");
     }
 
+    function test_Constructor_RevertsWithZeroMiddleware() public {
+        bytes32 validBlockchainID = bytes32(uint256(1));
+        vm.expectRevert(IUptimeTracker.UptimeTracker__InvalidMiddleware.selector);
+        new UptimeTracker(payable(address(0)), validBlockchainID);
+    }
+
+    function test_Constructor_RevertsWithZeroBlockchainID() public {
+        vm.expectRevert(IUptimeTracker.UptimeTracker__InvalidBlockchainID.selector);
+        new UptimeTracker(payable(address(middleware)), bytes32(0));
+    }
+
 }
