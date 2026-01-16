@@ -290,8 +290,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint48 newLast = lastClaimedEpoch;
 
         uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        uint48 claimableEpochLimit = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > claimableEpochLimit) maxEpoch = claimableEpochLimit;
         
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
@@ -370,8 +370,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint48 newLast = lastClaimedEpoch;
 
         uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        uint48 claimableEpochLimit = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > claimableEpochLimit) maxEpoch = claimableEpochLimit;
         
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
@@ -419,8 +419,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint48 newLast = lastClaimedEpoch;
 
         uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        uint48 claimableEpochLimit = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > claimableEpochLimit) maxEpoch = claimableEpochLimit;
         
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
