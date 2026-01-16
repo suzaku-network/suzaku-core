@@ -781,11 +781,94 @@ contract LSTWrapperTest is RewardsNativeTokenIntegrationTestBase {
         vault.approve(address(lstWrapper), depositAmount);
         uint256 shares = lstWrapper.deposit(depositAmount, lstUser1);
         vm.stopPrank();
-        
+
         uint256 maxRedeemAmount = lstWrapper.maxRedeem(lstUser1);
         assertEq(maxRedeemAmount, shares);
     }
-    
+
+    function test_Mint_OwnerCanBypassMaxMintInSeedPhase() public {
+        // Deploy a fresh wrapper to test seed phase behavior
+        LSTWrapper freshImpl = new LSTWrapper();
+        bytes memory initData = abi.encodeWithSelector(
+            LSTWrapper.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(rewards),
+            "Test Wrapper",
+            "TEST"
+        );
+        TransparentUpgradeableProxy freshProxy = new TransparentUpgradeableProxy(
+            address(freshImpl),
+            lstAdmin,
+            initData
+        );
+        LSTWrapper freshWrapper = LSTWrapper(address(freshProxy));
+
+        // Verify seed phase: totalSupply == 0 and maxMint returns 0
+        assertEq(freshWrapper.totalSupply(), 0, "Should be in seed phase");
+        assertEq(freshWrapper.maxMint(lstAdmin), 0, "maxMint should return 0 in seed phase");
+
+        // Give owner some vault shares to mint with
+        uint256 mintShares = 1000;
+        vm.prank(staker);
+        vault.transfer(lstAdmin, mintShares);
+
+        // Owner should be able to mint despite maxMint returning 0
+        vm.startPrank(lstAdmin);
+        vault.approve(address(freshWrapper), mintShares);
+        uint256 assetsUsed = freshWrapper.mint(mintShares, lstAdmin);
+        vm.stopPrank();
+
+        // Verify mint succeeded
+        assertEq(freshWrapper.balanceOf(lstAdmin), mintShares, "Owner should have minted shares");
+        assertGt(assetsUsed, 0, "Should have used some assets");
+        assertEq(freshWrapper.totalSupply(), mintShares, "Total supply should equal minted shares");
+    }
+
+    function test_Mint_NonOwnerCannotMintInSeedPhase() public {
+        // Deploy a fresh wrapper to test seed phase behavior
+        LSTWrapper freshImpl = new LSTWrapper();
+        bytes memory initData = abi.encodeWithSelector(
+            LSTWrapper.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(rewards),
+            "Test Wrapper",
+            "TEST"
+        );
+        TransparentUpgradeableProxy freshProxy = new TransparentUpgradeableProxy(
+            address(freshImpl),
+            lstAdmin,
+            initData
+        );
+        LSTWrapper freshWrapper = LSTWrapper(address(freshProxy));
+
+        // Verify seed phase
+        assertEq(freshWrapper.totalSupply(), 0, "Should be in seed phase");
+
+        // Give non-owner some vault shares
+        uint256 mintShares = 1000;
+        vm.prank(staker);
+        vault.transfer(lstUser1, mintShares);
+
+        // Non-owner should NOT be able to mint during seed phase
+        // Note: With deposits paused (default), they get DepositsPaused error first
+        vm.startPrank(lstUser1);
+        vault.approve(address(freshWrapper), mintShares);
+        vm.expectRevert(ILSTWrapper.LSTWrapper__DepositsPaused.selector);
+        freshWrapper.mint(mintShares, lstUser1);
+        vm.stopPrank();
+
+        // Even with deposits unpaused, non-owner still cannot mint in seed phase
+        vm.prank(lstAdmin);
+        freshWrapper.setDepositsPaused(false);
+
+        vm.startPrank(lstUser1);
+        vm.expectRevert(ILSTWrapper.LSTWrapper__OnlyOwnerFirstMint.selector);
+        freshWrapper.mint(mintShares, lstUser1);
+        vm.stopPrank();
+    }
+
     // Auto-compounding test
     
     function test_AutoCompounding() public {
