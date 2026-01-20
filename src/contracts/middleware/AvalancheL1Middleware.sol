@@ -670,6 +670,10 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint48 currentEpoch = getCurrentEpoch();
         uint256 newStake = _pendingStake[vid];
 
+        uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, vid);
+        uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, vid);
+        uint256 previousStake = cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
+
         // Cache next-epoch stake if still active and not pending removal
         Validator memory v = balancerValidatorManager.getValidator(vid);
         if (newStake != 0 && v.status == ValidatorStatus.Active && !nodePendingRemoval[vid]) {
@@ -677,9 +681,8 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         }
 
         // Unlock delta on increases
-        uint256 prevStake = getEffectiveNodeStake(currentEpoch, vid);
-        if (newStake > prevStake) {
-            uint256 release = newStake - prevStake;
+        if (newStake > previousStake) {
+            uint256 release = newStake - previousStake;
             uint256 lockBal = operatorLockedStake[operator];
             operatorLockedStake[operator] = (release > lockBal) ? 0 : (lockBal - release);
         }
@@ -716,14 +719,14 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 i; i < length;) {
             (address operator, uint48 enabledTime, uint48 disabledTime) = operators.atWithTimes(i);
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                ++i;
+                unchecked { ++i; }
                 continue;
             }
             uint256 operatorStake = getOperatorStake(operator, epoch, collateralClassId);
 
             operatorStakeCache[epoch][collateralClassId][operator] = operatorStake;
             totalStake += operatorStake;
-            ++i;
+            unchecked { ++i; }
         }
         totalStakeCache[epoch][collateralClassId] = totalStake;
         totalStakeCached[epoch][collateralClassId] = true;
@@ -749,7 +752,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint48 i = 0; i < epochsPending;) {
             bool processed = _processSingleEpochNodeStakeCacheUpdate();
             if (!processed) break; 
-            ++i;
+            unchecked { ++i; }
         }
     }
 
@@ -771,7 +774,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             (address operator,,) = operators.atWithTimes(i);
             // _calcAndCacheNodeStakeForOperatorAtEpoch itself handles carry-over from epochToProcess - 1
             _calcAndCacheNodeStakeForOperatorAtEpoch(operator, epochToProcess);
-            ++i;
+            unchecked { ++i; }
         }
 
         lastGlobalNodeStakeUpdateEpoch = epochToProcess;
@@ -811,13 +814,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             }
             bool processed = _processSingleEpochNodeStakeCacheUpdate();
             if (processed) {
-                ++epochsProcessedCount;
+                unchecked { ++epochsProcessedCount; }
             } else {
                 // Should not happen if currentEpoch > lastGlobalNodeStakeUpdateEpoch initially
                 // and numEpochsToProcess is positive.
                 break;
             }
-            ++i;
+            unchecked { ++i; }
         }
 
         emit NodeStakeCacheManuallyProcessed(lastGlobalNodeStakeUpdateEpoch, epochsProcessedCount);
@@ -903,7 +906,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
                 nodesArr.pop();
                 break;
             }
-            ++i;
+            unchecked { ++i; }
         }
     }
 
@@ -916,7 +919,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function _initializeValidatorStakeUpdate(address operator, bytes32 validationID, uint256 newStake) internal {
         uint48 currentEpoch = getCurrentEpoch();
-        uint256 cachedStake = getEffectiveNodeStake(currentEpoch, validationID);
+        uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, validationID);
+        uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, validationID);
+        uint256 cachedStake = cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
 
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
@@ -960,7 +965,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             if (stake / nodeCount < collateralClasses[classId].minValidatorStake) {
                 return false;
             }
-            ++i;
+            unchecked { ++i; }
         }
         return true;
     }
@@ -975,9 +980,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 i; i < arr.length;) {
             bytes32 valID = _vid(arr[i]);
             if (valID != bytes32(0) && !nodePendingRemoval[valID]) {
-                ++count;
+                unchecked { ++count; }
             }
-            ++i;
+            unchecked { ++i; }
         }
     }
 
@@ -1004,7 +1009,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             if (vaultManager.vaultToCollateralClass(vault) == collateralClassId && IVaultTokenized(vault).collateral() == asset) {
                 return true;
             }
-            ++i;
+            unchecked { ++i; }
         }
         return false;
     }
@@ -1022,7 +1027,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             if (vaultManager.vaultToCollateralClass(vault) == collateralClassId) {
                 return true;
             }
-            ++i;
+            unchecked { ++i; }
         }
         return false;
     }
@@ -1083,13 +1088,13 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
 
             // Skip if vault not active in the target epoch
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                ++i;
+                unchecked { ++i; }
                 continue;
             }
 
             // Skip if vault asset not in CollateralClassID
             if (vaultManager.getVaultCollateralClass(vault) != collateralClassId) {
-                ++i;
+                unchecked { ++i; }
                 continue;
             }
 
@@ -1098,7 +1103,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             );
 
             stake += vaultStake;
-            ++i;
+            unchecked { ++i; }
         }
     }
 
@@ -1220,7 +1225,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             bytes32 nodeId = nodesArr[i];
             bytes32 validationID = _vid(nodeId);
             registeredStake += getEffectiveNodeStake(getCurrentEpoch(), validationID);
-            ++i;
+            unchecked { ++i; }
         }
     }
 
@@ -1314,12 +1319,12 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
             (address operator, uint48 enabledTime, uint48 disabledTime) = operators.atWithTimes(i);
             // just skip operator if it was added after the target epoch or paused
             if (!_wasActiveAt(enabledTime, disabledTime, epochStartTs)) {
-                ++i;
+                unchecked { ++i; }
                 continue;
             }
             uint256 operatorStake = getOperatorStake(operator, epoch, collateralClassId);
             totalStake += operatorStake;
-            ++i;
+            unchecked { ++i; }
         }
     }
 

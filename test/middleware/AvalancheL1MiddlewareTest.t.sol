@@ -4066,6 +4066,112 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
         middleware.initializeValidatorStakeUpdate(nodeId, minStake);
     }
 
+    /// @notice Tests M-2 fix: Sequential weight updates on same validator within same epoch
+    /// should correctly account for operatorLockedStake without drift.
+    /// Bug: When an operator performs two sequential weight updates on the same validator
+    /// within the same epoch, operatorLockedStake accounting becomes incorrect because
+    /// completion writes to nodeStakeCache[currentEpoch + 1] but initialization reads
+    /// from nodeStakeCache[currentEpoch] (stale value).
+    /// Fix: Prefer next epoch's cached stake when available in _initializeValidatorStakeUpdate.
+    function test_SequentialWeightUpdates_SameEpoch_NoStakeAccountingDrift() public {
+        // Setup: deposit enough for multiple stake increases
+        (depositedAmount, mintedShares) = _deposit(staker, 50 ether);
+        _setL1Limit(curatorOwner1, balancer, 1, depositedAmount, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, 1, alice, mintedShares, delegator);
+
+        _calcAndWarpOneEpoch();
+
+        // Create a node with minimum stake
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        bytes32 validationID = validationIDs[0];
+
+        uint48 epoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(epoch, 1);
+
+        // Record initial state
+        uint256 initialLockedStake = middleware.operatorLockedStake(alice);
+        uint256 initialNodeStake = middleware.nodeStakeCache(epoch, validationID);
+        uint256 availableBefore = middleware.getOperatorAvailableStake(alice);
+
+        console2.log("=== M-2 Test: Sequential Weight Updates Same Epoch ===");
+        console2.log("Initial node stake:", initialNodeStake);
+        console2.log("Initial locked stake:", initialLockedStake);
+        console2.log("Available stake before:", availableBefore);
+
+        // First weight update: increase stake
+        uint256 firstIncrease = 1 ether;
+        uint256 firstNewStake = initialNodeStake + firstIncrease;
+
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, firstNewStake);
+
+        // Verify locked stake increased by delta
+        uint256 lockedAfterFirstInit = middleware.operatorLockedStake(alice);
+        assertEq(lockedAfterFirstInit, initialLockedStake + firstIncrease, "Locked stake should increase by first delta");
+        console2.log("Locked stake after first init:", lockedAfterFirstInit);
+
+        // Complete the first weight update
+        {
+            uint64 scaledWeight = StakeConversion.stakeToWeight(firstNewStake, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+            _pushWeight(validationID, uint64(v.sentNonce), scaledWeight);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+
+        // After completion, locked stake should be released
+        uint256 lockedAfterFirstComplete = middleware.operatorLockedStake(alice);
+        console2.log("Locked stake after first complete:", lockedAfterFirstComplete);
+
+        // Verify the stake was written to next epoch's cache
+        uint256 nextEpochStake = middleware.nodeStakeCache(epoch + 1, validationID);
+        assertEq(nextEpochStake, firstNewStake, "Next epoch cache should have first new stake");
+        console2.log("Next epoch cache after first complete:", nextEpochStake);
+
+        // Second weight update: increase stake again (WITHIN SAME EPOCH)
+        uint256 secondIncrease = 1 ether;
+        uint256 secondNewStake = firstNewStake + secondIncrease;
+
+        // This is where M-2 bug would manifest:
+        // Without fix: init reads currentEpoch cache (initialNodeStake), thinks delta is (secondNewStake - initialNodeStake)
+        // With fix: init reads nextEpoch cache (firstNewStake), correctly calculates delta as secondIncrease
+
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, secondNewStake);
+
+        uint256 lockedAfterSecondInit = middleware.operatorLockedStake(alice);
+        console2.log("Locked stake after second init:", lockedAfterSecondInit);
+
+        // The correct behavior: locked stake should only increase by secondIncrease
+        // Bug behavior would be: locked stake increases by (secondNewStake - initialNodeStake)
+        uint256 expectedLockedIncrease = secondIncrease;
+        uint256 buggyLockedIncrease = secondNewStake - initialNodeStake; // This would be wrong
+
+        console2.log("Expected locked increase (fix):", expectedLockedIncrease);
+        console2.log("Buggy locked increase (no fix):", buggyLockedIncrease);
+
+        // With fix: lockedAfterSecondInit = lockedAfterFirstComplete + secondIncrease
+        // Without fix: lockedAfterSecondInit = lockedAfterFirstComplete + buggyLockedIncrease
+        assertEq(
+            lockedAfterSecondInit,
+            lockedAfterFirstComplete + expectedLockedIncrease,
+            "M-2 FIX VERIFIED: Second init correctly reads from next epoch cache"
+        );
+
+        // Additional verification: complete second update and verify final state
+        {
+            uint64 scaledWeight = StakeConversion.stakeToWeight(secondNewStake, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+            _pushWeight(validationID, uint64(v.sentNonce), scaledWeight);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+
+        uint256 finalNextEpochStake = middleware.nodeStakeCache(epoch + 1, validationID);
+        assertEq(finalNextEpochStake, secondNewStake, "Final next epoch cache should have second new stake");
+        console2.log("Final next epoch cache:", finalNextEpochStake);
+        console2.log("=== M-2 Test PASSED ===");
+    }
+
     // ============================================================
     // FORCE UPDATE NODES TESTS
     // ============================================================

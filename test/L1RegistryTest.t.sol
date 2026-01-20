@@ -112,9 +112,8 @@ contract L1RegistryTest is Test {
 
     function testRegisterWithZeroAddress() public {
         // Try to register address(0), which should revert
-        // Currently fails because the check is not implemented
         vm.prank(middleware1);
-        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__InvalidValidatorManager.selector, address(0)));
+        vm.expectRevert(abi.encodeWithSelector(IL1Registry.L1Registry__ZeroAddress.selector, "address"));
         registry.registerL1{value: registerFee}(address(0), middleware1SecurityModule, middleware1MetadataURL);
     }
 
