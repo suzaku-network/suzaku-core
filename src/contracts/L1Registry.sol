@@ -53,10 +53,10 @@ contract L1Registry is IL1Registry, Ownable {
     }
 
     modifier notZeroAddress(
-        address l1
+        address addr
     ) {
-        if (l1 == address(0)) {
-            revert L1Registry__InvalidValidatorManager(l1);
+        if (addr == address(0)) {
+            revert L1Registry__ZeroAddress("address");
         }
         _;
     }
@@ -248,6 +248,4 @@ contract L1Registry is IL1Registry, Ownable {
             revert L1Registry__FeeTransferFailed();
         }
     }
-
-    receive() external payable {}
 }

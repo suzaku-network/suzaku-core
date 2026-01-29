@@ -18,7 +18,11 @@ contract DeployTestAvalancheL1Middleware is Script {
     function executeMiddlewareL1Deployment(
         MiddlewareConfig memory middlewareConfig
     ) public returns (address middlewareL1, address vaultManager) {
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         // Deploy the AvalancheL1Middleware
         AvalancheL1Middleware middleware = new AvalancheL1Middleware(
@@ -44,12 +48,18 @@ contract DeployTestAvalancheL1Middleware is Script {
             middlewareConfig.vaultFactory, middlewareConfig.middlewareOwnerAddress, address(middleware), middlewareConfig.vaultRemovalEpochDelay
         );
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Configure the vault manager in the middleware
-        vm.startBroadcast();
+        if (!isTest) {
+            vm.startBroadcast();
+        }
         middleware.setVaultManager(address(middlewareVaultManager));
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Return addresses
         middlewareL1 = address(middleware);

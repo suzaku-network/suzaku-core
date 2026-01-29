@@ -41,6 +41,7 @@ interface IAvalancheL1Middleware {
     error AvalancheL1Middleware__OperatorHasActiveNodes(address operator, uint256 nodeCount);
     error AvalancheL1Middleware__UnexpectedWeightUpdate(bytes32 validationID);
     error AvalancheL1Middleware__MessageNotForThisModule(bytes32 validationID, address ownerModule);
+    error AvalancheL1Middleware__InvalidNodeIdFormat(bytes32 nodeId);
     // Events
     /**
      * @notice Emitted when a node is added
@@ -295,6 +296,13 @@ interface IAvalancheL1Middleware {
      * @return activeNodeIds The list of nodes
      */
     function getActiveNodesForEpoch(address operator, uint48 epoch) external view returns (bytes32[] memory);
+
+    /**
+     * @notice Returns all validationIDs ever registered by an operator (append-only, for historical uptime)
+     * @param operator The operator address
+     * @return Array of validationIDs
+     */
+    function getOperatorValidationIDs(address operator) external view returns (bytes32[] memory);
 
     /**
      * @notice Returns the available stake for an operator

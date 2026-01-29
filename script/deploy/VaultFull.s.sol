@@ -45,7 +45,11 @@ contract VaultFull is Script {
     function executeCoreDeployment(
         VaultConfig memory vaultConfig
     ) public returns (address vaultTokenized, address delegator, address slasher) {
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         vaultFactory = VaultFactory(vaultConfig.factoryConfig.vaultFactory);
         delegatorFactory = DelegatorFactory(vaultConfig.factoryConfig.delegatorFactory);
@@ -202,10 +206,16 @@ contract VaultFull is Script {
         console2.log("Delegator deployed at:", delegator);
 
         // Set delegator in the vault - use the owner's account
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Set delegator in the vault - use the Admin Role Holder
-        vm.startBroadcast(params.owner);
+        if (!isTest) {
+            vm.startBroadcast(params.owner);
+        } else {
+            vm.startPrank(params.owner);
+        }
         VaultTokenized(vaultTokenized).setDelegator(delegator);
         
         slasher;
@@ -217,7 +227,11 @@ contract VaultFull is Script {
 
         console2.log("Full local deployment completed successfully.");
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        } else {
+            vm.stopPrank();
+        }
 
         return (vaultTokenized, delegator, slasher);
     }

@@ -33,7 +33,7 @@ import {DeployBalancerValidatorManager} from "lib/suzaku-contracts-library/scrip
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PChainOwner} from "@avalabs/icm-contracts/validator-manager/interfaces/IACP99Manager.sol";
 import {MockWarpMessenger} from "../mocks/MockWarpMessenger.sol";
-import {Token} from "../mocks/Token.sol";
+import {Token} from "../mocks/MockToken.sol";
 
 contract MiddlewareCollateralDecimalsTest is Test {
     // Constants
@@ -358,7 +358,7 @@ contract MiddlewareCollateralDecimalsTest is Test {
         assertEq(availableStake, 1_000 * 10**6, "no inflation; equals actual stake");
 
         // Adding 1,500e6 must now fail (insufficient free stake)
-        bytes32 nodeId = keccak256("inflation-node");
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("inflation-node")))));
         vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
         vm.prank(alice);
         middleware6Dec.addNode(
@@ -551,7 +551,7 @@ contract MiddlewareCollateralDecimalsTest is Test {
         // Alice has 2 ether primary stake (sufficient) 
         // But only 50 USDC secondary stake (insufficient - needs 100 USDC minimum)
         // With only 50 USDC (min=100), this must now revert
-        bytes32 nodeId = keccak256("secondary-bypass-node");
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("secondary-bypass-node")))));
         vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
         vm.prank(alice);
         middleware.addNode(
@@ -881,7 +881,7 @@ contract MiddlewareCollateralDecimalsTest is Test {
         assertGe(middleware.getOperatorStake(alice, e, 1), 1 ether, "primary enough");
 
         // Adding a node should fail due to min secondary per-node
-        bytes32 nodeId = keccak256("sec8-bypass");
+        bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256("sec8-bypass")))));
         vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
         vm.prank(alice);
         middleware.addNode(

@@ -15,6 +15,8 @@ import {VaultTokenized} from "../vault/VaultTokenized.sol";
 import {IRewardsNativeToken, DistributionBatch} from "../../interfaces/rewards/IRewardsNativeToken.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {ICollateral} from "../../interfaces/ICollateral.sol";
+import {Validator} from "@suzaku/contracts-library/interfaces/ValidatorManager/IBalancerValidatorManager.sol";
 
 contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradeable, IRewardsNativeToken {
     using SafeERC20 for IERC20;
@@ -92,7 +94,7 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     mapping(address operator => uint48 epoch) public lastEpochClaimedOperator;
 
     // Asset class configuration
-    mapping(uint96 collateralClass => uint16 rewardsShare) public rewardsSharePerCollateralClass;
+    mapping(uint96 collateralClass => uint16 rewardsShare) public rewardsBipsPerCollateralClass;
 
     // Epoch curators tracking
     mapping(uint48 epoch => EnumerableSet.AddressSet curators) private _epochCurators;
@@ -146,8 +148,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         middlewareVaultManager = MiddlewareVaultManager(middleware.getVaultManager());
         uptimeTracker = UptimeTracker(uptimeTracker_);
         epochDuration = middleware.EPOCH_DURATION();
-        // Set sole rewards token to the L1 primary collateral
-        rewardsToken = middleware.PRIMARY_ASSET();
+        // Set sole rewards token to the underlying asset of the L1 primary collateral
+        rewardsToken = ICollateral(middleware.PRIMARY_ASSET()).asset();
         if (rewardsToken == address(0)) revert InvalidRewardsToken(rewardsToken);
 
         _checkFees(protocolFee_, operatorFee_, curatorFee_);
@@ -189,6 +191,11 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
             if (!prevSt.distributionComplete) {
                 revert DistributionNotComplete(epoch - 1);
             }
+        }
+
+        // Revert if collateral class bips don't sum to 100%
+        if (_totalCollateralClassBips() != BASIS_POINTS_DENOMINATOR) {
+            revert CollateralClassBipsNotSet();
         }
 
         // only auto-complete when there are no operators.
@@ -283,8 +290,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint48 newLast = lastClaimedEpoch;
 
         uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        uint48 claimableEpochLimit = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > claimableEpochLimit) maxEpoch = claimableEpochLimit;
         
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
@@ -363,8 +370,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint48 newLast = lastClaimedEpoch;
 
         uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        uint48 claimableEpochLimit = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > claimableEpochLimit) maxEpoch = claimableEpochLimit;
         
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
@@ -412,8 +419,8 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint48 newLast = lastClaimedEpoch;
 
         uint48 maxEpoch = currentEpoch;
-        uint48 maxClaimableEpoch = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
-        if (maxEpoch > maxClaimableEpoch) maxEpoch = maxClaimableEpoch;
+        uint48 claimableEpochLimit = lastClaimedEpoch + 1 + MAX_EPOCHS_PER_CLAIM;
+        if (maxEpoch > claimableEpochLimit) maxEpoch = claimableEpochLimit;
         
         for (uint48 epoch = lastClaimedEpoch + 1; epoch < maxEpoch; ++epoch) {
             EpochStatus memory st = epochStatus[epoch];
@@ -578,15 +585,15 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
     /**
      * @inheritdoc IRewardsNativeToken
      */
-    function setRewardsShareForCollateralClass(uint96 collateralClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
+    function setRewardsBipsForCollateralClass(uint96 collateralClass, uint16 share) external onlyRole(REWARDS_MANAGER_ROLE) {
         if (share > BASIS_POINTS_DENOMINATOR) revert InvalidShare(share);
 
-        uint16 prev = rewardsSharePerCollateralClass[collateralClass];
-        uint256 newTotal = _totalCollateralClassShares() - prev + share;
-        if (newTotal > BASIS_POINTS_DENOMINATOR) revert CollateralClassSharesExceed100(newTotal);
+        uint16 prev = rewardsBipsPerCollateralClass[collateralClass];
+        uint256 newTotal = _totalCollateralClassBips() - prev + share;
+        if (newTotal > BASIS_POINTS_DENOMINATOR) revert CollateralClassBipsExceed10000(newTotal);
 
-        rewardsSharePerCollateralClass[collateralClass] = share;
-        emit RewardsShareUpdated(collateralClass, share);
+        rewardsBipsPerCollateralClass[collateralClass] = share;
+        emit RewardsBipsUpdated(collateralClass, share);
     }
 
     /**
@@ -661,15 +668,15 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
     // INTERNAL FUNCTIONS
     // Helper functions
-    function _totalCollateralClassShares() internal view returns (uint256 total) {
+    function _totalCollateralClassBips() internal view returns (uint256 total) {
         uint96[] memory ids = middleware.getCollateralClassIds();
-        for (uint256 i; i < ids.length; ++i) total += rewardsSharePerCollateralClass[ids[i]];
+        for (uint256 i; i < ids.length; ++i) total += rewardsBipsPerCollateralClass[ids[i]];
     }
 
     /// @dev Reverts if fees exceed 100 % (10 000 bp)
     function _checkFees(uint16 protocolFee_, uint16 operatorFee_, uint16 curatorFee_) internal pure {
         if (protocolFee_ + operatorFee_ + curatorFee_ > BASIS_POINTS_DENOMINATOR)
-            revert FeeConfigurationExceeds100(protocolFee_ + operatorFee_ + curatorFee_);
+            revert FeeConfigurationExceeds10000(protocolFee_ + operatorFee_ + curatorFee_);
     }
 
     // Calculation functions
@@ -708,17 +715,22 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         uint256 operatorFeeShare;
         for (uint256 i = 0; i < collateralClasses.length; i++) {
             uint96 collateralClass = collateralClasses[i];
-            uint16 collateralClassShare = rewardsSharePerCollateralClass[collateralClass];
+            uint16 collateralClassShare = rewardsBipsPerCollateralClass[collateralClass];
             if (collateralClassShare == 0) continue;
             uint256 totalStake = _ensureStakeCache(epoch, collateralClass);
             if (totalStake == 0) continue;
 
             uint256 operatorStake;
-            // tolerate view-call failures to avoid epoch-wide DoS
-            try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
-                operatorStake = s;
-            } catch {
-                operatorStake = 0;
+            if (collateralClass == middleware.PRIMARY_ASSET_CLASS()) {
+                // Use historical validationIDs
+                operatorStake = _getOperatorUsedStakePrimaryCached(epoch, operator);
+            } else {
+                // tolerate view-call failures to avoid epoch-wide DoS
+                try middleware.getOperatorUsedStakeCachedPerEpoch(epoch, operator, collateralClass) returns (uint256 s) {
+                    operatorStake = s;
+                } catch {
+                    operatorStake = 0;
+                }
             }
 
             rawShare = Math.mulDiv(
@@ -772,13 +784,21 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
                 address delegator;
                 try IVaultTokenized(vault).delegator() returns (address d) {
                     delegator = d;
-                } catch { continue; }
+                } catch {
+                    emit VaultSkipped(epoch, vault, "delegator_call_failed");
+                    continue;
+                }
 
                 uint256 vaultStake;
                 // tolerate bad/misbehaving delegators
                 try BaseDelegator(delegator).stakeAt(
                     middleware.BALANCER(), cls, operator, epochTs, new bytes(0)
-                ) returns (uint256 s) { vaultStake = s; } catch { continue; }
+                ) returns (uint256 s) {
+                    vaultStake = s;
+                } catch {
+                    emit VaultSkipped(epoch, vault, "stake_call_failed");
+                    continue;
+                }
                 if (vaultStake == 0) continue;
 
                 uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][cls];
@@ -835,37 +855,29 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
         _calculateAndStoreVaultShares(epoch, operator);
     }
 
-    // Getter functions
     /**
-     * @dev Gets the vaults for a given staker and epoch
-     * @param staker The staker to get the vaults for
-     * @param epoch The epoch to get the vaults for
-     * @return The vaults for the given staker and epoch
+     * @dev Calculates PRIMARY_ASSET_CLASS stake using historical validationIDs
+     * @dev Uses same pattern as UptimeTracker
+     * @param epoch The epoch to calculate stake for
+     * @param operator The operator address
+     * @return stake The operator's used stake for the epoch
      */
-    function _getStakerVaults(address staker, uint48 epoch) internal view returns (address[] memory) {
-        address[] memory vaults = middlewareVaultManager.getVaults(epoch);
-        uint48 epochStart = middleware.getEpochStartTs(epoch);
+    function _getOperatorUsedStakePrimaryCached(
+        uint48 epoch,
+        address operator
+    ) private view returns (uint256 stake) {
+        uint48 epochStartTs = middleware.getEpochStartTs(epoch);
+        bytes32[] memory valIDs = middleware.getOperatorValidationIDs(operator);
 
-        // Use temporary array sized to maximum possible length
-        address[] memory tempVaults = new address[](vaults.length);
-        uint256 count = 0;
-
-        // Single pass: Check balance and collect valid vaults
-        for (uint256 i = 0; i < vaults.length;) {
-            if (IVaultTokenized(vaults[i]).activeBalanceOfAt(staker, epochStart, new bytes(0)) > 0) {
-                tempVaults[count] = vaults[i];
-                count++;
+        for (uint256 i = 0; i < valIDs.length; i++) {
+            Validator memory v = middleware.balancerValidatorManager().getValidator(valIDs[i]);
+            uint48 start = uint48(v.startTime);
+            uint48 end = uint48(v.endTime);
+            if (start == 0 || start > epochStartTs || (end != 0 && end <= epochStartTs)) {
+                continue;
             }
-            unchecked { ++i; }
+            stake += middleware.nodeStakeCache(epoch, valIDs[i]);
         }
-
-        // Create final array with exact count and copy valid vaults
-        address[] memory validVaults = new address[](count);
-        for (uint256 i = 0; i < count;) {
-            validVaults[i] = tempVaults[i];
-            unchecked { ++i; }
-        }
-
-        return validVaults;
     }
+
 }

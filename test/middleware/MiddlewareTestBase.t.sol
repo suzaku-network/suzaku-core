@@ -891,7 +891,8 @@ abstract contract MiddlewareTestBase is Test {
         uint256 minMultiplier
     ) private returns (uint256 actualNodeCount) {
         for (uint256 i = 0; i < nodeCount; i++) {
-            bytes32 nodeId = keccak256(abi.encodePacked(operator, block.timestamp, i));
+            // Use canonical nodeId format (20-byte address padded to bytes32)
+            bytes32 nodeId = bytes32(uint256(uint160(uint256(keccak256(abi.encodePacked(operator, block.timestamp, i))))));
             uint256 stakeAmount = _calculateStakeAmount(stake_, minMultiplier);
             
             if (!_tryRegisterNode(operator, nodeId, stakeAmount)) {

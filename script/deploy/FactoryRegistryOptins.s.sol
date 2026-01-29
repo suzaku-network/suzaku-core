@@ -40,7 +40,11 @@ contract DeployFactoriesRegistriesOptIns is Script {
             address vaultHelperAddr
         )
     {
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         // Deploy factories, registries, and opt-in services
         vaultFactory = new VaultFactory(bootstraperConfig.generalConfig.owner);
@@ -61,12 +65,14 @@ contract DeployFactoriesRegistriesOptIns is Script {
             new OperatorL1OptInService(address(operatorRegistry), address(l1Registry), "Suzaku Operator -> L1 Opt-In");
 
         // Deploy LSTWrapperFactory
-        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(bootstraperConfig.generalConfig.owner);
+        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(bootstraperConfig.generalConfig.owner, address(vaultFactory));
 
         // Deploy VaultHelper
         VaultHelper vaultHelper = new VaultHelper(address(vaultFactory), address(lstWrapperFactory));
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Assign them to the return variables
         vaultFactoryAddr = address(vaultFactory);

@@ -60,7 +60,7 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         factoryOwner = makeAddr("factoryOwner");
         
         // Deploy LSTWrapperFactory and whitelist implementation
-        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner, address(vaultFactory));
         
         LSTWrapper wrapperImpl = new LSTWrapper();
         vm.prank(factoryOwner);
@@ -148,11 +148,7 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
     function _setupInitialVaultDeposits() internal {
         // Add more liquidity to vault
         uint256 additionalDeposit = 1000 ether;
-        collateral.transfer(staker, additionalDeposit);
-        vm.startPrank(staker);
-        collateral.approve(address(vault), additionalDeposit);
-        vault.deposit(staker, additionalDeposit);
-        vm.stopPrank();
+        _deposit(staker, additionalDeposit);
     }
     
     function _distributeVaultShares() internal {
@@ -407,7 +403,90 @@ contract LSTWrapperMerklTest is RewardsNativeTokenIntegrationTestBase {
         assertEq(freshWrapper.maxDeposit(address(this)), 0, "maxDeposit should return 0 in seed phase");
         assertEq(freshWrapper.maxMint(address(this)), 0, "maxMint should return 0 in seed phase");
     }
-    
+
+    function test_Mint_OwnerCanBypassMaxMintInSeedPhase() public {
+        // Deploy a fresh LSTWrapperMerkl to test seed phase behavior
+        LSTWrapperMerkl freshImpl = new LSTWrapperMerkl();
+        bytes memory initData = abi.encodeWithSelector(
+            LSTWrapperMerkl.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(merkleDistributor),
+            "Test Wrapper Merkl",
+            "TESTM"
+        );
+        TransparentUpgradeableProxy freshProxy = new TransparentUpgradeableProxy(
+            address(freshImpl),
+            lstAdmin,
+            initData
+        );
+        LSTWrapperMerkl freshWrapper = LSTWrapperMerkl(address(freshProxy));
+
+        // Verify seed phase: totalSupply == 0 and maxMint returns 0
+        assertEq(freshWrapper.totalSupply(), 0, "Should be in seed phase");
+        assertEq(freshWrapper.maxMint(lstAdmin), 0, "maxMint should return 0 in seed phase");
+
+        // Give owner some vault shares to mint with
+        uint256 mintShares = 1000;
+        vm.prank(staker);
+        vault.transfer(lstAdmin, mintShares);
+
+        // Owner should be able to mint despite maxMint returning 0
+        vm.startPrank(lstAdmin);
+        vault.approve(address(freshWrapper), mintShares);
+        uint256 assetsUsed = freshWrapper.mint(mintShares, lstAdmin);
+        vm.stopPrank();
+
+        // Verify mint succeeded
+        assertEq(freshWrapper.balanceOf(lstAdmin), mintShares, "Owner should have minted shares");
+        assertGt(assetsUsed, 0, "Should have used some assets");
+        assertEq(freshWrapper.totalSupply(), mintShares, "Total supply should equal minted shares");
+    }
+
+    function test_Mint_NonOwnerCannotMintInSeedPhase() public {
+        // Deploy a fresh LSTWrapperMerkl to test seed phase behavior
+        LSTWrapperMerkl freshImpl = new LSTWrapperMerkl();
+        bytes memory initData = abi.encodeWithSelector(
+            LSTWrapperMerkl.initialize.selector,
+            lstAdmin,
+            address(vault),
+            address(merkleDistributor),
+            "Test Wrapper Merkl",
+            "TESTM"
+        );
+        TransparentUpgradeableProxy freshProxy = new TransparentUpgradeableProxy(
+            address(freshImpl),
+            lstAdmin,
+            initData
+        );
+        LSTWrapperMerkl freshWrapper = LSTWrapperMerkl(address(freshProxy));
+
+        // Verify seed phase
+        assertEq(freshWrapper.totalSupply(), 0, "Should be in seed phase");
+
+        // Give non-owner some vault shares
+        uint256 mintShares = 1000;
+        vm.prank(staker);
+        vault.transfer(lstUser1, mintShares);
+
+        // Non-owner should NOT be able to mint during seed phase
+        // Note: With deposits paused (default), they get DepositsPaused error first
+        vm.startPrank(lstUser1);
+        vault.approve(address(freshWrapper), mintShares);
+        vm.expectRevert(ILSTWrapper.LSTWrapper__DepositsPaused.selector);
+        freshWrapper.mint(mintShares, lstUser1);
+        vm.stopPrank();
+
+        // Even with deposits unpaused, non-owner still cannot mint in seed phase
+        vm.prank(lstAdmin);
+        freshWrapper.setDepositsPaused(false);
+
+        vm.startPrank(lstUser1);
+        vm.expectRevert(ILSTWrapper.LSTWrapper__OnlyOwnerFirstMint.selector);
+        freshWrapper.mint(mintShares, lstUser1);
+        vm.stopPrank();
+    }
+
     // ========== Merkl-Specific Tests ==========
     
     function test_MerkleDistributorAddress() public view {

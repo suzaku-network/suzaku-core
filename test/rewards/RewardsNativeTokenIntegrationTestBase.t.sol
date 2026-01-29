@@ -10,6 +10,7 @@ import {MockUptimeTracker} from "../mocks/MockUptimeTracker.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 import {MiddlewareTestBase} from "../middleware/MiddlewareTestBase.t.sol";
 import {Token} from "../mocks/MockToken.sol";
+import {MockCollateral} from "../mocks/MockCollateral.sol";
 import {IRewardsNativeToken} from "../../src/interfaces/rewards/IRewardsNativeToken.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {VaultTokenized} from "../../src/contracts/vault/VaultTokenized.sol";
@@ -89,24 +90,23 @@ contract RewardsNativeTokenIntegrationTestBase is MiddlewareTestBase {
         vm.prank(rewardsManager);
         rewards.setRewardsDistributorRole(rewardsDistributor);
 
-        // The native rewards token is automatically set from middleware.PRIMARY_ASSET() during initialization
-        // This should be the primary collateral
+        // The rewards token is the underlying asset of the primary collateral
         address rewardsTokenAddr = rewards.rewardsToken();
-        require(rewardsTokenAddr == address(collateral), "Rewards token should be primary collateral");
+        address expectedNativeToken = MockCollateral(address(collateral)).asset();
+        require(rewardsTokenAddr == expectedNativeToken, "Rewards token should be underlying asset");
         token = Token(rewardsTokenAddr);
         
-        // Transfer tokens to rewards distributor
-        // The MockCollateral was minted in the constructor to the test contract
-        uint256 balance = collateral.balanceOf(address(this));
-        collateral.transfer(rewardsDistributor, balance * 95 / 100); // Transfer 95% of balance
+        // Transfer native tokens to rewards distributor for funding
+        uint256 balance = token.balanceOf(address(this));
+        token.transfer(rewardsDistributor, balance * 95 / 100);
         vm.prank(rewardsDistributor);
-        collateral.approve(address(rewards), type(uint256).max);
+        token.approve(address(rewards), type(uint256).max);
 
         // 50‑30‑20 asset‑class split (matches MiddlewareTestBase)
         vm.startPrank(rewardsManager);
-        rewards.setRewardsShareForCollateralClass(1, 5000);
-        rewards.setRewardsShareForCollateralClass(2, 3000);
-        rewards.setRewardsShareForCollateralClass(3, 2000);
+        rewards.setRewardsBipsForCollateralClass(1, 5000);
+        rewards.setRewardsBipsForCollateralClass(2, 3000);
+        rewards.setRewardsBipsForCollateralClass(3, 2000);
         vm.stopPrank();
     }
 

@@ -5,15 +5,13 @@ pragma solidity 0.8.25;
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
-import {MiddlewareTestBase} from "./middleware/MiddlewareTestBase.t.sol";
+import {RewardsNativeTokenIntegrationTestBase} from "./rewards/RewardsNativeTokenIntegrationTestBase.t.sol";
 import {VaultHelper, PendingWithdraw, ClaimAmountsPerToken} from "../src/contracts/VaultHelper.sol";
 import {LSTWrapperFactory} from "../src/contracts/vault/LSTWrapperFactory.sol";
 import {MockFeeOnTransferToken} from "./mocks/MockFeeOnTransferToken.sol";
 import {IVaultTokenized} from "../src/interfaces/vault/IVaultTokenized.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Token} from "./mocks/MockToken.sol";
-import {MockRewardsNativeToken} from "./mocks/MockRewardsNativeToken.sol";
-import {RewardsNativeToken} from "../src/contracts/rewards/RewardsNativeToken.sol";
 import {DefaultCollateralFactory} from "../src/contracts/defaultCollateral/DefaultCollateralFactory.sol";
 import {IDefaultCollateral} from "../src/interfaces/defaultCollateral/IDefaultCollateral.sol";
 import {VaultTokenized} from "../src/contracts/vault/VaultTokenized.sol";
@@ -23,11 +21,9 @@ import {
     ITransparentUpgradeableProxy
 } from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
-contract VaultHelperTest is MiddlewareTestBase {
+contract VaultHelperTest is RewardsNativeTokenIntegrationTestBase {
     VaultHelper public vaultHelper;
     LSTWrapperFactory public lstWrapperFactory;
-    MockRewardsNativeToken public rewards;
-    Token public rewardsToken;
     Token public rewardsToken2;
     address public lstAdmin;
     address public factoryOwner;
@@ -56,8 +52,8 @@ contract VaultHelperTest is MiddlewareTestBase {
         factoryOwner = makeAddr("factoryOwner");
 
         // Deploy LSTWrapperFactory and whitelist implementation
-        lstWrapperFactory = new LSTWrapperFactory(factoryOwner);
-        
+        lstWrapperFactory = new LSTWrapperFactory(factoryOwner, address(vaultFactory));
+
         LSTWrapper wrapperImpl = new LSTWrapper();
         vm.prank(factoryOwner);
         lstWrapperFactory.whitelist(address(wrapperImpl));
@@ -139,10 +135,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         );
         vaultWithDC2 = VaultTokenized(vaultAddress2);
 
-        // Deploy mock rewards for the rewards tests
-        rewardsToken = new Token("Rewards");
         rewardsToken2 = new Token("Rewards2");
-        rewards = new MockRewardsNativeToken(address(middleware), address(vault), address(rewardsToken));
 
         // Deploy wrappers through factory (permissionless - anyone can call)
         lstWrapper1 = LSTWrapper(
@@ -438,6 +431,71 @@ contract VaultHelperTest is MiddlewareTestBase {
         vm.stopPrank();
     }
 
+    function test_GetVaultLatestDistributedRewards() public {
+        // Arrange
+        address mockRewards = makeAddr("mockRewards");
+
+        // RewardsNativeToken(rewards).middleware()
+        vm.mockCall(mockRewards, abi.encodeWithSignature("middleware()"), abi.encode(address(middleware)));
+
+        // Current epoch
+        uint48 currentEpoch = 100;
+        vm.mockCall(
+            address(middleware), abi.encodeWithSelector(middleware.getCurrentEpoch.selector), abi.encode(currentEpoch)
+        );
+
+        // Window to scan: start = 97, then 96, 95, 94, 93
+        // Make 97 and 96 not distributed; 95 distributed (selected)
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("epochStatus(uint48)", uint48(97)),
+            abi.encode(true, false) // (funded, distributionComplete)
+        );
+        vm.mockCall(mockRewards, abi.encodeWithSignature("epochStatus(uint48)", uint48(96)), abi.encode(true, false));
+        vm.mockCall(mockRewards, abi.encodeWithSignature("epochStatus(uint48)", uint48(95)), abi.encode(true, true));
+
+        // Rewards, share, and epoch start ts for epoch 95
+        uint256 rewardsFor95 = 2000 ether;
+        uint256 shareFor95 = 1500; // 15%
+        uint48 startTs95 = 950_000;
+        vm.mockCall(
+            mockRewards, abi.encodeWithSignature("getEpochRewards(uint48)", uint48(95)), abi.encode(rewardsFor95)
+        );
+        vm.mockCall(
+            mockRewards,
+            abi.encodeWithSignature("vaultShares(uint48,address)", uint48(95), address(vault)),
+            abi.encode(shareFor95)
+        );
+        vm.mockCall(
+            address(middleware),
+            abi.encodeWithSelector(middleware.getEpochStartTs.selector, uint48(95)),
+            abi.encode(startTs95)
+        );
+
+        uint256 amount = vaultHelper.getVaultLatestDistributedRewards(address(vault), mockRewards);
+
+        assertEq(amount, (rewardsFor95 * shareFor95) / 10_000, "amount mismatch");
+    }
+
+    function test_getVaultLatestDistributedRewards_NoEpochInWindow() public {
+        address mockRewards = makeAddr("mockRewards");
+        vm.mockCall(mockRewards, abi.encodeWithSignature("middleware()"), abi.encode(address(middleware)));
+
+        uint48 currentEpoch = 50;
+        vm.mockCall(
+            address(middleware), abi.encodeWithSelector(middleware.getCurrentEpoch.selector), abi.encode(currentEpoch)
+        );
+
+        // Window start = 47, scan 47..43, none distributed
+        for (uint48 e = 43; e <= 47; e++) {
+            vm.mockCall(mockRewards, abi.encodeWithSignature("epochStatus(uint48)", e), abi.encode(true, false));
+        }
+
+        uint256 amount = vaultHelper.getVaultLatestDistributedRewards(address(vault), mockRewards);
+
+        assertEq(amount, 0, "should return 0 when none distributed");
+    }
+
     function test_GetUserPendingWithdraws() public {
         // Use base vault from parent for this test
         // Setup: Make a withdrawal request
@@ -525,10 +583,7 @@ contract VaultHelperTest is MiddlewareTestBase {
     }
 
     // Rewards tests - properly set up to avoid arithmetic overflow
-    function test_GetStakerClaimableRewards() public {
-        // Since getStakerClaimableRewards expects an array of vaults and returns aggregated amounts,
-        // we'll test the simpler getStakerClaimableReward first and then test the array version
-
+    function test_GetStakerClaimableReward() public {
         // Test with real contracts setup
         address rewardToken = address(collateral);
         uint48 currentEpoch = 100;
@@ -596,22 +651,6 @@ contract VaultHelperTest is MiddlewareTestBase {
         // Expected: 4 epochs * (1000 ether * 50% * 25%) = 4 * 125 ether = 500 ether
         assertEq(claimAmount.token, rewardToken, "Token address mismatch");
         assertEq(claimAmount.amount, 500 ether, "Claim amount incorrect");
-
-        // Now test the array version
-        address[] memory tokens = new address[](1);
-        tokens[0] = rewardToken;
-
-        ClaimAmountsPerToken[] memory claimAmounts =
-            vaultHelper.getStakerClaimableRewards(alice, mockRewards, address(vault), tokens);
-
-        assertEq(claimAmounts.length, 1, "Should return one claim amount");
-        assertEq(claimAmounts[0].token, rewardToken, "Token address mismatch in array");
-        assertEq(claimAmounts[0].amount, 500 ether, "Claim amount incorrect in array");
-    }
-
-    function test_GetStakerClaimableReward() public {
-        // This test is already covered in test_GetStakerClaimableRewards above
-        // The getStakerClaimableReward function is tested there with proper mocking
     }
 
     function test_GetStakerClaimableRewardInRange() public {
@@ -687,12 +726,12 @@ contract VaultHelperTest is MiddlewareTestBase {
         // Test fromEpoch >= toEpoch
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
         vaultHelper.getStakerClaimableRewardInRange(
-            alice, address(rewards), address(vault), address(rewardsToken), 1055, 1055
+            alice, address(rewards), address(vault), address(token), 1055, 1055
         );
 
         vm.expectRevert(VaultHelper.VaultHelper__InvalidRange.selector);
         vaultHelper.getStakerClaimableRewardInRange(
-            alice, address(rewards), address(vault), address(rewardsToken), 1055, 1050
+            alice, address(rewards), address(vault), address(token), 1055, 1050
         );
     }
 
@@ -745,7 +784,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         uint256 amountWithdraw = amountDeposit / 2;
         vm.startPrank(staker);
         lstWrapper1.approve(address(vaultHelper), amountWithdraw);
-        vaultHelper.withdrawFromWrappedVault(staker, address(lstWrapper1), amountWithdraw);
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), amountWithdraw);
         vm.stopPrank();
 
         // Check balance after withdrawal
@@ -806,7 +845,7 @@ contract VaultHelperTest is MiddlewareTestBase {
         lstWrapper1.approve(address(vaultHelper), lstBalance);
 
         // --- PERFORM WITHDRAWAL ---
-        vaultHelper.withdrawFromWrappedVault(staker, address(lstWrapper1), lstBalance);
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), lstBalance);
         vm.stopPrank();
 
         // 4. DETECT THE BUG
@@ -826,18 +865,294 @@ contract VaultHelperTest is MiddlewareTestBase {
         // If you fix the bug, you should change the assertion to:
         assertEq(stuckFunds, 0, "Helper should be empty");
     }
+
+    /// @notice Test that attacker cannot redeem victim's shares (uses msg.sender now)
+    function test_WithdrawFromWrappedVault_AttackerCannotRedeemVictimShares() public {
+        uint256 depositAmount = 10_000 ether;
+        address attacker = makeAddr("attacker");
+
+        // 1. Victim stakes via VaultHelper
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), depositAmount);
+        vaultHelper.stakeAssetInWrappedVault(staker, address(lstWrapper1), depositAmount);
+        lstWrapper1.approve(address(vaultHelper), type(uint256).max);
+        vm.stopPrank();
+
+        uint256 victimLstBalance = lstWrapper1.balanceOf(staker);
+
+        // 2. Attacker tries to withdraw - but msg.sender is attacker, who has no shares
+        vm.startPrank(attacker);
+        lstWrapper1.approve(address(vaultHelper), type(uint256).max);
+        vm.expectRevert(); // Will revert due to insufficient balance
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), victimLstBalance);
+        vm.stopPrank();
+
+        // 3. Victim's shares are untouched
+        assertEq(lstWrapper1.balanceOf(staker), victimLstBalance, "Victim shares unchanged");
+    }
+
+    /// @notice Test that authorized withdrawals still work
+    function test_WithdrawFromWrappedVault_AuthorizedRedemption_Succeeds() public {
+        uint256 depositAmount = 10_000 ether;
+
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), depositAmount);
+        vaultHelper.stakeAssetInWrappedVault(staker, address(lstWrapper1), depositAmount);
+
+        uint256 lstBalance = lstWrapper1.balanceOf(staker);
+        lstWrapper1.approve(address(vaultHelper), lstBalance);
+
+        // User withdraws their own position - should succeed
+        vaultHelper.withdrawFromWrappedVault(address(lstWrapper1), lstBalance);
+        vm.stopPrank();
+
+        assertEq(lstWrapper1.balanceOf(staker), 0, "User should have withdrawn their shares");
+    }
+
+    // ============================================
+    // Malicious Wrapper Validation Tests
+    // ============================================
+
+    /// @notice Test that a malicious wrapper not in factory is rejected (invalid vault scenario)
+    function test_MaliciousWrapper_InvalidVault_Reverts() public {
+        address fakeVault = makeAddr("fakeVault");
+
+        // Deploy malicious wrapper that returns the correct vaultHelper but a fake vault
+        MaliciousLSTWrapper maliciousWrapper =
+            new MaliciousLSTWrapper(address(vaultHelper), fakeVault, defaultCollateral1, address(underlyingToken1));
+
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(vaultHelper), 1000 ether);
+
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(
+            abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper))
+        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that a malicious wrapper not in factory is rejected (collateral mismatch scenario)
+    function test_MaliciousWrapper_CollateralMismatch_Reverts() public {
+        // Deploy malicious wrapper that returns:
+        // - correct vaultHelper
+        // - valid vault (vaultWithDC1 which uses defaultCollateral1)
+        // - WRONG collateral (defaultCollateral2)
+        // - nativeToken matching the wrong collateral (underlyingToken2)
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(vaultHelper),
+            address(vaultWithDC1), // Valid vault in factory
+            defaultCollateral2, // WRONG collateral (vault uses defaultCollateral1)
+            address(underlyingToken2) // Asset of wrong collateral
+        );
+
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(vaultHelper), 1000 ether);
+
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(
+            abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper))
+        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that a malicious wrapper not in factory is rejected (asset mismatch scenario)
+    function test_MaliciousWrapper_AssetMismatch_Reverts() public {
+        // Deploy malicious wrapper that returns:
+        // - correct vaultHelper
+        // - valid vault (vaultWithDC1 which uses defaultCollateral1)
+        // - correct collateral (defaultCollateral1 which uses underlyingToken1)
+        // - WRONG nativeToken (underlyingToken2)
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(vaultHelper),
+            address(vaultWithDC1), // Valid vault
+            defaultCollateral1, // Correct collateral
+            address(underlyingToken2) // WRONG native token (should be underlyingToken1)
+        );
+
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(vaultHelper), 1000 ether);
+
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(
+            abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper))
+        );
+        vaultHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that withdrawFromWrappedVault validates wrapper is in factory
+    function test_WithdrawFromWrappedVault_InvalidVault_Reverts() public {
+        address fakeVault = makeAddr("fakeVault");
+
+        MaliciousLSTWrapper maliciousWrapper =
+            new MaliciousLSTWrapper(address(vaultHelper), fakeVault, defaultCollateral1, address(underlyingToken1));
+
+        vm.startPrank(staker);
+        // Should revert because the wrapper is not in the factory registry
+        vm.expectRevert(
+            abi.encodeWithSelector(VaultHelper.VaultHelper__LSTWrapperMismatch.selector, address(maliciousWrapper))
+        );
+        vaultHelper.withdrawFromWrappedVault(address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test that LSTWrapperFactory rejects wrapper creation with invalid vault
+    function test_LSTWrapperFactory_InvalidVault_Reverts() public {
+        address fakeVault = makeAddr("fakeVault");
+
+        vm.expectRevert(abi.encodeWithSelector(LSTWrapperFactory.LSTWrapperFactory__InvalidVault.selector, fakeVault));
+        lstWrapperFactory.create(
+            1, // version
+            factoryOwner, // admin
+            fakeVault, // invalid vault
+            address(0), // rewards
+            "Test LST",
+            "tLST"
+        );
+    }
+
+    /// @notice Test defense-in-depth: VaultHelper rejects if registered wrapper points to invalid vault
+    /// @dev This uses a mock factory to simulate a wrapper being registered despite having invalid vault
+    function test_VaultHelper_DefenseInDepth_InvalidVaultInRegisteredWrapper() public {
+        // Create a permissive mock factory that registers any wrapper
+        MockPermissiveFactory mockFactory = new MockPermissiveFactory();
+
+        // Create VaultHelper with the mock LST factory but real vault factory
+        VaultHelper testHelper = new VaultHelper(address(vaultFactory), address(mockFactory));
+
+        // Deploy malicious wrapper pointing to fake vault
+        address fakeVault = makeAddr("fakeVault");
+        MaliciousLSTWrapper maliciousWrapper =
+            new MaliciousLSTWrapper(address(testHelper), fakeVault, defaultCollateral1, address(underlyingToken1));
+
+        // Register the malicious wrapper in mock factory
+        mockFactory.registerEntity(address(maliciousWrapper));
+
+        vm.startPrank(staker);
+        underlyingToken1.approve(address(testHelper), 1000 ether);
+
+        // Should revert with InvalidVault because vault is not in VAULT_FACTORY
+        vm.expectRevert(abi.encodeWithSelector(VaultHelper.VaultHelper__InvalidVault.selector, fakeVault));
+        testHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test defense-in-depth: VaultHelper rejects collateral mismatch even if wrapper is registered
+    function test_VaultHelper_DefenseInDepth_CollateralMismatch() public {
+        // Create a permissive mock factory
+        MockPermissiveFactory mockFactory = new MockPermissiveFactory();
+        VaultHelper testHelper = new VaultHelper(address(vaultFactory), address(mockFactory));
+
+        // Deploy malicious wrapper with valid vault but WRONG collateral
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(testHelper),
+            address(vaultWithDC1), // Valid vault (uses defaultCollateral1)
+            defaultCollateral2, // WRONG collateral
+            address(underlyingToken2)
+        );
+
+        mockFactory.registerEntity(address(maliciousWrapper));
+
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(testHelper), 1000 ether);
+
+        // Should revert with CollateralMismatch
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VaultHelper.VaultHelper__CollateralMismatch.selector,
+                defaultCollateral1, // expected (from vault)
+                defaultCollateral2 // actual (from wrapper)
+            )
+        );
+        testHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
+
+    /// @notice Test defense-in-depth: VaultHelper rejects asset mismatch even if wrapper is registered
+    function test_VaultHelper_DefenseInDepth_AssetMismatch() public {
+        // Create a permissive mock factory
+        MockPermissiveFactory mockFactory = new MockPermissiveFactory();
+        VaultHelper testHelper = new VaultHelper(address(vaultFactory), address(mockFactory));
+
+        // Deploy malicious wrapper with valid vault, correct collateral, but WRONG nativeToken
+        MaliciousLSTWrapper maliciousWrapper = new MaliciousLSTWrapper(
+            address(testHelper),
+            address(vaultWithDC1), // Valid vault
+            defaultCollateral1, // Correct collateral
+            address(underlyingToken2) // WRONG native token
+        );
+
+        mockFactory.registerEntity(address(maliciousWrapper));
+
+        vm.startPrank(staker);
+        underlyingToken2.approve(address(testHelper), 1000 ether);
+
+        // Should revert with AssetMismatch
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                VaultHelper.VaultHelper__AssetMismatch.selector,
+                address(underlyingToken1), // expected (from collateral)
+                address(underlyingToken2) // actual (from wrapper)
+            )
+        );
+        testHelper.stakeAssetInWrappedVault(staker, address(maliciousWrapper), 1000 ether);
+        vm.stopPrank();
+    }
 }
 
 contract MockLSTWrapper {
     function nativeToken() external pure returns (address) {
         return address(0);
     }
-    
+
     function collateral() external pure returns (address) {
         return address(0);
     }
-    
+
     function vault() external pure returns (address) {
         return address(0);
+    }
+}
+
+/// @notice Malicious wrapper that can return arbitrary addresses for vault, collateral, and nativeToken
+contract MaliciousLSTWrapper {
+    address public vaultHelper;
+    address public vault;
+    address public collateral;
+    address public nativeToken;
+
+    constructor(address _vaultHelper, address _vault, address _collateral, address _nativeToken) {
+        vaultHelper = _vaultHelper;
+        vault = _vault;
+        collateral = _collateral;
+        nativeToken = _nativeToken;
+    }
+
+    // Minimal ILSTWrapper interface to pass the checks
+    function deposit(uint256, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function redeem(uint256, address, address) external pure returns (uint256) {
+        return 0;
+    }
+}
+
+/// @notice Mock factory that registers any wrapper (for testing defense-in-depth)
+contract MockPermissiveFactory {
+    mapping(address => bool) private _entities;
+
+    function registerEntity(
+        address entity
+    ) external {
+        _entities[entity] = true;
+    }
+
+    function isEntity(
+        address entity
+    ) external view returns (bool) {
+        return _entities[entity];
     }
 }

@@ -21,12 +21,16 @@ contract LSTWrapperFactory is Ownable, IRegistry {
     EnumerableSet.AddressSet private _whitelistedImplementations;
     EnumerableSet.AddressSet private _entities;
 
+    /// @notice Vault factory for vault validation
+    IRegistry public immutable VAULT_FACTORY;
+
     // Errors
     error LSTWrapperFactory__InvalidImplementation();
     error LSTWrapperFactory__AlreadyWhitelisted();
     error LSTWrapperFactory__InvalidVersion();
     error LSTWrapperFactory__AlreadyBlacklisted();
     error LSTWrapperFactory__VersionBlacklisted();
+    error LSTWrapperFactory__InvalidVault(address vault);
 
     /**
      * @notice Mapping of blacklisted versions
@@ -52,7 +56,9 @@ contract LSTWrapperFactory is Ownable, IRegistry {
         _;
     }
 
-    constructor(address owner_) Ownable(owner_) {}
+    constructor(address owner_, address vaultFactory_) Ownable(owner_) {
+        VAULT_FACTORY = IRegistry(vaultFactory_);
+    }
 
     /**
      * @notice Get the last available version
@@ -107,12 +113,13 @@ contract LSTWrapperFactory is Ownable, IRegistry {
      * @notice Create a new LSTWrapper from a whitelisted implementation
      * @param version implementation version to use
      * @param admin admin address for the wrapper (owner and ProxyAdmin)
-     * @param vault VaultTokenized address to wrap
+     * @param vault VaultTokenized address to wrap (must be a VAULT_FACTORY entity)
      * @param rewards Rewards contract address
      * @param name ERC20 name for the wrapper token
      * @param symbol ERC20 symbol for the wrapper token
      * @return entity_ address of the deployed wrapper
      * @dev Permissionless - anyone can deploy from whitelisted implementations
+     * @dev Validates vault is registered in VAULT_FACTORY before deployment
      */
     function create(
         uint64 version,
@@ -125,6 +132,11 @@ contract LSTWrapperFactory is Ownable, IRegistry {
         // Ensure the version is not blacklisted
         if (blacklisted[version]) {
             revert LSTWrapperFactory__VersionBlacklisted();
+        }
+
+        // Validate vault is a trusted factory entity
+        if (!VAULT_FACTORY.isEntity(vault)) {
+            revert LSTWrapperFactory__InvalidVault(vault);
         }
 
         // Prepare initialization data

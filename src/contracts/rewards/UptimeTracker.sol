@@ -41,10 +41,28 @@ contract UptimeTracker is IUptimeTracker {
     /// @notice Mapping of epoch to operator uptime set.
     mapping(uint48 epoch => mapping(address operator => bool isSet)) public isOperatorUptimeSet;
 
+    /// @notice Tracks the epoch in which operator uptime was computed (epoch+1 sentinel)..
+    mapping(uint48 epoch => mapping(address operator => uint48 epochPlusOne)) private operatorUptimeComputedAtEpochPlusOne;
+
+    /// @notice Mapping of validation ID to highest uptime seen (monotonicity guard).
+    mapping(bytes32 validationID => uint256 highestUptime) public validatorHighestUptime;
+
+    /// @notice Snapshot of checkpoint state at the start of the current epoch.
+    mapping(bytes32 validationID => EpochBaseline baseline) private validatorEpochBaseline;
+
+    /// @notice Epoch baseline struct.
+    struct EpochBaseline {
+        uint48 epoch;
+        LastUptimeCheckpoint checkpoint;
+    }
+
     constructor(
         address payable middleware_,
         bytes32 uptimeBlockchainID_
     ) {
+        if (middleware_ == address(0)) revert UptimeTracker__InvalidMiddleware();
+        if (uptimeBlockchainID_ == bytes32(0)) revert UptimeTracker__InvalidBlockchainID();
+
         middleware = AvalancheL1Middleware(middleware_);
         epochDuration = middleware.EPOCH_DURATION();
         validatorManager = BalancerValidatorManager(middleware.BALANCER());
@@ -73,6 +91,12 @@ contract UptimeTracker is IUptimeTracker {
         // Unpack the uptime message
         (bytes32 validationID, uint256 uptime) = ValidatorMessages.unpackValidationUptimeMessage(warpMessage.payload);
 
+        uint256 stored = validatorHighestUptime[validationID];
+        if (stored > 0 && uptime <= stored) {
+            return;
+        }
+        validatorHighestUptime[validationID] = uptime;
+
         LastUptimeCheckpoint storage lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
 
         // No timestamp means no initial checkpoint
@@ -86,16 +110,24 @@ contract UptimeTracker is IUptimeTracker {
             lastUptimeCheckpoint = validatorLastUptimeCheckpoint[validationID];
         }
 
-        // Get last checkpoint epoch start
-        uint48 lastUptimeEpoch = middleware.getEpochAtTs(uint48(lastUptimeCheckpoint.timestamp));
-        uint256 lastUptimeEpochStart = middleware.getEpochStartTs(lastUptimeEpoch);
-
         // Get current epoch start
         uint48 currentEpoch = middleware.getEpochAtTs(uint48(block.timestamp));
         uint256 currentEpochStart = middleware.getEpochStartTs(currentEpoch);
 
-        // Calculate the recorded uptime since the last checkpoint
-        uint256 recordedUptime = lastUptimeCheckpoint.remainingUptime + (uptime - lastUptimeCheckpoint.attributedUptime);
+        // Snapshot checkpoint state for this epoch so later calls in the same epoch can reprocess with higher uptime.
+        EpochBaseline storage baseline = validatorEpochBaseline[validationID];
+        if (baseline.epoch != currentEpoch) {
+            baseline.epoch = currentEpoch;
+            baseline.checkpoint = lastUptimeCheckpoint;
+        }
+        LastUptimeCheckpoint memory base = baseline.checkpoint;
+
+        // Always compute from `base` (the checkpoint as of the first call in this epoch)
+        uint48 lastUptimeEpoch = middleware.getEpochAtTs(uint48(base.timestamp));
+        uint256 lastUptimeEpochStart = middleware.getEpochStartTs(lastUptimeEpoch);
+
+        // Calculate the recorded uptime since the last checkpoint (from the epoch baseline)
+        uint256 recordedUptime = base.remainingUptime + (uptime - base.attributedUptime);
 
         // Check if current epoch is before the validator's start epoch
         if (currentEpoch < lastUptimeEpoch) {
@@ -120,6 +152,9 @@ contract UptimeTracker is IUptimeTracker {
             timestamp: currentEpochStart // Move the checkpoint forward
         });
 
+        // Advance the real checkpoint to currentEpochStart on every call.
+        // This ensures that next epoch processing remains correct.
+
         // Distribute the recorded uptime across multiple epochs
         if (elapsedEpochs >= 1) {
             uint256 uptimePerEpoch = uptimeToDistribute / elapsedEpochs;
@@ -132,16 +167,19 @@ contract UptimeTracker is IUptimeTracker {
                     i++;
                 }
 
-                // Skip epochs already processed
-                if (isValidatorUptimeSet[epoch][validationID] == true) {
-                    continue;
-                }
-
                 uint256 epochUptime = uptimePerEpoch;
                 // Distribute the leftover seconds one by one to the earliest available epochs
                 if (remainder > 0) {
                     epochUptime += 1;
                     remainder -= 1;
+                }
+
+                // Allow in-epoch reprocessing to correct earlier (stale) distributions.
+                // Values only ever increase due to validatorHighestUptime monotonicity.
+                if (isValidatorUptimeSet[epoch][validationID] == true) {
+                    if (epochUptime <= validatorUptimePerEpoch[epoch][validationID]) {
+                        continue;
+                    }
                 }
 
                 validatorUptimePerEpoch[epoch][validationID] = epochUptime;
@@ -156,24 +194,54 @@ contract UptimeTracker is IUptimeTracker {
      * @inheritdoc IUptimeTracker
      */
     function computeOperatorUptimeAt(address operator, uint48 epoch) external {
-        bytes32[] memory operatorNodes = middleware.getActiveNodesForEpoch(operator, epoch);
-        uint256 numberOfValidators = operatorNodes.length;
-        if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
+        uint48 currentEpoch = middleware.getEpochAtTs(uint48(block.timestamp));
+        uint48 currentEpochPlusOne = currentEpoch + 1;
+
+        // Allow reprocessing only within the same current epoch, otherwise keep write-once revert.
+        if (isOperatorUptimeSet[epoch][operator]) {
+            if (operatorUptimeComputedAtEpochPlusOne[epoch][operator] != currentEpochPlusOne) {
+                revert UptimeTracker__OperatorUptimeAlreadySet(epoch, operator);
+            }
+        }
+
+        bytes32[] memory operatorValidationIDs = middleware.getOperatorValidationIDs(operator);
+        uint48 epochStartTs = middleware.getEpochStartTs(epoch);
+        uint256 numberOfValidators = 0;
         uint256 sumValidatorsUptime = 0;
-        
-        for (uint256 i = 0; i < numberOfValidators; i++) {
-            bytes32 validationID = validatorManager.getNodeValidationID(abi.encodePacked(uint160(uint256(operatorNodes[i]))));
+
+        for (uint256 i = 0; i < operatorValidationIDs.length; i++) {
+            bytes32 validationID = operatorValidationIDs[i];
+
+            Validator memory v = validatorManager.getValidator(validationID);
+            uint48 start = uint48(v.startTime);
+            uint48 end = uint48(v.endTime);
+            if (start == 0 || start > epochStartTs || (end != 0 && end <= epochStartTs)) {
+                continue;
+            }
+
             if (isValidatorUptimeSet[epoch][validationID] == false) {
                 revert UptimeTracker__ValidatorUptimeNotRecorded(epoch, validationID);
             }
-            uint256 uptimeValidator = validatorUptimePerEpoch[epoch][validationID];
-            sumValidatorsUptime += uptimeValidator;
+            sumValidatorsUptime += validatorUptimePerEpoch[epoch][validationID];
+            numberOfValidators += 1;
         }
 
-        operatorUptimePerEpoch[epoch][operator] = sumValidatorsUptime / numberOfValidators;
-        isOperatorUptimeSet[epoch][operator] = true;
+        if (numberOfValidators == 0) revert UptimeTracker__NoValidators(operator, epoch);
 
-        emit OperatorUptimeComputed(operator, epoch, sumValidatorsUptime / numberOfValidators);
+        uint256 computed = sumValidatorsUptime / numberOfValidators;
+
+        if (isOperatorUptimeSet[epoch][operator]) {
+            uint256 prev = operatorUptimePerEpoch[epoch][operator];
+            if (computed <= prev) {
+                return;
+            }
+        }
+
+        operatorUptimePerEpoch[epoch][operator] = computed;
+        isOperatorUptimeSet[epoch][operator] = true;
+        operatorUptimeComputedAtEpochPlusOne[epoch][operator] = currentEpochPlusOne;
+
+        emit OperatorUptimeComputed(operator, epoch, computed);
     }
 
     /**

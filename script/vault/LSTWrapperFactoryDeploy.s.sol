@@ -15,9 +15,10 @@ contract DeployLSTWrapperFactory is Script {
     /**
      * @notice Execute LSTWrapperFactory deployment
      * @param owner Owner of the factory (can whitelist/blacklist implementations)
+     * @param vaultFactory VaultFactory address for vault validation
      * @return factory Address of deployed LSTWrapperFactory
      */
-    function executeLSTWrapperFactoryDeployment(address owner)
+    function executeLSTWrapperFactoryDeployment(address owner, address vaultFactory)
         public
         returns (address factory)
     {
@@ -27,7 +28,7 @@ contract DeployLSTWrapperFactory is Script {
             vm.startBroadcast();
         }
 
-        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(owner);
+        LSTWrapperFactory lstWrapperFactory = new LSTWrapperFactory(owner, vaultFactory);
         factory = address(lstWrapperFactory);
 
         if (!isTest) {
@@ -37,6 +38,7 @@ contract DeployLSTWrapperFactory is Script {
         console2.log("LSTWrapperFactory deployed:");
         console2.log("- Address:", factory);
         console2.log("- Owner:", owner);
+        console2.log("- VaultFactory:", vaultFactory);
     }
 }
 

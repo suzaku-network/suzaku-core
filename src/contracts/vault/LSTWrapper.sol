@@ -221,7 +221,14 @@ contract LSTWrapper is
         if (lws.depositsPaused && !(isFirstMint && msg.sender == owner())) revert LSTWrapper__DepositsPaused();
         if (isFirstMint && msg.sender != owner()) revert LSTWrapper__OnlyOwnerFirstMint();
         // Note: Deposit limit enforcement is handled by the underlying vault
-        
+
+        // For owner first mint, bypass maxMint check by calling _deposit directly
+        if (isFirstMint && msg.sender == owner()) {
+            assets = previewMint(shares);
+            _deposit(_msgSender(), receiver, assets, shares);
+            return assets;
+        }
+
         return super.mint(shares, receiver);
     }
 

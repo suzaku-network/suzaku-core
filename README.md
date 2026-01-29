@@ -112,7 +112,9 @@ Check **[Suzaku Deployer](https://github.com/suzaku/suzaku-deployer)** for infor
 - [Vault Documentation](./docs/vault.md): Comprehensive vault mechanics and integration patterns
 - [Middleware Documentation](./docs/middleware.md): Middleware-specific details and validator management
 - [Rewards Documentation](./docs/rewards.md): Rewards system deep dive
-- [BalancerValidatorManager](./lib/suzaku-contracts-library/src/contracts/ValidatorManager/README.md): Security module architecture
+- [Uptime Tracker](./docs/6-uptimeTracker.md): Validator uptime tracking and distribution
+- [BalancerValidatorManager](./docs/9-balancer-validator-manager.md): Multi-tenant security module architecture
+- [ICM & P-Chain Integration](./docs/10-icm-pchain-integration.md): Comprehensive guide to ICM validator management, P-Chain communication, Warp messaging, and uptime
 - [Post-Audit Updates](./post-audit-updates.md): Changes from audit baseline to current implementation
 
 ## Security

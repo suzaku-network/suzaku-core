@@ -36,6 +36,43 @@ The middleware orchestrates validator management and stake tracking for Avalanch
 
 **AvalancheL1Middleware** bridges restaking infrastructure with Avalanche's validator management system. It implements the `ISecurityModule` interface, managing operator lifecycle, node registration, and stake allocation across multiple collateral classes.
 
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e2e8f0', 'primaryTextColor': '#1e293b', 'lineColor': '#64748b'}}}%%
+flowchart LR
+    subgraph OPERATOR["Operator Lifecycle"]
+        direction TB
+        OR[Register] --> OE[Enable]
+        OE --> OD[Disable]
+        OD --> ORM[Remove]
+    end
+
+    subgraph NODE["Node Lifecycle"]
+        direction TB
+        NA[addNode] --> NR[completeRegistration]
+        NR --> NU[updateNodeWeight]
+        NU --> NRM[removeNode]
+        NRM --> NC[completeRemoval]
+    end
+
+    subgraph PCHAIN["P-Chain"]
+        VAL((Validators))
+    end
+
+    OPERATOR --> NODE
+    NODE -->|ICM| PCHAIN
+
+    style OR fill:#22c55e,color:#fff
+    style OE fill:#22c55e,color:#fff
+    style OD fill:#f97316,color:#fff
+    style ORM fill:#ef4444,color:#fff
+    style NA fill:#3b82f6,color:#fff
+    style NR fill:#3b82f6,color:#fff
+    style NU fill:#eab308,color:#1e293b
+    style NRM fill:#ef4444,color:#fff
+    style NC fill:#ef4444,color:#fff
+    style VAL fill:#64748b,color:#fff
+```
+
 **Key responsibilities:**
 - Operator and node lifecycle management
 - Multi-collateral stake tracking and weight calculation
@@ -174,6 +211,7 @@ The middleware initiates validator operations (registration, removal, weight upd
 - Locks/unlocks stake delta
 - Initiates weight update via balancer
 - Completion via `completeValidatorWeightUpdate(messageIndex)` (permissionless)
+- Nodes in `PendingWeightUpdate` state are skipped; complete pending updates first if needed
 
 **Node Removal:**
 - Operator calls `removeNode(nodeId)`
@@ -237,16 +275,19 @@ Ensures:
 ```mermaid
 graph LR
     subgraph "Epoch N"
-        A[Operators have nodes<br/>with weights from N-1]
-        B[Mid-epoch changes:<br/>locked stake, pending flags]
-        C[Update window:<br/>force node updates]
+        A[Nodes use weights<br/>cached at N-1]
+        B[Mid-epoch changes<br/>lock stake + set<br/>pending flags]
+        C[Update window<br/>forceUpdateNodes]
     end
     
-    subgraph "Epoch N → N+1 Transition"
-        D[Resolve pending<br/>registrations/removals]
-        E[Update node<br/>stake cache]
-        F[Unlock stake deltas<br/>from completed updates]
-        G[Carry forward<br/>active nodes]
+    subgraph "Transition (lazy, on first op)"
+        D[_updateGlobalNodeStakeOncePerEpoch]
+        E[Process pending<br/>removals per operator]
+        F[Carry forward<br/>nodeStakeCache]
+    end
+
+    subgraph "Async (on P-Chain ack)"
+        G[completeValidatorWeightUpdate<br/>unlocks stake delta]
     end
     
     A --> B
@@ -254,16 +295,22 @@ graph LR
     C --> D
     D --> E
     E --> F
-    F --> G
+    C -.-> G
     
     style A fill:#e3f2fd
     style B fill:#fff3e0
     style C fill:#ffebee
     style D fill:#e8f5e9
     style E fill:#f3e5f5
-    style F fill:#fce4ec
-    style G fill:#e1f5fe
+    style F fill:#e1f5fe
+    style G fill:#fce4ec
 ```
+
+**Key mechanics:**
+- **Lazy transition**: `_updateGlobalNodeStakeOncePerEpoch()` runs on first operation in new epoch
+- **Carry forward**: `nodeStakeCache[epoch][valID] = nodeStakeCache[prevEpoch][valID]` for active nodes
+- **Stake unlock**: Happens in `completeValidatorWeightUpdate` when P-Chain acknowledges, not at epoch boundary
+- **Manual fallback**: If too many epochs pending, use `manualProcessNodeStakeCache(numEpochs)`
 
 **Node Stake Cache Updates:**
 - Automatic during first operation in new epoch (if gas permits)
@@ -274,10 +321,11 @@ graph LR
 
 ## Time Windows
 
-**Slashing Window:**
-- Duration: `SLASHING_WINDOW` (e.g., 7 days)
-- Prevents withdrawal during potential slashing period
-- Must be ≥ epoch duration
+**Grace Period (`SLASHING_WINDOW`):**
+- Duration: e.g., 7 days
+- Operator must wait this period after `disableOperator` before `removeOperator` can be called
+- Also limits stake recalculation to epochs within this window
+- **Note:** No actual slashing is implemented — only rewards can be lost for poor uptime
 
 **Update Window:**
 - Duration: `UPDATE_WINDOW` (final portion of epoch)
@@ -322,14 +370,17 @@ graph LR
 - `removeOperator(operator)` - Permanently remove operator
 
 ### Node Operations (Operator-callable)
-- `addNode(nodeId, weight)` - Register new validator node
+- `addNode(nodeId, blsKey, remainingBalanceOwner, disableOwner, stakeAmount)` - Register new validator node. Validates canonical nodeId format (high 96 bits must be zero).
 - `removeNode(nodeId)` - Remove validator node  
 - `initializeValidatorStakeUpdate(nodeId, stakeAmount)` - Manually update a specific node's weight
 
 ### Completion Functions (Permissionless)
 - `completeValidatorRegistration(messageIndex)` - Complete node registration
-- `completeValidatorRemoval(messageIndex)` - Complete node removal
+- `completeValidatorRemoval(messageIndex)` - Complete node removal. Also handles cleanup for expired/invalidated registrations.
 - `completeValidatorWeightUpdate(messageIndex)` - Complete weight update
+
+### Query Functions
+- `getOperatorValidationIDs(operator)` - Returns all validationIDs ever registered by an operator (append-only, for historical uptime tracking)
 
 ### Collateral Management
 - `addCollateralClass(classId, minStake, maxStake, asset)` - Create new collateral class
@@ -346,16 +397,98 @@ graph LR
 
 ## Storage Per Operator
 
+### Node State Tracking
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e2e8f0', 'lineColor': '#64748b'}}}%%
+flowchart LR
+    subgraph ADD["addNode"]
+        direction TB
+        A1[nodes.add]
+        A2[nodesArray.push]
+        A3[valIDs.push]
+        A4[stakeCache = X]
+        A1 --> A2 --> A3 --> A4
+    end
+
+    subgraph UPDATE["weightUpdate"]
+        direction TB
+        U1[_pendingStake = X]
+        U2[lockedStake += delta]
+        U3[initiate → P-Chain]
+        U4[complete: cache next]
+        U5[unlock delta]
+        U1 --> U2 --> U3 --> U4 --> U5
+    end
+
+    subgraph REMOVE["removeNode"]
+        direction TB
+        R1[pending = true]
+        R2[stakeCache next = 0]
+        R3[initiate → P-Chain]
+        R4[complete: cleanup]
+        R1 --> R2 --> R3 --> R4
+    end
+
+    subgraph HIST["Historical"]
+        direction TB
+        H1[operatorNodes]
+        H2[validationIDsArray]
+        H1 --> H2
+    end
+
+    ADD --> UPDATE
+    ADD --> REMOVE
+    ADD --> HIST
+    UPDATE --> REMOVE
+
+    style A1 fill:#22c55e,color:#fff
+    style A2 fill:#22c55e,color:#fff
+    style A3 fill:#22c55e,color:#fff
+    style A4 fill:#22c55e,color:#fff
+    style U1 fill:#eab308,color:#1e293b
+    style U2 fill:#eab308,color:#1e293b
+    style U3 fill:#eab308,color:#1e293b
+    style U4 fill:#eab308,color:#1e293b
+    style U5 fill:#eab308,color:#1e293b
+    style R1 fill:#ef4444,color:#fff
+    style R2 fill:#ef4444,color:#fff
+    style R3 fill:#ef4444,color:#fff
+    style R4 fill:#ef4444,color:#fff
+    style H1 fill:#3b82f6,color:#fff
+    style H2 fill:#3b82f6,color:#fff
+```
+
+**State transitions:**
+
+| Operation | State Changes |
+|-----------|---------------|
+| `addNode` | `operatorNodes.add`, `operatorNodesArray.push`, `validationIDsArray.push`, `nodeStakeCache[epoch] = stake` |
+| `initiateWeightUpdate` | `_pendingStake = newStake`, `operatorLockedStake += delta` |
+| `completeWeightUpdate` | `nodeStakeCache[epoch+1] = newStake`, unlock delta from `operatorLockedStake` |
+| `removeNode` | `nodePendingRemoval = true`, `nodeStakeCache[epoch+1] = 0` |
+| `completeRemoval` | `_removeNodeFromArray()`, `nodePendingRemoval = false`, cleanup |
+
+**Two-tier node tracking:**
+- **`operatorNodes`** (Set) — permanent record, never removes nodes. Used for `getActiveNodesForEpoch()` historical queries
+- **`operatorNodesArray`** (Array) — mutable, cleaned up on epoch transitions. Used for iteration during rebalancing
+
+**Historical data (append-only):**
+- **`operatorValidationIDsArray`** — all validationIDs ever registered. Used by UptimeTracker to find validators active during past epochs
+
 **Per operator:**
 - `operators[operator]` - Registration status, enabled/disabled
-- `operatorNodes[operator]` - Array of nodeIds
+- `operatorNodes[operator]` - EnumerableSet of nodeIds (permanent record)
+- `operatorNodesArray[operator]` - Array of nodeIds for iteration (cleaned up on epoch transitions)
+- `operatorValidationIDsArray[operator]` - Append-only array of all validationIDs ever registered (for historical uptime)
 - `operatorStakeCache[epoch][operator][collateralClass]` - Historical stake snapshots
 
 **Per node:**
 - `validationIdToOperator[validationId]` - Operator owner (private)
-- `nodeToValidationId[nodeId]` - Current validation ID
-- `nodePendingUpdate[nodeId]` - Weight update pending flag
-- `nodePendingRemoval[nodeId]` - Removal pending flag
+- `pendingRemovalValId[nodeId]` - ValidationID pending removal for this nodeId
+- `nodePendingUpdate[validationId]` - Weight update pending flag
+- `nodePendingRemoval[validationId]` - Removal pending flag
+- `nodeStakeCache[epoch][validationId]` - Stake per epoch (carried forward or set to 0)
 
 **Global:**
 - `lastGlobalNodeStakeUpdateEpoch` - Last epoch with cache updates
@@ -385,7 +518,7 @@ graph LR
 
 **Downstream (Used by):**
 - `MiddlewareVaultManager` - Vault registration and limits
-- `Rewards` - Stake cache for reward distribution
+- `RewardsNativeToken` - Stake cache for reward distribution
 - `UptimeTracker` - Node validation ID lookups
 
 ---
@@ -409,13 +542,15 @@ graph LR
 5. Anyone calls `completeValidatorWeightUpdate(messageIndex)`
 6. Next epoch begins with new weight
 
+**Note:** `forceUpdateNodes` skips nodes in `PendingWeightUpdate` state. If enforcement is needed and nodes are pending, first complete pending updates via `completeValidatorWeightUpdate`, then call `forceUpdateNodes`.
+
 ### Adding a Secondary Collateral Class
 
 1. Call `addCollateralClass(classId, minStake, 0, initialAsset)`
 2. Optionally `addAssetToClass(classId, otherAssets)` for multiple assets
 3. Call `activateSecondaryCollateralClass(classId)`
 4. Register vaults with this collateral class via `MiddlewareVaultManager`
-5. Set reward share via `Rewards.setRewardsShareForCollateralClass(classId, basisPoints)`
+5. Set reward share via `RewardsNativeToken.setRewardsBipsForCollateralClass(classId, basisPoints)`
 
 ---
 
@@ -426,9 +561,13 @@ graph LR
 - `AvalancheL1Middleware__OperatorNotOptedIn` - Operator hasn't opted into L1 or balancer
 - `AvalancheL1Middleware__InsufficientStake` - Not enough free stake for operation
 - `AvalancheL1Middleware__InvalidWindow` - Operation outside allowed time window
-- `AvalancheL1Middleware__NodePending` - Node has pending operation
+- `AvalancheL1Middleware__NodePending` - Node has pending operation (includes pending removal, weight update, or re-add attempt with pending removal)
 - `AvalancheL1Middleware__NodeNotFound` - Node doesn't exist or not owned by operator
+- `AvalancheL1Middleware__InvalidNodeIdFormat` - NodeId has non-zero high 96 bits (not canonical format)
 - `CollateralClassRegistry__AssetDecimalsMismatch` - Asset decimals don't match class
+
+**Known edge case:**
+- Calling `removeOperator` on an operator that was never disabled will cause an underflow panic in `getEpochAtTs(0)`. Always call `disableOperator` first, then wait for the grace period before calling `removeOperator`.
 
 ---
 
@@ -466,6 +605,6 @@ graph LR
 ## Related Documentation
 
 - [BalancerValidatorManager](../lib/suzaku-contracts-library/src/contracts/ValidatorManager/README.md) - Security module architecture
-- [Rewards](./rewards.md) - Stake cache usage in reward distribution
-- [Protocol Overview](./overview.md) - Full protocol architecture
+- [RewardsNativeToken](./5-rewardsNativeToken.md) - Stake cache usage in reward distribution
+- [Protocol Overview](./1-overview.md) - Full protocol architecture
 - [Post-Audit Updates](../post-audit-updates.md) - Recent changes and migrations

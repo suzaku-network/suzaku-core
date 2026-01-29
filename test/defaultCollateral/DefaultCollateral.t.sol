@@ -8,8 +8,8 @@ import {DefaultCollateralFactory} from "src/contracts/defaultCollateral/DefaultC
 import {DefaultCollateral} from "src/contracts/defaultCollateral/DefaultCollateral.sol";
 import {IDefaultCollateral} from "src/interfaces/defaultCollateral/IDefaultCollateral.sol";
 
-import {Token} from "test/mocks/Token.sol";
-import {FeeOnTransferToken} from "test/mocks/FeeOnTransferToken.sol";
+import {Token} from "test/mocks/MockToken.sol";
+import {MockFeeOnTransferToken} from "test/mocks/MockFeeOnTransferToken.sol";
 import {PermitToken} from "test/mocks/PermitToken.sol";
 import {DAILikeToken} from "test/mocks/DAILikeToken.sol";
 
@@ -66,7 +66,7 @@ contract DefaultCollateralTest is Test {
 
         token = IERC20(new Token("Token"));
         feeOnTransferToken = IERC20(
-            new FeeOnTransferToken("FeeOnTransferToken")
+            new MockFeeOnTransferToken("FeeOnTransferToken")
         );
         permitToken = IERC20(new PermitToken("PermitToken"));
         daiLikeToken = IERC20(new DAILikeToken(block.chainid));

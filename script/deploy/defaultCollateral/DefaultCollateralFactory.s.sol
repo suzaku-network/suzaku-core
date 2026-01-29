@@ -22,11 +22,17 @@ contract DefaultCollateralFactoryScript is Script {
 
 
     function run(string memory input) external {
-        vm.startBroadcast();
+        // Only broadcast if not in test (chainid 31337 is Anvil/test)
+        bool isTest = block.chainid == 31337;
+        if (!isTest) {
+            vm.startBroadcast();
+        }
 
         DefaultCollateralFactory factory = new DefaultCollateralFactory();
 
-        vm.stopBroadcast();
+        if (!isTest) {
+            vm.stopBroadcast();
+        }
 
         // Create a simplified deployment directory
         string memory path = "./deployments";

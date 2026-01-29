@@ -519,11 +519,11 @@ The LSTWrapper design builds upon established, battle-tested patterns from leadi
 ## Related Documentation
 
 - [LSTWrapper vs LSTWrapperMerkl Comparison](./lst-wrapper-merkl-comparison.md) - Detailed technical comparison
-- [VaultTokenized](./vault.md) - Underlying vault mechanics
-- [Rewards System](./rewards.md) - RewardsNativeToken distribution
-- [RewardsNativeToken](./rewardsNativeToken.md) - Native token rewards (used by LSTWrapper)
-- [Protocol Overview](./overview.md) - High-level architecture
-- [Middleware](./middleware.md) - L1 validation orchestration
+- [VaultTokenized](./3-vault.md) - Underlying vault mechanics
+- [Rewards System](./5-rewardsNativeToken.md) - RewardsNativeToken distribution
+- [RewardsNativeToken](./5-rewardsNativeToken.md) - Native token rewards (used by LSTWrapper)
+- [Protocol Overview](./1-overview.md) - High-level architecture
+- [Middleware](./4-middleware.md) - L1 validation orchestration
 
 ---
 

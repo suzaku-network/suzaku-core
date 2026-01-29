@@ -73,14 +73,14 @@ interface IRewardsNativeToken {
     error InvalidNumberOfEpochs(uint48 numberOfEpochs);
 
     /**
-     * @dev Error thrown when an invalid share percentage is provided
-     * @param share Invalid share percentage
+     * @dev Error thrown when an invalid share bips is provided
+     * @param share Invalid share in bips
      */
     error InvalidShare(uint16 share);
 
     /**
-     * @dev Error thrown when an invalid fee percentage is provided
-     * @param fee Invalid fee percentage
+     * @dev Error thrown when an invalid fee bips is provided
+     * @param fee Invalid fee in bips
      */
     error InvalidFee(uint16 fee);
 
@@ -147,16 +147,16 @@ interface IRewardsNativeToken {
     error ZeroVaultStake(address vault, uint48 epoch);
 
     /**
-     * @notice Error thrown when a fee percentage exceeds 100%
-     * @param fee Fee percentage that exceeds 100%
+     * @notice Error thrown when a fee bips exceeds 10000
+     * @param fee Fee bips that exceeds 10000
      */
     error FeePercentageTooHigh(uint16 fee);
 
     /**
-     * @notice Error thrown when the sum of all fees exceeds 100%
-     * @param totalFees Sum of all fees that exceeds 100%
+     * @notice Error thrown when the sum of all fees exceeds 10000 bips
+     * @param totalFees Sum of all fee bips that exceeds 10000
      */
-    error TotalFeesExceed100(uint16 totalFees);
+    error TotalFeesExceed10000(uint16 totalFees);
 
     /**
      * @notice Error thrown when trying to distribute rewards for an epoch that has already been completed
@@ -183,16 +183,16 @@ interface IRewardsNativeToken {
     error EpochStillClaimable(uint48 epoch);
 
     /**
-     * @notice Error thrown when the sum of all asset class shares exceeds 100%
-     * @param totalBp Sum of all basis points
+     * @notice Error thrown when the sum of all collateral class bips exceeds 10000
+     * @param totalBp Sum of all bips
      */
-    error CollateralClassSharesExceed100(uint256 totalBp);
+    error CollateralClassBipsExceed10000(uint256 totalBp);
 
     /**
-     * @notice Error thrown when the sum of all fees exceeds 100%
-     * @param totalBp Sum of all basis points
+     * @notice Error thrown when the sum of all fee bips exceeds 10000
+     * @param totalBp Sum of all bips
      */
-    error FeeConfigurationExceeds100(uint256 totalBp);
+    error FeeConfigurationExceeds10000(uint256 totalBp);
 
     /**
      * @notice Error thrown when trying to distribute rewards for an epoch that was never funded
@@ -204,7 +204,12 @@ interface IRewardsNativeToken {
      * @notice Error thrown when trying to fund an epoch outside the funding window
      * @param epoch Epoch that cannot be funded
      */
-    error FundingWindowClosed(uint48 epoch);  
+    error FundingWindowClosed(uint48 epoch);
+
+    /**
+     * @notice Error thrown when trying to distribute rewards but total collateral class bips = 0
+     */
+    error CollateralClassBipsNotSet();
 
     // ============================
     //         EVENTS
@@ -293,11 +298,11 @@ interface IRewardsNativeToken {
     event CuratorFeeUpdated(uint16 newFee);
 
     /**
-     * @notice Emitted when the reward share percentage for an asset class is updated
-     * @param collateralClassId ID of the asset class
-     * @param rewardsPercentage New reward percentage in basis points
+     * @notice Emitted when the reward bips for a collateral class is updated
+     * @param collateralClassId ID of the collateral class
+     * @param rewardsBips New reward bips (10000 = 100%)
      */
-    event RewardsShareUpdated(uint96 indexed collateralClassId, uint16 rewardsPercentage);
+    event RewardsBipsUpdated(uint96 indexed collateralClassId, uint16 rewardsBips);
 
     /**
      * @notice Emitted when rewards are set for a range of epochs
@@ -326,6 +331,14 @@ interface IRewardsNativeToken {
      * @param newProtocolOwner Address of the new protocol owner
      */
     event ProtocolOwnerUpdated(address indexed newProtocolOwner);
+
+    /**
+     * @notice Emitted when a vault is skipped during reward distribution due to external call failure
+     * @param epoch Epoch during which the vault was skipped
+     * @param vault Address of the skipped vault
+     * @param reason Reason for skipping (e.g., "delegator_call_failed", "stake_call_failed")
+     */
+    event VaultSkipped(uint48 indexed epoch, address indexed vault, string reason);
 
     // ============================
     //         FUNCTIONS
@@ -408,27 +421,27 @@ interface IRewardsNativeToken {
     ) external;
 
     /**
-     * @notice Updates the protocol fee percentage
+     * @notice Updates the protocol fee bips
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
-     * @param newFee New protocol fee percentage in basis points
+     * @param newFee New protocol fee in bips (10000 = 100%)
      */
     function updateProtocolFee(
         uint16 newFee
     ) external;
 
     /**
-     * @notice Updates the operator fee percentage
+     * @notice Updates the operator fee bips
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
-     * @param newFee New operator fee percentage in basis points
+     * @param newFee New operator fee in bips (10000 = 100%)
      */
     function updateOperatorFee(
         uint16 newFee
     ) external;
 
     /**
-     * @notice Updates the curator fee percentage
+     * @notice Updates the curator fee bips
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
-     * @param newFee New curator fee percentage in basis points
+     * @param newFee New curator fee in bips (10000 = 100%)
      */
     function updateCuratorFee(
         uint16 newFee
@@ -437,9 +450,9 @@ interface IRewardsNativeToken {
     /**
      * @notice Updates all fees at once to avoid order dependency issues
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
-     * @param newProtocolFee New protocol fee percentage in basis points
-     * @param newOperatorFee New operator fee percentage in basis points
-     * @param newCuratorFee New curator fee percentage in basis points
+     * @param newProtocolFee New protocol fee in bips (10000 = 100%)
+     * @param newOperatorFee New operator fee in bips (10000 = 100%)
+     * @param newCuratorFee New curator fee in bips (10000 = 100%)
      */
     function updateAllFees(
         uint16 newProtocolFee,
@@ -448,12 +461,12 @@ interface IRewardsNativeToken {
     ) external;
 
     /**
-     * @notice Sets the rewards share percentage for a specific asset class
+     * @notice Sets the reward bips for a specific collateral class
      * @dev Only callable by an address with the REWARDS_MANAGER_ROLE role
-     * @param collateralClassId ID of the asset class
-     * @param rewardsPercentage New reward percentage in basis points
+     * @param collateralClassId ID of the collateral class
+     * @param rewardsBips New reward bips (10000 = 100%)
      */
-    function setRewardsShareForCollateralClass(uint96 collateralClassId, uint16 rewardsPercentage) external;
+    function setRewardsBipsForCollateralClass(uint96 collateralClassId, uint16 rewardsBips) external;
 
     /**
      * @notice Sets the rewards amount for a range of epochs
