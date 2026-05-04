@@ -524,7 +524,9 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
                 continue;
             }
 
-            uint256 previousStake = getEffectiveNodeStake(currentEpoch, valID);
+            uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, valID);
+            uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, valID);
+            uint256 previousStake = cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
 
             // Remove stake
             if (previousStake == 0) {
@@ -604,16 +606,6 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         }
 
         bytes32 validationID = _vid(nodeId);
-        
-        // Check if operator has enough available stake for the increase
-        uint48 currentEpoch = getCurrentEpoch();
-        uint256 currentStake = getEffectiveNodeStake(currentEpoch, validationID);
-        if (stakeAmount > currentStake) {
-            uint256 delta = stakeAmount - currentStake;
-            if (delta > _getOperatorAvailableStake(msg.sender)) {
-                revert AvalancheL1Middleware__InsufficientStake();
-            }
-        }
 
         _initializeValidatorStakeUpdate(msg.sender, validationID, stakeAmount);
     }
@@ -1220,11 +1212,14 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
     function getOperatorUsedStakeCached(
         address operator
     ) public view returns (uint256 registeredStake) {
+        uint48 currentEpoch = getCurrentEpoch();
         bytes32[] storage nodesArr = operatorNodesArray[operator];
         for (uint256 i = 0; i < nodesArr.length;) {
             bytes32 nodeId = nodesArr[i];
             bytes32 validationID = _vid(nodeId);
-            registeredStake += getEffectiveNodeStake(getCurrentEpoch(), validationID);
+            uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, validationID);
+            uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, validationID);
+            registeredStake += cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
             unchecked { ++i; }
         }
     }
