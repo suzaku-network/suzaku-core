@@ -4173,6 +4173,326 @@ contract AvalancheL1MiddlewareTest is MiddlewareTestBase {
     }
 
     // ============================================================
+    // ISSUE #250 FIX — REGRESSION TESTS (reverse-TDD)
+    // ============================================================
+    //
+    // These tests lock the corrected behavior of getOperatorUsedStakeCached
+    // and forceUpdateNodes. They are written BEFORE the source fix. Each test's
+    // pre-fix and post-fix expected outcomes are documented above the function.
+    //
+    // Authoritative spec: issue-250-fix-v2.md.
+
+    /// @notice T1 — Cross-validator inflation invariant (replaces former PoC at this slot).
+    /// @dev Pre-fix on `main`: vm.expectRevert is set but the inner call does NOT revert,
+    /// so the test FAILS at the expectRevert line.
+    /// Post-fix: the inner call reverts with InsufficientStake → test PASSES.
+    function test_CrossValidatorWeightUpdates_Fix_NoInflation() public {
+        // Setup: small extra deposit so reportedAvailable fits comfortably under the
+        // BalancerValidatorManager churn cap (20%/hour).
+        (depositedAmount, mintedShares) = _deposit(staker, 0.01 ether);
+        _setL1Limit(curatorOwner1, balancer, 1, depositedAmount, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, 1, alice, mintedShares, delegator);
+
+        _calcAndWarpOneEpoch();
+
+        // Two nodes, each at minStake * 2.
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 2, 0, true, 2);
+        bytes32 nodeId1 = nodeIds[0];
+        bytes32 validationID1 = validationIDs[0];
+        bytes32 nodeId2 = nodeIds[1];
+        bytes32 validationID2 = validationIDs[1];
+
+        uint48 epoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(epoch, 1);
+
+        uint256 initStake1 = middleware.nodeStakeCache(epoch, validationID1);
+        uint256 initStake2 = middleware.nodeStakeCache(epoch, validationID2);
+        uint256 availableBefore = middleware.getOperatorAvailableStake(alice);
+
+        // Step 1: legitimate weight increase on Node1 (init + complete).
+        uint256 bump = middleware.WEIGHT_SCALE_FACTOR();
+        uint256 newStake1 = initStake1 + bump;
+
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId1, newStake1);
+
+        {
+            uint64 scaled = StakeConversion.stakeToWeight(newStake1, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID1);
+            _pushWeight(validationID1, uint64(v.sentNonce), scaled);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+
+        // Post-fix: getOperatorAvailableStake correctly reflects the freshly-committed bump.
+        uint256 reportedAvailable = middleware.getOperatorAvailableStake(alice);
+        uint256 trueAvailable = availableBefore - bump;
+        assertEq(
+            reportedAvailable,
+            trueAvailable,
+            "T1: getOperatorAvailableStake must equal true free stake after Node1 completed increase"
+        );
+
+        // Warp past BVM churn period (1h) but stay in same middleware epoch (4h epoch duration).
+        vm.warp(block.timestamp + 1 hours + 1);
+        assertEq(middleware.getCurrentEpoch(), epoch, "T1: must stay within same epoch for the test to apply");
+
+        // Step 2: attempt the exploit — bump Node2 by `availableBefore` (more than trueAvailable).
+        (, uint256 maxValStake) = middleware.getClassStakingRequirements(1);
+        uint256 newStake2 = initStake2 + availableBefore;
+        require(newStake2 <= maxValStake, "T1 sizing: bump exceeds maxValidatorStake");
+        require(newStake2 - initStake2 > trueAvailable, "T1 sizing: delta must exceed trueAvailable");
+
+        // The fix MUST cause this to revert.
+        vm.expectRevert(IAvalancheL1Middleware.AvalancheL1Middleware__InsufficientStake.selector);
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId2, newStake2);
+
+        // Suppress unused-variable warnings for variables we still want to expose for debugging.
+        validationID2;
+    }
+
+    /// @notice T2 — `forceUpdateNodes` line 527 must use the post-complete next-epoch baseline.
+    /// @dev Pre-fix on `main`: forceUpdateNodes reads stale cache[currentEpoch] at line 527,
+    /// so a one-step forced reduction after a completed same-epoch increase over-reduces by
+    /// exactly the completed increase amount.
+    /// Post-fix: forceUpdateNodes reads cache[currentEpoch + 1] when set and lands on the
+    /// correct target stake.
+    function test_ForceUpdateNodes_CorrectReduction_WithPendingIncrease() public {
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+        assertEq(minStake, middleware.WEIGHT_SCALE_FACTOR(), "T2 setup assumes minStake == scale");
+
+        _calcAndWarpOneEpoch();
+
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) =
+            _createAndConfirmNodes(alice, 1, 2 * minStake, true, 1);
+        bytes32 nodeId = nodeIds[0];
+        bytes32 validationID = validationIDs[0];
+
+        uint48 epoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(epoch, 1);
+
+        assertEq(middleware.nodeStakeCache(epoch, validationID), 2 * minStake, "T2 setup: current cache");
+
+        uint256 increasedStake = 3 * minStake;
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, increasedStake);
+
+        {
+            uint64 scaled = StakeConversion.stakeToWeight(increasedStake, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+            _pushWeight(validationID, uint64(v.sentNonce), scaled);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+
+        assertEq(middleware.nodeStakeCache(epoch, validationID), 2 * minStake, "T2 setup: stale current cache");
+        assertEq(middleware.nodeStakeCache(epoch + 1, validationID), increasedStake, "T2 setup: committed next cache");
+
+        // Activate a secondary collateral requirement without assigning Alice secondary stake.
+        // This makes forceUpdateNodes enter the reduction loop through `!secondaryOk` even
+        // though primary collateral did not change within this middleware epoch.
+        uint96 secondaryClassId = 77;
+        vm.startPrank(l1Owner);
+        middleware.addCollateralClass(secondaryClassId, 1, 0, address(collateral2));
+        middleware.activateSecondaryCollateralClass(secondaryClassId);
+        vm.stopPrank();
+
+        _warpToLastHourOfCurrentEpoch();
+        assertEq(middleware.getCurrentEpoch(), epoch, "T2 must stay in same middleware epoch");
+
+        middleware.forceUpdateNodes(alice, minStake);
+
+        Validator memory afterForce = IBalancerValidatorManager(balancer).getValidator(validationID);
+        uint256 resultingStake = StakeConversion.weightToStake(afterForce.weight, middleware.WEIGHT_SCALE_FACTOR());
+
+        assertEq(
+            resultingStake,
+            2 * minStake,
+            "T2: forceUpdateNodes must reduce from committed next cache, not stale current cache"
+        );
+    }
+
+    /// @notice T3 — Completed decrease frees stake immediately within the same epoch.
+    /// @dev Pre-fix on `main`: getOperatorAvailableStake returns the OLD higher value
+    /// because cache[currentEpoch][N] is stale. Test assertion fails.
+    /// Post-fix: getOperatorAvailableStake reads cache[currentEpoch + 1][N] (the lower,
+    /// freshly-committed value) and correctly reports the freed capacity. PASSES.
+    function test_SameValidator_Decrease_FreesStake_AvailableStakeRestored() public {
+        // Modest extra deposit; keep numbers small.
+        (depositedAmount, mintedShares) = _deposit(staker, 0.001 ether);
+        _setL1Limit(curatorOwner1, balancer, 1, depositedAmount, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, 1, alice, mintedShares, delegator);
+
+        _calcAndWarpOneEpoch();
+
+        // One node at minStake * 2.
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        bytes32 validationID = validationIDs[0];
+
+        uint48 epoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(epoch, 1);
+
+        uint256 initStake = middleware.nodeStakeCache(epoch, validationID);
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+        uint256 totalStake = middleware.getOperatorStake(alice, epoch, 1);
+
+        // Decrease to minStake (the smallest legal stake).
+        uint256 newStake = minStake;
+        require(newStake < initStake, "T3 sizing: must be a decrease");
+
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, newStake);
+
+        {
+            uint64 scaled = StakeConversion.stakeToWeight(newStake, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+            _pushWeight(validationID, uint64(v.sentNonce), scaled);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+
+        // After complete:
+        // - cache[epoch][N] = initStake (stale on main; bug surface)
+        // - cache[epoch + 1][N] = newStake (committed)
+        // - operatorLockedStake = 0 (no lock for decreases)
+        assertEq(middleware.nodeStakeCache(epoch, validationID), initStake, "T3: curr cache stale (expected)");
+        assertEq(middleware.nodeStakeCache(epoch + 1, validationID), newStake, "T3: next cache committed");
+        assertEq(middleware.operatorLockedStake(alice), 0, "T3: no lock for decrease");
+
+        // The fix means getOperatorUsedStakeCached must reflect the freshly-committed lower value.
+        uint256 reportedUsed = middleware.getOperatorUsedStakeCached(alice);
+        assertEq(reportedUsed, newStake, "T3: usedStake reflects post-decrease value");
+
+        // Therefore available = total - newStake (not total - initStake).
+        uint256 reportedAvailable = middleware.getOperatorAvailableStake(alice);
+        assertEq(
+            reportedAvailable,
+            totalStake - newStake,
+            "T3: getOperatorAvailableStake credits the freed capacity from the completed decrease"
+        );
+    }
+
+    /// @notice T6 — Sequential same-validator increases must not falsely revert.
+    /// @dev Pre-fix on `main`: PASSES (outer guard at lines 606-614 reads stale cache[curr];
+    /// the resulting inflated `delta` happens to fit because `_getOperatorAvailableStake`
+    /// is also stale-inflated by the same amount — the two errors cancel).
+    /// With Change 1 only (no Change 3): FAILS with InsufficientStake. The available-stake
+    /// computation is fixed (correctly lower), but the outer guard still reads stale
+    /// cache[curr] so its delta is artificially high — trips against the now-correctly-lower
+    /// available.
+    /// With Change 1 + Change 3: PASSES (outer guard removed; inner check uses correct
+    /// next-if-set baseline).
+    ///
+    /// Sizing: alice's primary stake is set in MiddlewareTestBase.setUp() to 5.5e14 with
+    /// no extra deposit. Picking initStake = 3*minStake = 3e14 so that:
+    ///   available_stale       = 5.5e14 - 3e14 = 2.5e14    (main reads stale curr)
+    ///   available_C1_corrected = 5.5e14 - 4e14 = 1.5e14   (after first bump complete)
+    /// Second-bump outer delta = 2*minStake = 2e14:
+    ///   main: 2e14 <= 2.5e14 — passes outer (inner passes too)
+    ///   C1:  2e14 >  1.5e14 — REVERTS at outer
+    ///   C1+C3: outer deleted, inner only — inner delta = 1e14 <= 1.5e14, passes
+    function test_ThreeSequentialIncreases_NoFalseRevert() public {
+        (uint256 minStake,) = middleware.getClassStakingRequirements(1);
+
+        _calcAndWarpOneEpoch();
+
+        // Tight sizing: node at 3*minStake against alice's setup-only 5.5e14 stake.
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) =
+            _createAndConfirmNodes(alice, 1, 3 * minStake, true, 1);
+        bytes32 nodeId = nodeIds[0];
+        bytes32 validationID = validationIDs[0];
+
+        uint48 epoch = _calcAndWarpOneEpoch();
+        middleware.calcAndCacheStakes(epoch, 1);
+
+        assertEq(middleware.nodeStakeCache(epoch, validationID), 3 * minStake, "T6: setup - node at 3*minStake");
+
+        // First increase: 3*minStake -> 4*minStake.
+        uint256 firstNew = 4 * minStake;
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, firstNew);
+        {
+            uint64 scaled = StakeConversion.stakeToWeight(firstNew, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+            _pushWeight(validationID, uint64(v.sentNonce), scaled);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+        assertEq(middleware.nodeStakeCache(epoch + 1, validationID), firstNew, "T6: first complete sets next cache");
+        assertEq(middleware.operatorLockedStake(alice), 0, "T6: lock released after first complete");
+
+        // Second increase (same validator, same epoch): 4*minStake -> 5*minStake.
+        // The differential between main, C1-only, and C1+C3 lives in this call.
+        uint256 secondNew = 5 * minStake;
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, secondNew);
+
+        // If we reach here, the second init did not revert. Verify the lock matches the
+        // inner-only delta (minStake), not the outer-stale delta (2*minStake).
+        assertEq(
+            middleware.operatorLockedStake(alice),
+            minStake,
+            "T6: second init locks only the inner-block delta (minStake), not the stale outer delta"
+        );
+    }
+
+    /// @notice T7 — Init in epoch N, complete in epoch N+1: available reflects new commitment.
+    /// @dev Pre-fix on `main`: after the cross-epoch complete, cache[currentEpoch][N] is the
+    /// carried-forward old value, and getOperatorUsedStakeCached returns it (stale).
+    /// FAILS on the available-stake assertion.
+    /// Post-fix: cache[currentEpoch + 1][N] holds the freshly-committed new value, ternary
+    /// returns it, available correctly reflects the commitment. PASSES.
+    function test_CrossEpoch_CompletionInNextEpoch_CorrectAvailableStake() public {
+        (depositedAmount, mintedShares) = _deposit(staker, 0.001 ether);
+        _setL1Limit(curatorOwner1, balancer, 1, depositedAmount, delegator);
+        _setOperatorL1Shares(curatorOwner1, balancer, 1, alice, mintedShares, delegator);
+
+        _calcAndWarpOneEpoch();
+
+        (bytes32[] memory nodeIds, bytes32[] memory validationIDs,) = _createAndConfirmNodes(alice, 1, 0, true, 2);
+        bytes32 nodeId = nodeIds[0];
+        bytes32 validationID = validationIDs[0];
+
+        _calcAndWarpOneEpoch();
+
+        uint48 epochInit = middleware.getCurrentEpoch();
+        uint256 initStake = middleware.nodeStakeCache(epochInit, validationID);
+        uint256 bump = middleware.WEIGHT_SCALE_FACTOR();
+        uint256 newStake = initStake + bump;
+
+        // Init in epochInit; do NOT complete here.
+        vm.prank(alice);
+        middleware.initializeValidatorStakeUpdate(nodeId, newStake);
+        assertEq(middleware.operatorLockedStake(alice), bump, "T7: init locks delta");
+
+        // Cross to next epoch BEFORE completing.
+        uint48 epochComplete = _calcAndWarpOneEpoch();
+        assertEq(epochComplete, epochInit + 1, "T7: must be one epoch later");
+
+        // Complete in the new epoch. Sets cache[epochComplete + 1][N] = newStake.
+        {
+            uint64 scaled = StakeConversion.stakeToWeight(newStake, middleware.WEIGHT_SCALE_FACTOR());
+            Validator memory v = IBalancerValidatorManager(balancer).getValidator(validationID);
+            _pushWeight(validationID, uint64(v.sentNonce), scaled);
+        }
+        middleware.completeValidatorWeightUpdate(0);
+
+        // After complete in epochComplete:
+        // - cache[epochComplete][N] = initStake (carry-forward; never written by this epoch's complete)
+        // - cache[epochComplete + 1][N] = newStake
+        assertEq(middleware.nodeStakeCache(epochComplete, validationID), initStake, "T7: curr stale (expected)");
+        assertEq(middleware.nodeStakeCache(epochComplete + 1, validationID), newStake, "T7: next committed");
+        assertEq(middleware.operatorLockedStake(alice), 0, "T7: lock released");
+
+        // Available must reflect the new committed stake.
+        uint256 totalStake = middleware.getOperatorStake(alice, epochComplete, 1);
+        uint256 reportedAvailable = middleware.getOperatorAvailableStake(alice);
+        assertEq(
+            reportedAvailable,
+            totalStake - newStake,
+            "T7: available reflects post-complete commitment, not stale carry-forward"
+        );
+    }
+
+    // ============================================================
     // FORCE UPDATE NODES TESTS
     // ============================================================
 
