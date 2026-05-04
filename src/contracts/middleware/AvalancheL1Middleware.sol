@@ -524,9 +524,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
                 continue;
             }
 
-            uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, valID);
-            uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, valID);
-            uint256 previousStake = cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
+            uint256 previousStake = _effectiveNodeStakeOrPending(currentEpoch, valID);
 
             // Remove stake
             if (previousStake == 0) {
@@ -662,9 +660,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         uint48 currentEpoch = getCurrentEpoch();
         uint256 newStake = _pendingStake[vid];
 
-        uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, vid);
-        uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, vid);
-        uint256 previousStake = cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
+        uint256 previousStake = _effectiveNodeStakeOrPending(currentEpoch, vid);
 
         // Cache next-epoch stake if still active and not pending removal
         Validator memory v = balancerValidatorManager.getValidator(vid);
@@ -911,9 +907,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function _initializeValidatorStakeUpdate(address operator, bytes32 validationID, uint256 newStake) internal {
         uint48 currentEpoch = getCurrentEpoch();
-        uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, validationID);
-        uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, validationID);
-        uint256 cachedStake = cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
+        uint256 cachedStake = _effectiveNodeStakeOrPending(currentEpoch, validationID);
 
         if (balancerValidatorManager.isValidatorPendingWeightUpdate(validationID)) {
             revert AvalancheL1Middleware__WeightUpdatePending(validationID);
@@ -1217,9 +1211,7 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
         for (uint256 i = 0; i < nodesArr.length;) {
             bytes32 nodeId = nodesArr[i];
             bytes32 validationID = _vid(nodeId);
-            uint256 cachedCurrentEpoch = getEffectiveNodeStake(currentEpoch, validationID);
-            uint256 cachedNextEpoch = getEffectiveNodeStake(currentEpoch + 1, validationID);
-            registeredStake += cachedNextEpoch > 0 ? cachedNextEpoch : cachedCurrentEpoch;
+            registeredStake += _effectiveNodeStakeOrPending(currentEpoch, validationID);
             unchecked { ++i; }
         }
     }
@@ -1231,6 +1223,16 @@ contract AvalancheL1Middleware is IAvalancheL1Middleware, CollateralClassRegistr
      */
     function getEffectiveNodeStake(uint48 epoch, bytes32 validationID) internal view returns (uint256) {
         return nodeStakeCache[epoch][validationID];
+    }
+
+    /**
+     * @notice Returns nodeStakeCache[epoch + 1] when set (post-completion committed
+     *         value), else nodeStakeCache[epoch] (epoch-start snapshot). Used by every
+     *         "what's actually committed for this validator?" read site.
+     */
+    function _effectiveNodeStakeOrPending(uint48 epoch, bytes32 validationID) private view returns (uint256) {
+        uint256 next = nodeStakeCache[epoch + 1][validationID];
+        return next > 0 ? next : nodeStakeCache[epoch][validationID];
     }
 
     /**
