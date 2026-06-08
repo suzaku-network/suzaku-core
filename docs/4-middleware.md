@@ -223,6 +223,24 @@ The middleware initiates validator operations (registration, removal, weight upd
 
 ## Stake Management
 
+### Version Notes
+
+Core v1.1 counts completed validator weight changes immediately for live
+availability and rebalancing checks, while preserving epoch snapshots for
+historical/reward accounting.
+
+On unfixed Core v1.0 middleware deployments, after completing a validator weight
+increase, operators should not initiate another weight-increasing operation in
+the same middleware epoch, including another validator increase or adding a
+node. During that window, available-stake accounting can overstate free backing
+and allow validator weight to exceed the operator's delegated stake.
+
+This is primarily an operational concern for multi-operator deployments, where
+overstated weight can dilute other operators or weaken the stake-to-weight
+assumption. For managed single-operator deployments, the module weight cap still
+bounds total validator weight, but operators should still avoid the same-epoch
+sequence above until upgraded.
+
 ### Stake Calculation
 
 For each operator across all collateral classes:
@@ -232,7 +250,7 @@ operatorTotalStake = min(
     Σ(vaultDelegations for collateral class), 
     securityModuleMaxWeight * WEIGHT_SCALE_FACTOR
 )
-operatorUsedStake = Σ(node stakes from cache)
+operatorUsedStake = Σ(effective node stakes for current commitments)
 operatorLockedStake = stake locked in pending node updates
 operatorFreeStake = operatorTotalStake - operatorUsedStake - operatorLockedStake
 ```
@@ -241,6 +259,10 @@ operatorFreeStake = operatorTotalStake - operatorUsedStake - operatorLockedStake
 - `operatorStakeCache[epoch][operator][collateralClass]` stores historical stake
 - Updated during epoch transitions via `_calcAndCacheNodeStakeForOperatorAtEpoch`
 - Used by rewards system for distribution
+- For live availability and rebalancing checks, current commitments use the post-completion
+  next-epoch node stake when it exists; otherwise they use the current-epoch stake.
+  This keeps completed same-epoch weight updates from being counted as free stake again
+  while preserving the current-epoch snapshot for historical/reward accounting.
 
 **Weight Scale Factor:**
 - Converts stake amount to validator weight (uint64)
@@ -540,7 +562,9 @@ flowchart LR
 3. During update window: operator (or anyone) calls `forceUpdateNodes(operator, limitStake)`
 4. Wait for P-Chain processing
 5. Anyone calls `completeValidatorWeightUpdate(messageIndex)`
-6. Next epoch begins with new weight
+6. The completed weight is available to live availability/rebalancing checks immediately;
+   the historical current-epoch cache remains unchanged and the next epoch begins with
+   the new cached weight
 
 **Note:** `forceUpdateNodes` skips nodes in `PendingWeightUpdate` state. If enforcement is needed and nodes are pending, first complete pending updates via `completeValidatorWeightUpdate`, then call `forceUpdateNodes`.
 
@@ -584,7 +608,9 @@ flowchart LR
 
 **Stake Locking:**
 - Prevents over-allocation by locking stake during pending operations
-- Ensures node weights never exceed available stake
+- In Core v1.1, completed weight increases are also counted immediately by live
+  availability checks so the same backing cannot be reused in the completion
+  epoch
 
 **Permissionless Completion:**
 - Anyone can complete validator operations after P-Chain acknowledgment
