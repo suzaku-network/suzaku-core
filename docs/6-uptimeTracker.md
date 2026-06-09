@@ -123,7 +123,9 @@ Aggregates validator uptimes into operator uptime for a given epoch.
 1. Get all `validationIDs` for operator from middleware
 2. Filter validators active during the epoch (by start/end times)
 3. Sum their `validatorUptimePerEpoch` values
-4. Store average as `operatorUptimePerEpoch`
+4. Store the **unweighted arithmetic mean** (`sum / validatorCount`) as `operatorUptimePerEpoch`
+
+> ⚠️ The aggregate is an **unweighted** mean — it does **not** weight each validator's uptime by its stake. This is exploitable by stake-concentrated operators; see [Known Limitations](#known-limitations).
 
 **Reprocessing rules:**
 - Same epoch: can reprocess, updates if computed value is higher
@@ -371,4 +373,27 @@ if (uptime < minRequiredUptime) {
 ```
 
 Operators must meet `minRequiredUptime` threshold to receive rewards.
+
+---
+
+## Known Limitations
+
+### Unweighted operator uptime (reward-share inflation)
+
+`computeOperatorUptimeAt` aggregates an operator's validators' uptimes as an **unweighted arithmetic mean** (`sumValidatorsUptime / numberOfValidators`), independent of each validator's stake. `RewardsNativeToken._calculateOperatorShare` then multiplies this mean by the operator's **full** stake-proportional share.
+
+**Consequence:** an operator running one **large-stake** validator at low uptime alongside several **small-stake** validators at high uptime reports a near-full operator uptime, and is rewarded on its full stake as if all of it were highly available. This **redistributes reward share away from honest operators** (and their stakers). It is a reward-fairness issue only — **no principal is at risk** (slashing is not enabled), and the total per-epoch distribution remains capped at 100%.
+
+**Why it is accepted (not currently fixed):**
+
+- **Operators are permissioned** — admitted and enabled by `OPERATORS_MANAGER_ROLE`; an anonymous party cannot exploit this.
+- A stake-weighted fix changes the core uptime-aggregation formula and its interaction with `nodeStakeCache` ordering and existing accounting/tests; it is deferred pending full validation.
+
+**Required control (governance):**
+
+- Monitor **per-validator** uptime, not just the operator average.
+- Treat a large-stake validator with persistently low uptime as grounds to `disableOperator` / `removeOperator`.
+- Avoid admitting operators that pad many minimum-stake validators around a single under-performing large one.
+
+**Proof:** `test/rewards/UptimeTrackerTest.t.sol::test_OperatorUptimeIsUnweightedMean` demonstrates `operatorUptimePerEpoch == (u0 + u1 + u2) / 3` regardless of stake.
 
