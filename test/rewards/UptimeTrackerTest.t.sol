@@ -677,4 +677,71 @@ contract UptimeTrackerTest is UptimeTrackerTestBase {
         new UptimeTracker(payable(address(middleware)), bytes32(0));
     }
 
+    /// @notice Known limitation: computeOperatorUptimeAt aggregates validator uptimes as an
+    ///         UNWEIGHTED arithmetic mean (UptimeTracker.sol:231 `sumValidatorsUptime / numberOfValidators`),
+    ///         independent of each validator's stake. RewardsNativeToken._calculateOperatorShare (~:736-741)
+    ///         then multiplies that mean by the operator's FULL stake share, so an operator running one
+    ///         large-stake validator at low uptime + several small-stake validators at high uptime reports a
+    ///         near-full operator uptime and inflates its reward share at honest operators' expense (reward
+    ///         redistribution only; no principal; slashing not enabled). Mitigation: operators are permissioned
+    ///         -- monitor per-validator uptime and remove offenders. See docs/6-uptimeTracker.md (Known Limitations).
+    function test_OperatorUptimeIsUnweightedMean() public {
+        uint256 E = middleware.EPOCH_DURATION(); // 14400 s
+
+        // Use Alice's 3 pre-registered validators from UptimeTrackerTestBase.setUp; find the first epoch
+        // where all three are active, then warp past it so it can receive uptime.
+        uint48 from = middleware.getCurrentEpoch();
+        uint48 e = _firstActiveEpochForOperator(alice, from);
+        vm.warp(middleware.getEpochStartTs(e + 1) + 1);
+
+        // Feed per-validator cumulative uptimes: val[0]=0 (offline; imagine it holds most stake),
+        // val[1]/val[2]=E (the cumulative value spreads across elapsed epochs, landing some amount on e).
+        _ensureStarted(aliceVals[0]);
+        _pushFor(aliceVals[0], 0);
+        uptimeTracker.computeValidatorUptime(0);
+
+        _ensureStarted(aliceVals[1]);
+        _pushFor(aliceVals[1], uint64(E));
+        uptimeTracker.computeValidatorUptime(0);
+
+        _ensureStarted(aliceVals[2]);
+        _pushFor(aliceVals[2], uint64(E));
+        uptimeTracker.computeValidatorUptime(0);
+
+        uptimeTracker.computeOperatorUptimeAt(alice, e);
+
+        // Read back what the tracker actually stored.
+        uint256 u0 = uptimeTracker.validatorUptimePerEpoch(e, aliceVals[0]);
+        uint256 u1 = uptimeTracker.validatorUptimePerEpoch(e, aliceVals[1]);
+        uint256 u2 = uptimeTracker.validatorUptimePerEpoch(e, aliceVals[2]);
+        uint256 codedUptime = uptimeTracker.operatorUptimePerEpoch(e, alice);
+        uint256 unweightedMean = (u0 + u1 + u2) / 3; // mirrors UptimeTracker.sol:231
+
+        // Hypothetical stake-weighted mean if val[0] held 9x the stake of val[1]+val[2] (9:1:1).
+        uint256 stakeWeightedHypo = (9 * u0 + 1 * u1 + 1 * u2) / 11;
+
+        console2.log("=== PoC: Unweighted Operator Uptime ===");
+        console2.log("val[0] uptime (target 0)     :", u0);
+        console2.log("val[1] uptime               :", u1);
+        console2.log("val[2] uptime               :", u2);
+        console2.log("coded operatorUptime         :", codedUptime, "== (u0+u1+u2)/3");
+        console2.log("stake-weighted (9:1:1 hypo)  :", stakeWeightedHypo);
+
+        // PRIMARY: the coded value IS the unweighted arithmetic mean (UptimeTracker.sol:231).
+        assertEq(
+            codedUptime, unweightedMean, "operatorUptimePerEpoch must equal arithmetic mean of validator uptimes"
+        );
+
+        // INFLATION: when the zero-uptime validator dominates by stake, the unweighted mean overstates
+        // the operator's true service relative to the stake-weighted truth.
+        if (u0 == 0 && u1 > 0) {
+            assertGt(
+                codedUptime,
+                stakeWeightedHypo,
+                "CONFIRMED: unweighted mean > stake-weighted when high-stake val is offline"
+            );
+            console2.log("inflation gap (coded - stakeWeighted):", codedUptime - stakeWeightedHypo);
+        }
+    }
+
 }

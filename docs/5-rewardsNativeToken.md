@@ -90,7 +90,7 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
 ## Share math (basis points, all floors via `mulDiv`)
 
 * **Uptime source**
-   * From `UptimeTracker`. For epoch `e`, `operatorUptimePerEpoch[e][op]` is the arithmetic mean of the uptimes of all active validators for `op` in `e`.
+   * From `UptimeTracker`. For epoch `e`, `operatorUptimePerEpoch[e][op]` is the **unweighted** arithmetic mean of the uptimes of all active validators for `op` in `e` — it is **not stake-weighted**, yet `rawShare` below multiplies it by the operator's full stake. This is a known, accepted limitation (reward-share inflation, governance-controlled); see [docs/6-uptimeTracker.md → Known Limitations](6-uptimeTracker.md#known-limitations).
    * Uses `middleware.getOperatorValidationIDs(op)` to get all historical validationIDs, then filters by validator start/end times to find validators active during the epoch.
    * Units: seconds.
    * **Reprocessing rules**: 
