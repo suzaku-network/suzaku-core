@@ -282,7 +282,7 @@ Result:
 * Single reward token: simplified claim logic without token iteration.
 * No operators: inside window, unfunded epoch does not revert funding check; distribution completes with no shares.
 * Vault removal and class changes: reads historical snapshots via `active*At` and `stakeAt`.
-* **Defensive try/catch**: External calls to vaults, delegators, and middleware are wrapped in try/catch to prevent single misbehaving contract from blocking entire distribution or claim.
+* **Defensive try/catch**: External calls to vaults, delegators, and the middleware's *non-primary* stake read are wrapped in try/catch so a single reverting contract cannot block the whole distribution or claim. **Exception:** the primary-class historical-stake read (`_getOperatorUsedStakePrimaryCached`) is intentionally *not* wrapped — its `getValidator` lookups are non-reverting storage reads, so there is nothing to catch. That path's liveness concern is gas (unbounded per-operator iteration), not reverts; see [Known Limitations](#known-limitations).
 * **Zero collateral class bips**: If `_totalCollateralClassBips() == 0` (no class has bips configured), distribution reverts with `CollateralClassBipsNotSet`. Prevents silent 0-allocation when bips are not set up.
 
 ---
@@ -309,3 +309,15 @@ Result:
 * Over time: `paidToClaimants(epoch) + swept(epoch) == epochRewards[epoch]`.
 * Claim pointers only advance over `distributionComplete` epochs, so early claims never skip future rewards.
 * Single token model: all rewards are denominated in the native L1 primary collateral token.
+
+---
+
+## Known Limitations
+
+### Primary-class distribution iterates unbounded validator history (gas / liveness)
+
+The primary-class stake read (`_getOperatorUsedStakePrimaryCached`) walks the **append-only** `operatorValidationIDsArray` — every validationID an operator ever registered, never pruned — with one `getValidator` call per entry. Distribution batches over *operators* with no checkpoint inside a single operator, so an operator with a very large rotation history can OOG `_processOperator` (no `batchSize` subdivides one operator); because distribution is sequential, that stalls the epoch and every later one. **Liveness / reward-redistribution only — no principal is at risk** (slashing is not enabled).
+
+On-chain fixes (a resumable per-operator sub-cursor, or pruning fully-historical IDs) are deferred — the array is load-bearing for historical accuracy, so the naive shortcuts don't work: the bounded active-set path resolves a nodeId to its *current* validationID and **undercounts past epochs after re-registration**, and `try/catch` is moot (`getValidator` can't revert; Solidity `try/catch` doesn't trap out-of-gas).
+
+**Control (governance / ops):** operators are permissioned (`OPERATORS_MANAGER_ROLE`), so this is governance-bounded — monitor per-operator history via `getOperatorValidationIDs(operator)` and bound cumulative registrations against the block gas limit. The same array is iterated by `UptimeTracker.computeOperatorUptimeAt` (see [docs/6 → Known Limitations](6-uptimeTracker.md#known-limitations)).
