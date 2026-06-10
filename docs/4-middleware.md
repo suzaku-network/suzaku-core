@@ -496,7 +496,7 @@ flowchart LR
 - **`operatorNodesArray`** (Array) — mutable, cleaned up on epoch transitions. Used for iteration during rebalancing
 
 **Historical data (append-only):**
-- **`operatorValidationIDsArray`** — all validationIDs ever registered. Used by UptimeTracker to find validators active during past epochs
+- **`operatorValidationIDsArray`** — all validationIDs ever registered. Used by UptimeTracker and primary-class reward distribution to find validators active during past epochs. **Never pruned** — it grows by one entry per validator registration, so a long-lived, high-rotation operator accumulates a large history that is re-iterated (one `getValidator` call per entry) on every uptime and distribution pass. Governance should monitor per-operator length via `getOperatorValidationIDs(operator)` and bound cumulative registrations; see [docs/5-rewardsNativeToken.md → Known Limitations](5-rewardsNativeToken.md#known-limitations).
 
 **Per operator:**
 - `operators[operator]` - Registration status, enabled/disabled

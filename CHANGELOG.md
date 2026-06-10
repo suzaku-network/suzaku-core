@@ -51,3 +51,11 @@ Changes relative to **1.0** (current `main`). This release is the contents of th
     monitor **per-validator** uptime and remove offenders. The procedure is documented in
     [`docs/6-uptimeTracker.md` → Known Limitations](docs/6-uptimeTracker.md#known-limitations).
     Demonstrated by `test/rewards/UptimeTrackerTest.t.sol::test_OperatorUptimeIsUnweightedMean`.
+
+- **Primary-class distribution iterates unbounded validator history (gas / liveness).** The reward path
+  walks the append-only `operatorValidationIDsArray` per operator with no inner checkpoint, so a very
+  high-rotation operator can stall distribution (and, sequentially, later epochs). Liveness only — **no
+  principal at risk**. On-chain fix deferred (the bounded path undercounts historical stake; `try/catch`
+  is moot since `getValidator` can't revert). Managed off-chain: operators are permissioned, governance
+  monitors per-operator history and bounds registrations. See
+  [`docs/5` → Known Limitations](docs/5-rewardsNativeToken.md#known-limitations).
