@@ -57,5 +57,6 @@ Changes relative to **1.0** (current `main`). This release is the contents of th
   high-rotation operator can stall distribution (and, sequentially, later epochs). Liveness only — **no
   principal at risk**. On-chain fix deferred (the bounded path undercounts historical stake; `try/catch`
   is moot since `getValidator` can't revert). Managed off-chain: operators are permissioned, governance
-  monitors per-operator history and bounds registrations. See
+  monitors per-operator history and bounds registrations. The same control covers the sibling unbounded
+  loops (per-operator vault iteration; middleware cache catch-up). See
   [`docs/5` → Known Limitations](docs/5-rewardsNativeToken.md#known-limitations).
