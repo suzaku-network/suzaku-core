@@ -18,6 +18,10 @@ Changes relative to **1.0** (current `main`). This release is the contents of th
   stake could be over-counted across validators while weight updates were pending. The redundant
   available-stake pre-check in the manual `initializeValidatorStakeUpdate` path (which relied on the
   inconsistent read) was removed. Adds regression tests in `test/middleware/AvalancheL1MiddlewareTest.t.sol`.
+- **Rewards: a transient middleware failure no longer permanently zeroes an operator's vault shares.**
+  `_calculateAndStoreVaultShares` marked its per-(epoch, operator, class) stake memo as computed even when
+  the middleware view reverted, caching zero with no retry. The flag now writes only on success, matching
+  the `_ensureStakeCache` pattern.
 
 ### Changed
 
