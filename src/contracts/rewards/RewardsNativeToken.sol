@@ -803,12 +803,14 @@ contract RewardsNativeToken is AccessControlUpgradeable, ReentrancyGuardUpgradea
 
                 uint256 operatorActiveStake = _operatorActiveStake[epoch][operator][cls];
                 if (!_operatorActiveStakeComputed[epoch][operator][cls]) {
-                    uint256 sum;
-                    // tolerate middleware view failure
-                    try middleware.getOperatorStake(operator, epoch, cls) returns (uint256 s2) { sum = s2; } catch { sum = 0; }
-                    _operatorActiveStakeComputed[epoch][operator][cls] = true;
-                    _operatorActiveStake[epoch][operator][cls] = sum;
-                    operatorActiveStake = sum;
+                    // tolerate middleware view failure; mark computed only after a successful attempt
+                    try middleware.getOperatorStake(operator, epoch, cls) returns (uint256 s2) {
+                        _operatorActiveStakeComputed[epoch][operator][cls] = true;
+                        _operatorActiveStake[epoch][operator][cls] = s2;
+                        operatorActiveStake = s2;
+                    } catch {
+                        // leave computed=false; allow retry (operatorActiveStake stays 0)
+                    }
                 }
                 if (operatorActiveStake == 0) continue;
 
