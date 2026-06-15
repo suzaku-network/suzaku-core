@@ -37,7 +37,7 @@ Per‑epoch rewards are split by collateral‑class weights, operator uptime, an
   3. **Secondary class stakes** (if applicable): Call `middleware.calcAndCacheStakes(epoch, collateralClassId)` for each non-primary collateral class.
   4. **Validator uptime**: Process P-Chain warp messages via `uptimeTracker.computeValidatorUptime(messageIndex)` for each validator.
   5. **Operator uptime**: Call `uptimeTracker.computeOperatorUptimeAt(operator, epoch)` for each operator. Without uptime data, operators get 0 rewards.
-  6. **Collateral class bips**: Ensure `setRewardsBipsForCollateralClass(classId, bips)` is set to non-zero (e.g., 10000 = 100%). If all classes are 0, distribution reverts with `CollateralClassBipsNotSet`.
+  6. **Collateral class bips**: Ensure `setRewardsBipsForCollateralClass(classId, bips)` values **sum to exactly 10000** (= 100%). If they do not sum to 10000, distribution reverts with `CollateralClassBipsNotSet`.
 
   **Typical per-epoch workflow:**
   ```
@@ -283,7 +283,7 @@ Result:
 * No operators: inside window, unfunded epoch does not revert funding check; distribution completes with no shares.
 * Vault removal and class changes: reads historical snapshots via `active*At` and `stakeAt`.
 * **Defensive try/catch**: External calls to vaults, delegators, and the middleware's *non-primary* stake read are wrapped in try/catch so a single reverting contract cannot block the whole distribution or claim. **Exception:** the primary-class historical-stake read (`_getOperatorUsedStakePrimaryCached`) is intentionally *not* wrapped — its `getValidator` lookups are non-reverting storage reads, so there is nothing to catch. That path's liveness concern is gas (unbounded per-operator iteration), not reverts; see [Known Limitations](#known-limitations).
-* **Zero collateral class bips**: If `_totalCollateralClassBips() == 0` (no class has bips configured), distribution reverts with `CollateralClassBipsNotSet`. Prevents silent 0-allocation when bips are not set up.
+* **Collateral class bips not 100%**: If `_totalCollateralClassBips() != 10_000` (the configured class bips do not sum to exactly 100%), distribution reverts with `CollateralClassBipsNotSet`. Prevents silent mis-allocation when bips are unset or only partially configured.
 
 ---
 

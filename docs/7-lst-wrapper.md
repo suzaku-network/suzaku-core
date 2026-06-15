@@ -61,14 +61,16 @@ Both implement the same `ILSTWrapper` interface and are **upgrade-compatible** w
 - **Protocol Owner**: Whitelists safe implementations (version control)
 - **Anyone**: Can deploy wrappers from whitelisted implementations
 - **Registry**: All deployed wrappers automatically registered
-- **VaultHelper**: Validates wrappers against factory registry (security)
+- **VaultHelper**: Checks a wrapper is in the factory registry before depositing
 
 This pattern matches `VaultFactory` for consistency across the protocol.
+
+> Registry membership is an *existence* check, not a safety attestation: anyone can deploy a wrapper (with an admin of their choosing) and it is registered automatically. Only route funds to the protocol's canonical wrapper(s); do not treat arbitrary registered wrappers as trusted.
 
 **Benefits:**
 - Users/integrators can deploy their own wrappers without permission
 - Protocol maintains quality control via implementation whitelist
-- VaultHelper only accepts factory-deployed wrappers (prevents malicious contracts)
+- VaultHelper only accepts factory-registered wrappers
 - Version tracking enables upgrades and deprecation
 
 ---
